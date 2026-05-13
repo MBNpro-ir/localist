@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:material_you_dynamic_theme/material_you_dynamic_theme.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -13,6 +14,7 @@ import 'screens/logs_page.dart';
 import 'screens/receiving_page.dart';
 import 'screens/settings_page.dart';
 import 'screens/sharing_page.dart';
+import 'screens/stats_sheet.dart';
 import 'services/log_service.dart';
 import 'services/native_bridge_service.dart';
 import 'widgets/glass.dart';
@@ -20,15 +22,21 @@ import 'widgets/glass.dart';
 const _onboardingSeenKey = 'localist.onboarding.v2.seen';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final settings = await AppSettings.load();
-  await runAppDynamic(
-    title: 'localist',
-    debugShowCheckedModeBanner: false,
-    themeAnimationDuration: const Duration(milliseconds: 460),
-    themeAnimationCurve: Curves.easeInOutCubic,
-    home: LocalistShell(settings: settings),
-  );
+  final binding = WidgetsFlutterBinding.ensureInitialized();
+  binding.deferFirstFrame();
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  try {
+    final settings = await AppSettings.load();
+    await runAppDynamic(
+      title: 'localist',
+      debugShowCheckedModeBanner: false,
+      themeAnimationDuration: Duration.zero,
+      themeAnimationCurve: Curves.easeInOutCubic,
+      home: LocalistShell(settings: settings),
+    );
+  } finally {
+    binding.allowFirstFrame();
+  }
 }
 
 class LocalistShell extends StatefulWidget {
@@ -48,7 +56,6 @@ class _LocalistShellState extends State<LocalistShell> {
   final List<_NavItem> _items = const [
     _NavItem('Sharing', Icons.share_outlined, Icons.share),
     _NavItem('Receiving', Icons.qr_code_scanner, Icons.qr_code_2),
-    _NavItem('Logs', Icons.subject_outlined, Icons.subject),
     _NavItem('Settings', Icons.tune_outlined, Icons.tune),
   ];
 
@@ -383,9 +390,54 @@ class _LocalistShellState extends State<LocalistShell> {
     }
   }
 
+  Future<void> _showLogsSheet() {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .32),
+      builder: (sheetContext) {
+        return LogsSheet(onClose: () => Navigator.of(sheetContext).pop());
+      },
+    );
+  }
+
+  Future<void> _showStatsSheet() async {
+    await _refreshState(quiet: true);
+    if (!mounted || !_statsAvailable) {
+      return;
+    }
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .32),
+      builder: (sheetContext) {
+        return StatsSheet(
+          settings: widget.settings,
+          snapshot: _snapshot,
+          onClose: () => Navigator.of(sheetContext).pop(),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeSettings = context.watch<ThemeSettingsModel>();
+    final statsAvailable = _statsAvailable;
+    final overlayStyle = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      statusBarIconBrightness: themeSettings.isDarkMode
+          ? Brightness.light
+          : Brightness.dark,
+      systemNavigationBarIconBrightness: themeSettings.isDarkMode
+          ? Brightness.light
+          : Brightness.dark,
+      systemStatusBarContrastEnforced: false,
+      systemNavigationBarContrastEnforced: false,
+    );
     final pages = [
       SharingPage(
         settings: widget.settings,
@@ -403,96 +455,123 @@ class _LocalistShellState extends State<LocalistShell> {
         onStartLocalProxy: _startLocalProxy,
         onStopReceiving: _stopReceiving,
       ),
-      const LogsPage(),
       SettingsPage(settings: widget.settings),
     ];
 
-    return GlassBackground(
-      child: Scaffold(
-        extendBody: true,
-        backgroundColor: Colors.transparent,
-        appBar: GlassAppBar(
-          title: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('localist'),
-              const SizedBox(width: 6),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: overlayStyle,
+      child: GlassBackground(
+        child: Scaffold(
+          extendBody: true,
+          backgroundColor: Colors.transparent,
+          appBar: GlassAppBar(
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('localist'),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'App guide',
+                  onPressed: _showOnboardingGuide,
+                  icon: const Icon(Icons.help_outline),
+                ),
+              ],
+            ),
+            actions: [
               IconButton(
-                tooltip: 'App guide',
-                onPressed: _showOnboardingGuide,
-                icon: const Icon(Icons.help_outline),
+                tooltip: 'Logs',
+                onPressed: _showLogsSheet,
+                icon: const Icon(Icons.subject_outlined),
+              ),
+              IconButton(
+                tooltip: 'Share APK',
+                onPressed: _shareApk,
+                icon: const Icon(Icons.ios_share),
+              ),
+              IconButton(
+                tooltip: themeSettings.isDarkMode ? 'Light mode' : 'Dark mode',
+                onPressed: () => _toggleTheme(themeSettings),
+                icon: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return RotationTransition(
+                      turns: Tween<double>(begin: -.12, end: 0).animate(
+                        CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOut,
+                        ),
+                      ),
+                      child: FadeTransition(opacity: animation, child: child),
+                    );
+                  },
+                  child: Icon(
+                    themeSettings.isDarkMode
+                        ? Icons.light_mode_outlined
+                        : Icons.dark_mode_outlined,
+                    key: ValueKey(themeSettings.isDarkMode),
+                  ),
+                ),
               ),
             ],
           ),
-          actions: [
-            IconButton(
-              tooltip: 'Share APK',
-              onPressed: _shareApk,
-              icon: const Icon(Icons.ios_share),
+          body: SafeArea(
+            bottom: false,
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: (value) => setState(() => _index = value),
+              children: pages,
             ),
-            IconButton(
-              tooltip: themeSettings.isDarkMode ? 'Light mode' : 'Dark mode',
-              onPressed: () => _toggleTheme(themeSettings),
-              icon: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 260),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  return RotationTransition(
-                    turns: Tween<double>(begin: -.12, end: 0).animate(
-                      CurvedAnimation(parent: animation, curve: Curves.easeOut),
-                    ),
-                    child: FadeTransition(opacity: animation, child: child),
-                  );
-                },
-                child: Icon(
-                  themeSettings.isDarkMode
-                      ? Icons.light_mode_outlined
-                      : Icons.dark_mode_outlined,
-                  key: ValueKey(themeSettings.isDarkMode),
-                ),
-              ),
-            ),
-          ],
-        ),
-        body: SafeArea(
-          bottom: false,
-          child: PageView(
-            controller: _pageController,
-            onPageChanged: (value) => setState(() => _index = value),
-            children: pages,
           ),
-        ),
-        bottomNavigationBar: SafeArea(
-          minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: GlassPanel(
-            padding: EdgeInsets.zero,
-            child: NavigationBar(
-              selectedIndex: _index,
-              onDestinationSelected: _goToPage,
-              backgroundColor: Colors.transparent,
-              indicatorColor: Theme.of(
-                context,
-              ).colorScheme.primary.withValues(alpha: .18),
-              destinations: [
-                for (var i = 0; i < _items.length; i++)
-                  NavigationDestination(
-                    icon: AnimatedNavIcon(
-                      icon: _items[i].icon,
-                      selected: _index == i,
+          floatingActionButton: statsAvailable
+              ? FloatingActionButton.extended(
+                  heroTag: 'stats-button',
+                  onPressed: _showStatsSheet,
+                  icon: const Icon(Icons.query_stats),
+                  label: const Text('Stats'),
+                )
+              : null,
+          floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+          bottomNavigationBar: SafeArea(
+            minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: GlassPanel(
+              padding: EdgeInsets.zero,
+              child: NavigationBar(
+                selectedIndex: _index,
+                onDestinationSelected: _goToPage,
+                backgroundColor: Colors.transparent,
+                indicatorColor: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: .18),
+                destinations: [
+                  for (var i = 0; i < _items.length; i++)
+                    NavigationDestination(
+                      icon: AnimatedNavIcon(
+                        icon: _items[i].icon,
+                        selected: _index == i,
+                      ),
+                      selectedIcon: AnimatedNavIcon(
+                        icon: _items[i].selectedIcon,
+                        selected: true,
+                      ),
+                      label: _items[i].label,
                     ),
-                    selectedIcon: AnimatedNavIcon(
-                      icon: _items[i].selectedIcon,
-                      selected: true,
-                    ),
-                    label: _items[i].label,
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
+  }
+
+  bool get _statsAvailable {
+    return _snapshot.proxyRunning ||
+        _snapshot.vpnConnected ||
+        _snapshot.root.active ||
+        _snapshot.receivingRunning ||
+        _snapshot.localProxyRunning;
   }
 
   void _goToPage(int value) {

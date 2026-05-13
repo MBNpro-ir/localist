@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum ProxyProtocol {
   http('HTTP', 'http', 2060),
-  socks5('SOCKS5', 'socks5', 2080);
+  socks5('SOCKS5', 'socks5', 3075);
 
   const ProxyProtocol(this.label, this.scheme, this.defaultPort);
 
@@ -85,8 +85,10 @@ class AppSettings extends ChangeNotifier {
         ProxyProtocol.http:
             prefs.getInt(_httpPortKey) ?? ProxyProtocol.http.defaultPort,
         ProxyProtocol.socks5:
-            (storedSocks5Port == 2070 ? null : storedSocks5Port) ??
-            (legacyPort == 2070 ? null : legacyPort) ??
+            (_isLegacyDefaultSocksPort(storedSocks5Port)
+                ? null
+                : storedSocks5Port) ??
+            (_isLegacyDefaultSocksPort(legacyPort) ? null : legacyPort) ??
             ProxyProtocol.socks5.defaultPort,
       },
       shareAllRoutes:
@@ -183,9 +185,9 @@ class AppSettings extends ChangeNotifier {
     await prefs.setBool(_rootRoutingKey, value);
   }
 
-  static const _defaultProtocols = {ProxyProtocol.socks5, ProxyProtocol.http};
+  static const _defaultProtocols = {ProxyProtocol.socks5};
 
-  static int _coercePort(int value, {int fallback = 2080}) {
+  static int _coercePort(int value, {int fallback = 3075}) {
     if (value < 1024) {
       return fallback;
     }
@@ -219,6 +221,10 @@ class AppSettings extends ChangeNotifier {
       ProxyProtocol.http => _httpPortKey,
       ProxyProtocol.socks5 => _socks5PortKey,
     };
+  }
+
+  static bool _isLegacyDefaultSocksPort(int? value) {
+    return value == 2070 || value == 2080;
   }
 
   static bool _setEquals(Set<ProxyProtocol> first, Set<ProxyProtocol> second) {

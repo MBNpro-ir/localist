@@ -27,6 +27,9 @@ class _SettingsPageState extends State<SettingsPage> {
   late final TextEditingController _httpPortController;
   late final TextEditingController _socks5PortController;
   bool _rootBusy = false;
+  bool _hasPortEdits = false;
+  bool _portsSaving = false;
+  bool _syncingPortControllers = false;
 
   @override
   void initState() {
@@ -37,13 +40,29 @@ class _SettingsPageState extends State<SettingsPage> {
     _socks5PortController = TextEditingController(
       text: widget.settings.portFor(ProxyProtocol.socks5).toString(),
     );
+    _httpPortController.addListener(_handlePortTextChanged);
+    _socks5PortController.addListener(_handlePortTextChanged);
+    widget.settings.addListener(_syncPortControllersFromSettings);
   }
 
   @override
   void dispose() {
+    widget.settings.removeListener(_syncPortControllersFromSettings);
+    _httpPortController.removeListener(_handlePortTextChanged);
+    _socks5PortController.removeListener(_handlePortTextChanged);
     _httpPortController.dispose();
     _socks5PortController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings != widget.settings) {
+      oldWidget.settings.removeListener(_syncPortControllersFromSettings);
+      widget.settings.addListener(_syncPortControllersFromSettings);
+      _syncPortControllersFromSettings();
+    }
   }
 
   @override
@@ -55,16 +74,17 @@ class _SettingsPageState extends State<SettingsPage> {
     return AnimatedBuilder(
       animation: widget.settings,
       builder: (context, _) {
-        final httpPort = widget.settings.portFor(ProxyProtocol.http).toString();
-        final socks5Port = widget.settings
-            .portFor(ProxyProtocol.socks5)
-            .toString();
-        if (_httpPortController.text != httpPort) {
-          _httpPortController.text = httpPort;
-        }
-        if (_socks5PortController.text != socks5Port) {
-          _socks5PortController.text = socks5Port;
-        }
+        final httpError = _hasPortEdits
+            ? _portError(_httpPortController.text)
+            : null;
+        final socks5Error = _hasPortEdits
+            ? _portError(_socks5PortController.text)
+            : null;
+        final canSavePorts =
+            _portsChanged &&
+            httpError == null &&
+            socks5Error == null &&
+            !_portsSaving;
         return PageSurface(
           children: [
             GlassPanel(
@@ -114,13 +134,41 @@ class _SettingsPageState extends State<SettingsPage> {
                     _ProtocolPortField(
                       protocol: ProxyProtocol.http,
                       controller: _httpPortController,
-                      onSave: _saveProtocolPort,
+                      errorText: httpError,
+                      onSubmitted: (_) => _savePorts(),
                     ),
                     const SizedBox(height: 12),
                     _ProtocolPortField(
                       protocol: ProxyProtocol.socks5,
                       controller: _socks5PortController,
-                      onSave: _saveProtocolPort,
+                      errorText: socks5Error,
+                      onSubmitted: (_) => _savePorts(),
+                    ),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      child: _portsChanged || _portsSaving
+                          ? Padding(
+                              key: const ValueKey('save-ports'),
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: FilledButton.icon(
+                                  onPressed: canSavePorts ? _savePorts : null,
+                                  icon: _portsSaving
+                                      ? const SizedBox.square(
+                                          dimension: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.save_outlined),
+                                  label: const Text('Save ports'),
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(),
                     ),
                   ],
                 ],
@@ -255,10 +303,97 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void _saveProtocolPort(ProxyProtocol protocol, String value) {
-    final parsed = int.tryParse(value);
-    if (parsed != null) {
-      widget.settings.setProtocolPort(protocol, parsed);
+  bool get _portsChanged {
+    return _httpPortController.text.trim() !=
+            widget.settings.portFor(ProxyProtocol.http).toString() ||
+        _socks5PortController.text.trim() !=
+            widget.settings.portFor(ProxyProtocol.socks5).toString();
+  }
+
+  void _handlePortTextChanged() {
+    if (_syncingPortControllers || !mounted) {
+      return;
+    }
+    setState(() => _hasPortEdits = _portsChanged);
+  }
+
+  void _syncPortControllersFromSettings() {
+    if (_hasPortEdits) {
+      return;
+    }
+    _syncingPortControllers = true;
+    _setControllerText(
+      _httpPortController,
+      widget.settings.portFor(ProxyProtocol.http).toString(),
+    );
+    _setControllerText(
+      _socks5PortController,
+      widget.settings.portFor(ProxyProtocol.socks5).toString(),
+    );
+    _syncingPortControllers = false;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _setControllerText(TextEditingController controller, String value) {
+    if (controller.text == value) {
+      return;
+    }
+    controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
+  String? _portError(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return 'Required';
+    }
+    final parsed = int.tryParse(trimmed);
+    if (parsed == null) {
+      return 'Numbers only';
+    }
+    if (parsed < 1024 || parsed > 65535) {
+      return 'Use 1024-65535';
+    }
+    return null;
+  }
+
+  Future<void> _savePorts() async {
+    final httpPort = int.tryParse(_httpPortController.text.trim());
+    final socks5Port = int.tryParse(_socks5PortController.text.trim());
+    if (_portError(_httpPortController.text) != null ||
+        _portError(_socks5PortController.text) != null ||
+        httpPort == null ||
+        socks5Port == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Enter valid ports first.')));
+      return;
+    }
+
+    setState(() => _portsSaving = true);
+    try {
+      if (widget.settings.portFor(ProxyProtocol.http) != httpPort) {
+        await widget.settings.setProtocolPort(ProxyProtocol.http, httpPort);
+      }
+      if (widget.settings.portFor(ProxyProtocol.socks5) != socks5Port) {
+        await widget.settings.setProtocolPort(ProxyProtocol.socks5, socks5Port);
+      }
+      _logs.info('Proxy ports saved');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Ports saved')));
+      }
+    } finally {
+      if (mounted) {
+        _hasPortEdits = false;
+        _syncPortControllersFromSettings();
+        setState(() => _portsSaving = false);
+      }
     }
   }
 
@@ -297,12 +432,14 @@ class _ProtocolPortField extends StatelessWidget {
   const _ProtocolPortField({
     required this.protocol,
     required this.controller,
-    required this.onSave,
+    required this.errorText,
+    required this.onSubmitted,
   });
 
   final ProxyProtocol protocol;
   final TextEditingController controller;
-  final void Function(ProxyProtocol protocol, String value) onSave;
+  final String? errorText;
+  final ValueChanged<String> onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -313,9 +450,9 @@ class _ProtocolPortField extends StatelessWidget {
         labelText: '${protocol.label} port',
         prefixIcon: const Icon(Icons.numbers),
         helperText: 'Default: ${protocol.defaultPort}',
+        errorText: errorText,
       ),
-      onSubmitted: (value) => onSave(protocol, value),
-      onEditingComplete: () => onSave(protocol, controller.text),
+      onSubmitted: onSubmitted,
     );
   }
 }

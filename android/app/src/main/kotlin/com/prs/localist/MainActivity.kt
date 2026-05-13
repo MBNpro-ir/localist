@@ -74,7 +74,7 @@ class MainActivity : FlutterActivity() {
             ?.filter { it in LocalistVpnService.SUPPORTED_PROTOCOLS }
             ?.takeIf { it.isNotEmpty() }
             ?: call.argument<String>("protocol")?.let { listOf(it) }
-            ?: listOf("http", "socks5")
+            ?: listOf("socks5")
         val portsArg = call.argument<Map<String, Any>>("ports") ?: emptyMap()
         val protocolPorts = protocols.associateWith { protocol ->
             (portsArg[protocol] as? Int) ?: LocalistVpnService.defaultPort(protocol)

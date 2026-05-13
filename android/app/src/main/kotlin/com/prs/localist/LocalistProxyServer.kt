@@ -32,7 +32,7 @@ class LocalistProxyServer(
     private val protocolPorts = protocolPorts
         .mapKeys { it.key.lowercase(Locale.US) }
         .filterKeys { it in SUPPORTED_PROTOCOLS }
-        .ifEmpty { mapOf("http" to 2060, "socks5" to 2080) }
+        .ifEmpty { mapOf("socks5" to 3075) }
     private val protocols = this.protocolPorts.keys
         .map { it.lowercase(Locale.US) }
         .filter { it in SUPPORTED_PROTOCOLS }

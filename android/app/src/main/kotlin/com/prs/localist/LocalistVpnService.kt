@@ -488,13 +488,13 @@ class LocalistVpnService : VpnService() {
                 .map { it.lowercase(Locale.US) }
                 .filter { SUPPORTED_PROTOCOLS.contains(it) }
                 .distinct()
-            return filtered.ifEmpty { listOf("http", "socks5") }
+            return filtered.ifEmpty { listOf("socks5") }
         }
 
         fun defaultPort(protocol: String): Int {
             return when (protocol.lowercase(Locale.US)) {
                 "http" -> 2060
-                else -> 2080
+                else -> 3075
             }
         }
 
@@ -532,9 +532,9 @@ class LocalistVpnService : VpnService() {
         var proxyRunning = false
         var receivingRunning = false
         var localProxyRunning = false
-        var protocols = listOf("http", "socks5")
-        var protocolPorts = mapOf("http" to 2060, "socks5" to 2080)
-        var port = 2060
+        var protocols = listOf("socks5")
+        var protocolPorts = mapOf("http" to 2060, "socks5" to 3075)
+        var port = 3075
         var shareAllRoutes = true
         var selectedLocalIps = emptyList<String>()
         var ipAddress = "192.168.43.1"

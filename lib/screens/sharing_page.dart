@@ -77,188 +77,7 @@ class SharingPage extends StatelessWidget {
             endpointIps: endpointIps,
             portFor: snapshot.portFor,
           ),
-        _StatsPanel(
-          rootMode: rootMode,
-          running: running,
-          snapshot: snapshot,
-          activeProtocols: activeProtocols,
-        ),
       ],
-    );
-  }
-}
-
-class _StatsPanel extends StatelessWidget {
-  const _StatsPanel({
-    required this.rootMode,
-    required this.running,
-    required this.snapshot,
-    required this.activeProtocols,
-  });
-
-  final bool rootMode;
-  final bool running;
-  final ServiceSnapshot snapshot;
-  final Set<ProxyProtocol> activeProtocols;
-
-  @override
-  Widget build(BuildContext context) {
-    final hotspot = snapshot.hotspot;
-    final proxyValue = rootMode
-        ? 'Root mode'
-        : snapshot.proxyRunning
-        ? activeProtocols
-              .map((p) => '${p.label}:${snapshot.portFor(p)}')
-              .join(' / ')
-        : 'Inactive';
-    return GlassPanel(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Stats',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              Icon(
-                running ? Icons.online_prediction : Icons.motion_photos_off,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final metrics = [
-                _MetricData(
-                  label: 'VPN',
-                  value: snapshot.deviceVpnActive || snapshot.vpnConnected
-                      ? 'Connected'
-                      : 'Disconnected',
-                  icon: Icons.vpn_key_outlined,
-                ),
-                _MetricData(
-                  label: 'Proxy',
-                  value: proxyValue,
-                  icon: Icons.hub_outlined,
-                ),
-                _MetricData(
-                  label: 'Hotspot',
-                  value: hotspot.active ? 'Manual' : 'Inactive',
-                  icon: Icons.wifi_tethering,
-                ),
-                _MetricData(
-                  label: 'Session',
-                  value: formatBytes(snapshot.usage.sessionTotalBytes),
-                  icon: Icons.query_stats,
-                ),
-                _MetricData(
-                  label: 'Total',
-                  value: formatBytes(snapshot.usage.totalBytes),
-                  icon: Icons.storage_outlined,
-                ),
-                _MetricData(
-                  label: 'Root',
-                  value: snapshot.root.active
-                      ? snapshot.root.vpnInterface
-                      : rootMode
-                      ? 'Ready'
-                      : 'Off',
-                  icon: Icons.admin_panel_settings_outlined,
-                ),
-              ];
-              final width = constraints.maxWidth;
-              final columns = width >= 920
-                  ? 3
-                  : width >= 560
-                  ? 2
-                  : 1;
-              return GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: metrics.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  mainAxisExtent: 68,
-                ),
-                itemBuilder: (context, index) {
-                  final metric = metrics[index];
-                  return _CompactMetric(
-                    label: metric.label,
-                    value: metric.value,
-                    icon: metric.icon,
-                  );
-                },
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricData {
-  const _MetricData({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-}
-
-class _CompactMetric extends StatelessWidget {
-  const _CompactMetric({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: .30),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .22)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: scheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(label, style: Theme.of(context).textTheme.labelSmall),
-                  Text(
-                    value,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -292,6 +111,17 @@ class _SharingControlPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final actionLabel = busy
+        ? running
+              ? 'Stopping sharing...'
+              : rootMode
+              ? 'Starting root VPN...'
+              : 'Starting proxy service...'
+        : running
+        ? 'Stop sharing'
+        : rootMode
+        ? 'Start root VPN sharing'
+        : 'Start proxy service';
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -404,16 +234,15 @@ class _SharingControlPanel extends StatelessWidget {
               onPressed: busy
                   ? null
                   : (running ? onStopSharing : onStartSharing),
-              icon: Icon(
-                running ? Icons.stop_circle_outlined : Icons.play_circle,
-              ),
-              label: Text(
-                running
-                    ? 'Stop sharing'
-                    : rootMode
-                    ? 'Start root VPN sharing'
-                    : 'Start proxy service',
-              ),
+              icon: busy
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      running ? Icons.stop_circle_outlined : Icons.play_circle,
+                    ),
+              label: Text(actionLabel),
             ),
           ),
         ],
@@ -807,35 +636,43 @@ class _CachedQrImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final quietZone = (size * .07).clamp(12.0, 18.0).toDouble();
+    final imageSize = size - quietZone * 2;
     return SizedBox.square(
       dimension: size,
-      child: ColoredBox(
-        color: Colors.white,
-        child: FutureBuilder<Uint8List>(
-          future: _QrRasterCache.imageFor(data: data, size: size),
-          builder: (context, snapshot) {
-            if (snapshot.hasData) {
-              return Image.memory(
-                snapshot.data!,
-                width: size,
-                height: size,
-                gaplessPlayback: true,
-                filterQuality: FilterQuality.none,
-                semanticLabel: semanticLabel,
-              );
-            }
-            if (snapshot.hasError) {
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(quietZone),
+          child: FutureBuilder<Uint8List>(
+            future: _QrRasterCache.imageFor(data: data, size: imageSize),
+            builder: (context, snapshot) {
+              if (snapshot.hasData) {
+                return Image.memory(
+                  snapshot.data!,
+                  width: imageSize,
+                  height: imageSize,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.none,
+                  semanticLabel: semanticLabel,
+                );
+              }
+              if (snapshot.hasError) {
+                return const Center(
+                  child: Icon(Icons.qr_code_2, color: Colors.black54),
+                );
+              }
               return const Center(
-                child: Icon(Icons.qr_code_2, color: Colors.black54),
+                child: SizedBox.square(
+                  dimension: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               );
-            }
-            return const Center(
-              child: SizedBox.square(
-                dimension: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            );
-          },
+            },
+          ),
         ),
       ),
     );

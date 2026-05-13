@@ -78,7 +78,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
   Widget build(BuildContext context) {
     final running =
         widget.snapshot.receivingRunning || widget.snapshot.localProxyRunning;
-    final vpnRunning = widget.snapshot.receivingRunning;
     final proxyRunning = widget.snapshot.localProxyRunning;
     final config = _currentConfig();
 
@@ -273,32 +272,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
                   icon: const Icon(Icons.send_outlined),
                   label: const Text('Open Telegram proxy'),
                 ),
-              ),
-            ],
-          ),
-        ),
-        GlassPanel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Status', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              MetricTile(
-                label: 'Receiving VPN',
-                value: vpnRunning ? 'Active' : 'Inactive',
-                icon: Icons.vpn_lock_outlined,
-              ),
-              const SizedBox(height: 10),
-              MetricTile(
-                label: 'Local proxy',
-                value: proxyRunning ? '127.0.0.1:3781' : 'Inactive',
-                icon: Icons.settings_ethernet,
-              ),
-              const SizedBox(height: 10),
-              MetricTile(
-                label: 'Remote proxy',
-                value: widget.snapshot.remoteProxy?.url ?? 'Not configured',
-                icon: Icons.settings_ethernet,
               ),
             ],
           ),
