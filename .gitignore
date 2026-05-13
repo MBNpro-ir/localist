@@ -11,6 +11,7 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+.runlogs/
 
 # IntelliJ related
 *.iml
@@ -32,6 +33,15 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+devtools_options.yaml
+*.tmp
+*.temp
+
+# Environment / local machine settings
+.env
+.env.*
+note.txt
+prompt.txt
 
 # Symbolication related
 app.*.symbols
@@ -43,3 +53,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/.gradle/
+/android/build/
+/android/local.properties
