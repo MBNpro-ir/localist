@@ -1,0 +1,889 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+
+import '../models/app_settings.dart';
+import '../models/service_state.dart';
+import '../services/native_bridge_service.dart';
+import '../widgets/glass.dart';
+
+class SharingPage extends StatelessWidget {
+  const SharingPage({
+    super.key,
+    required this.settings,
+    required this.snapshot,
+    required this.busy,
+    required this.onStartSharing,
+    required this.onStopSharing,
+    required this.onOpenHotspotSettings,
+    required this.onRefresh,
+  });
+
+  final AppSettings settings;
+  final ServiceSnapshot snapshot;
+  final bool busy;
+  final VoidCallback onStartSharing;
+  final VoidCallback onStopSharing;
+  final VoidCallback onOpenHotspotSettings;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final rootMode = settings.rootRoutingEnabled;
+    final running =
+        snapshot.proxyRunning || snapshot.vpnConnected || snapshot.root.active;
+    final activeProtocols = running
+        ? snapshot.protocols
+        : settings.enabledProtocols;
+    final hotspot = snapshot.hotspot;
+    final localIps = snapshot.localProxyIps.isNotEmpty
+        ? snapshot.localProxyIps
+        : snapshot.root.availableLocalIps;
+    final fallbackIp = hotspot.active && hotspot.ipAddress.isNotEmpty
+        ? hotspot.ipAddress
+        : '';
+    final endpointIps = settings.shareAllRoutes
+        ? (localIps.isEmpty && fallbackIp.isNotEmpty ? [fallbackIp] : localIps)
+        : localIps.where(settings.isLocalIpSelected).toList(growable: false);
+
+    return PageSurface(
+      key: const PageStorageKey<String>('sharing-page'),
+      children: [
+        _SharingControlPanel(
+          settings: settings,
+          snapshot: snapshot,
+          busy: busy,
+          running: running,
+          rootMode: rootMode,
+          activeProtocols: activeProtocols,
+          localIps: localIps,
+          fallbackIp: fallbackIp,
+          onStartSharing: onStartSharing,
+          onStopSharing: onStopSharing,
+          onRefresh: onRefresh,
+        ),
+        if (running)
+          _HotspotPanel(
+            hotspot: hotspot,
+            busy: busy,
+            onOpenHotspotSettings: onOpenHotspotSettings,
+            onRefresh: onRefresh,
+          ),
+        if (running && !rootMode)
+          _ProxyQrSection(
+            protocols: activeProtocols,
+            endpointIps: endpointIps,
+            portFor: snapshot.portFor,
+          ),
+        _StatsPanel(
+          rootMode: rootMode,
+          running: running,
+          snapshot: snapshot,
+          activeProtocols: activeProtocols,
+        ),
+      ],
+    );
+  }
+}
+
+class _StatsPanel extends StatelessWidget {
+  const _StatsPanel({
+    required this.rootMode,
+    required this.running,
+    required this.snapshot,
+    required this.activeProtocols,
+  });
+
+  final bool rootMode;
+  final bool running;
+  final ServiceSnapshot snapshot;
+  final Set<ProxyProtocol> activeProtocols;
+
+  @override
+  Widget build(BuildContext context) {
+    final hotspot = snapshot.hotspot;
+    final proxyValue = rootMode
+        ? 'Root mode'
+        : snapshot.proxyRunning
+        ? activeProtocols
+              .map((p) => '${p.label}:${snapshot.portFor(p)}')
+              .join(' / ')
+        : 'Inactive';
+    return GlassPanel(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Stats',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              Icon(
+                running ? Icons.online_prediction : Icons.motion_photos_off,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final metrics = [
+                _MetricData(
+                  label: 'VPN',
+                  value: snapshot.deviceVpnActive || snapshot.vpnConnected
+                      ? 'Connected'
+                      : 'Disconnected',
+                  icon: Icons.vpn_key_outlined,
+                ),
+                _MetricData(
+                  label: 'Proxy',
+                  value: proxyValue,
+                  icon: Icons.hub_outlined,
+                ),
+                _MetricData(
+                  label: 'Hotspot',
+                  value: hotspot.active ? 'Manual' : 'Inactive',
+                  icon: Icons.wifi_tethering,
+                ),
+                _MetricData(
+                  label: 'Session',
+                  value: formatBytes(snapshot.usage.sessionTotalBytes),
+                  icon: Icons.query_stats,
+                ),
+                _MetricData(
+                  label: 'Total',
+                  value: formatBytes(snapshot.usage.totalBytes),
+                  icon: Icons.storage_outlined,
+                ),
+                _MetricData(
+                  label: 'Root',
+                  value: snapshot.root.active
+                      ? snapshot.root.vpnInterface
+                      : rootMode
+                      ? 'Ready'
+                      : 'Off',
+                  icon: Icons.admin_panel_settings_outlined,
+                ),
+              ];
+              final width = constraints.maxWidth;
+              final columns = width >= 920
+                  ? 3
+                  : width >= 560
+                  ? 2
+                  : 1;
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: metrics.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  mainAxisExtent: 68,
+                ),
+                itemBuilder: (context, index) {
+                  final metric = metrics[index];
+                  return _CompactMetric(
+                    label: metric.label,
+                    value: metric.value,
+                    icon: metric.icon,
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricData {
+  const _MetricData({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+}
+
+class _CompactMetric extends StatelessWidget {
+  const _CompactMetric({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: .30),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .22)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: scheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label, style: Theme.of(context).textTheme.labelSmall),
+                  Text(
+                    value,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SharingControlPanel extends StatelessWidget {
+  const _SharingControlPanel({
+    required this.settings,
+    required this.snapshot,
+    required this.busy,
+    required this.running,
+    required this.rootMode,
+    required this.activeProtocols,
+    required this.localIps,
+    required this.fallbackIp,
+    required this.onStartSharing,
+    required this.onStopSharing,
+    required this.onRefresh,
+  });
+
+  final AppSettings settings;
+  final ServiceSnapshot snapshot;
+  final bool busy;
+  final bool running;
+  final bool rootMode;
+  final Set<ProxyProtocol> activeProtocols;
+  final List<String> localIps;
+  final String fallbackIp;
+  final VoidCallback onStartSharing;
+  final VoidCallback onStopSharing;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Sharing Control',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: busy ? null : onRefresh,
+                icon: const Icon(Icons.sync),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Share on all route IPs'),
+            subtitle: Text(
+              settings.shareAllRoutes
+                  ? 'All detected local IPs can serve proxy'
+                  : 'Choose the exact local IPs that should serve proxy',
+            ),
+            value: settings.shareAllRoutes,
+            onChanged: busy || running
+                ? null
+                : (value) => settings.setShareAllRoutes(value),
+          ),
+          if (settings.shareAllRoutes) ...[
+            const SizedBox(height: 10),
+            _LocalProxyIpsTile(
+              value: localIps.isEmpty
+                  ? (fallbackIp.isEmpty
+                        ? 'Turn on Android Hotspot, then refresh.'
+                        : fallbackIp)
+                  : localIps.join('\n'),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            Text(
+              'Allowed proxy IPs',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            if (localIps.isEmpty)
+              const MetricTile(
+                label: 'Local IPs',
+                value: 'No local IPs detected',
+                icon: Icons.lan_outlined,
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final ip in localIps)
+                    FilterChip(
+                      avatar: const Icon(Icons.lan_outlined, size: 18),
+                      label: Text(ip),
+                      selected: settings.isLocalIpSelected(ip),
+                      onSelected: busy || running
+                          ? null
+                          : (selected) =>
+                                settings.setLocalIpSelected(ip, selected),
+                    ),
+                ],
+              ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (rootMode)
+                Chip(
+                  avatar: const Icon(
+                    Icons.admin_panel_settings_outlined,
+                    size: 18,
+                  ),
+                  label: Text(
+                    snapshot.root.active
+                        ? 'Root via ${snapshot.root.vpnInterface}'
+                        : 'Root VPN sharing',
+                  ),
+                )
+              else
+                for (final protocol in activeProtocols)
+                  Chip(
+                    avatar: const Icon(Icons.route_outlined, size: 18),
+                    label: Text(
+                      '${protocol.label} :${settings.portFor(protocol)}',
+                    ),
+                  ),
+              if (rootMode && snapshot.root.lastError.isNotEmpty)
+                Chip(
+                  avatar: const Icon(Icons.error_outline, size: 18),
+                  label: Text(snapshot.root.lastError),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: busy
+                  ? null
+                  : (running ? onStopSharing : onStartSharing),
+              icon: Icon(
+                running ? Icons.stop_circle_outlined : Icons.play_circle,
+              ),
+              label: Text(
+                running
+                    ? 'Stop sharing'
+                    : rootMode
+                    ? 'Start root VPN sharing'
+                    : 'Start proxy service',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocalProxyIpsTile extends StatelessWidget {
+  const _LocalProxyIpsTile({required this.value});
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: .34),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .26)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.lan_outlined, color: scheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Local proxy IPs',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    value,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HotspotPanel extends StatelessWidget {
+  const _HotspotPanel({
+    required this.hotspot,
+    required this.busy,
+    required this.onOpenHotspotSettings,
+    required this.onRefresh,
+  });
+
+  final HotspotInfo hotspot;
+  final bool busy;
+  final VoidCallback onOpenHotspotSettings;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Hotspot', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            'Turn on Android Hotspot manually, connect the receiving device to it, then refresh localist.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: busy ? null : onOpenHotspotSettings,
+                  icon: const Icon(Icons.settings_outlined),
+                  label: const Text('Open Android hotspot settings'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                tooltip: 'Refresh hotspot',
+                onPressed: busy ? null : onRefresh,
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          MetricTile(
+            label: 'Android hotspot',
+            value: hotspot.active ? 'Detected' : 'Not detected',
+            icon: Icons.wifi_tethering,
+          ),
+          const SizedBox(height: 10),
+          MetricTile(
+            label: 'Proxy IP',
+            value: hotspot.active && hotspot.ipAddress.isNotEmpty
+                ? hotspot.ipAddress
+                : 'Available after hotspot is on',
+            icon: Icons.lan_outlined,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProxyQrSection extends StatefulWidget {
+  const _ProxyQrSection({
+    required this.protocols,
+    required this.endpointIps,
+    required this.portFor,
+  });
+
+  final Set<ProxyProtocol> protocols;
+  final List<String> endpointIps;
+  final int Function(ProxyProtocol protocol) portFor;
+
+  @override
+  State<_ProxyQrSection> createState() => _ProxyQrSectionState();
+}
+
+class _ProxyQrSectionState extends State<_ProxyQrSection> {
+  String? _selectedId;
+
+  @override
+  Widget build(BuildContext context) {
+    final endpoints = _buildEndpoints();
+    _QrEndpoint? selected;
+    for (final endpoint in endpoints) {
+      if (endpoint.id == _selectedId) {
+        selected = endpoint;
+        break;
+      }
+    }
+
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Proxy QR codes', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          if (endpoints.isEmpty)
+            const MetricTile(
+              label: 'Proxy QR',
+              value: 'No proxy endpoint is open',
+              icon: Icons.qr_code_2,
+            )
+          else ...[
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final endpoint in endpoints)
+                  _QrEndpointChip(
+                    endpoint: endpoint,
+                    selected: endpoint.id == _selectedId,
+                    onTap: () => setState(() => _selectedId = endpoint.id),
+                  ),
+              ],
+            ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 160),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: selected == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      key: ValueKey(selected.id),
+                      padding: const EdgeInsets.only(top: 14),
+                      child: _QrPreview(endpoint: selected),
+                    ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<_QrEndpoint> _buildEndpoints() {
+    final proxyEndpoints = [
+      for (final protocol in widget.protocols)
+        for (final ip in widget.endpointIps)
+          SmartProxyEndpoint(
+            protocol: protocol,
+            host: ip,
+            port: widget.portFor(protocol),
+          ),
+    ];
+    if (proxyEndpoints.isEmpty) {
+      return const [];
+    }
+    final smart = SmartProxyPayload(
+      hotspotSsid: '',
+      hotspotPassword: '',
+      endpoints: proxyEndpoints,
+    );
+    return [
+      _QrEndpoint(
+        id: 'smart',
+        title: 'Smart',
+        subtitle: 'All proxy endpoints',
+        data: smart.encode(),
+        icon: Icons.auto_awesome_outlined,
+        isSmart: true,
+      ),
+      for (final endpoint in proxyEndpoints)
+        _QrEndpoint(
+          id: '${endpoint.protocol.name}-${endpoint.host}-${endpoint.port}',
+          title: endpoint.protocol.label,
+          subtitle: '${endpoint.host}:${endpoint.port}',
+          data: endpoint.config.url,
+          icon: Icons.route_outlined,
+          isSmart: false,
+        ),
+    ];
+  }
+}
+
+class _QrEndpointChip extends StatelessWidget {
+  const _QrEndpointChip({
+    required this.endpoint,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _QrEndpoint endpoint;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: selected
+          ? scheme.primaryContainer.withValues(alpha: .72)
+          : scheme.surfaceContainerHighest.withValues(alpha: .44),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(endpoint.icon, size: 18),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    endpoint.title,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  Text(
+                    endpoint.subtitle,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QrPreview extends StatelessWidget {
+  const _QrPreview({required this.endpoint});
+
+  final _QrEndpoint endpoint;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: .54),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .28)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.qr_code_2, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${endpoint.title} - ${endpoint.subtitle}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            RepaintBoundary(
+              child: Center(
+                child: _CachedQrImage(
+                  data: endpoint.data,
+                  size: 232,
+                  semanticLabel: '${endpoint.title} QR code',
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (endpoint.isSmart)
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: endpoint.data),
+                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Config copied')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.copy),
+                      label: const Text('Copy config'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    tooltip: 'Share config',
+                    onPressed: () => NativeBridgeService.instance.shareText(
+                      text: endpoint.data,
+                      title: 'localist Smart config',
+                    ),
+                    icon: const Icon(Icons.ios_share),
+                  ),
+                ],
+              )
+            else
+              SelectableText(
+                endpoint.data,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QrEndpoint {
+  const _QrEndpoint({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.data,
+    required this.icon,
+    required this.isSmart,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String data;
+  final IconData icon;
+  final bool isSmart;
+}
+
+class _CachedQrImage extends StatelessWidget {
+  const _CachedQrImage({
+    required this.data,
+    required this.size,
+    required this.semanticLabel,
+  });
+
+  final String data;
+  final double size;
+  final String semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: size,
+      child: ColoredBox(
+        color: Colors.white,
+        child: FutureBuilder<Uint8List>(
+          future: _QrRasterCache.imageFor(data: data, size: size),
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              return Image.memory(
+                snapshot.data!,
+                width: size,
+                height: size,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.none,
+                semanticLabel: semanticLabel,
+              );
+            }
+            if (snapshot.hasError) {
+              return const Center(
+                child: Icon(Icons.qr_code_2, color: Colors.black54),
+              );
+            }
+            return const Center(
+              child: SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _QrRasterCache {
+  static final Map<String, Future<Uint8List>> _cache = {};
+
+  static Future<Uint8List> imageFor({
+    required String data,
+    required double size,
+  }) {
+    final key = '${size.toStringAsFixed(0)}::$data';
+    final cached = _cache[key];
+    if (cached != null) {
+      return cached;
+    }
+    if (_cache.length >= 12) {
+      _cache.remove(_cache.keys.first);
+    }
+    return _cache[key] = _render(data: data, size: size);
+  }
+
+  static Future<Uint8List> _render({
+    required String data,
+    required double size,
+  }) async {
+    final painter = QrPainter(
+      data: data,
+      version: QrVersions.auto,
+      gapless: true,
+      eyeStyle: const QrEyeStyle(
+        eyeShape: QrEyeShape.square,
+        color: Colors.black,
+      ),
+      dataModuleStyle: const QrDataModuleStyle(
+        dataModuleShape: QrDataModuleShape.square,
+        color: Colors.black,
+      ),
+    );
+    final imageData = await painter.toImageData(
+      size,
+      format: ui.ImageByteFormat.png,
+    );
+    if (imageData == null) {
+      throw StateError('Unable to render QR image.');
+    }
+    return imageData.buffer.asUint8List();
+  }
+}
