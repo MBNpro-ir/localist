@@ -1,0 +1,97 @@
+"Localist" Android App Development
+
+Project Name: Localist
+Platform: Android (Minimum SDK 29 / Android 10)
+Primary Technologies: Flutter (Dart) for UI/Business Logic, Kotlin for Native Platform Integration
+Design Language: Material 3 (Material You) with Glassmorphism
+
+### 0. Environment Setup and Prerequisites
+
+- Flutter Check: First, verify if Flutter is installed on the system by running flutter doctor -v.
+- Setup (If Missing): If Flutter is not installed, provide a summary of the official installation steps for the host operating system. The core steps involve downloading the Flutter SDK, adding it to the system PATH, and ensuring Android toolchains (Android Studio, Android SDK, and accepting licenses) are correctly configured.
+- Project Initialization: Create a new Flutter project named localist using the command flutter create --org com.yourcompany localist. The project should be configured with minSdkVersion 29 and targetSdkVersion 33+ in the android/app/build.gradle file.
+
+### Part 1: Core Architecture and Native Integration
+
+The app's core functionality (VPN service, proxy server, hotspot control) requires direct interaction with Android's native APIs, which are not directly accessible from Flutter. You must use Flutter's Platform Channels (MethodChannel) to bridge Dart code and Kotlin code.
+
+1.  Native Host (Android/Kotlin):
+    - In the MainActivity.kt file, configure a MethodChannel (e.g., com.localist.vpn) within the configureFlutterEngine method. Set a MethodCallHandler to listen for calls from the Dart side.
+    - This handler will be the central point for executing all native tasks: starting/stopping VPN, controlling the hotspot, and managing the proxy server.
+
+2.  Flutter Client (Dart):
+    - Create a dedicated service class in Dart (e.g., NativeBridgeService) to manage a MethodChannel instance. This class will provide a clean, asynchronous Dart API (e.g., Future<bool> startProxyService()) that the UI layer will interact with.
+
+### Part 2: Feature Implementation
+
+All core features described below will be invoked from the UI, relayed through the MethodChannel, and executed natively in Kotlin.
+
+#### 1. VPN Service and Selective Internet Sharing
+
+- Native Implementation (Kotlin):
+    - Create a new Kotlin class that extends Android's VpnService. This is the foundation for routing traffic through the app.
+    - In AndroidManifest.xml, declare this service and add the necessary permissions, including android.permission.BIND_VPN_SERVICE.
+    - Implement the logic for the VpnService to create a virtual network interface. Use the Builder class to configure the VPN's IP address (e.g., 10.0.0.2) and routing rules.
+- Flutter UI & Logic:
+    - The UI will provide a switch for "Selective Sharing" vs. "Share on All IPs." This choice will be passed as a parameter when calling the native method to start the VPN. The native code will adjust the routing table accordingly.
+
+#### 2. Proxy Server and Hotspot Data Sharing
+- Proxy Server Setup (Kotlin):
+    - Implement a local HTTP/SOCKS5 proxy server within the app's native Kotlin layer. The server should bind to the device's local IP on port 10888 by default.
+    - The server's primary function is to forward traffic through the VPN tunnel. All connected clients will have their internet traffic routed through this proxy.
+- Hotspot Control (Kotlin):
+    - Use Android's WifiManager to programmatically enable and configure the device's portable hotspot.
+    - After the hotspot is activated, the app should display the hotspot's SSID, password, and IP address for connecting clients.
+- Flutter UI - Hotspot Section:
+    - Display the proxy server's IP address, port (10888), and a generated QR Code.
+    - Provide clear, step-by-step instructions for connecting: 1) Join the hotspot, 2) Scan the QR code or manually configure the proxy, 3) Start the proxy service.
+    - The QR code should contain the full proxy URL (e.g., socks5://192.168.43.1:10888). Use the qr_flutter package to generate the code.
+
+#### 3. Data Usage and Statistics
+
+- Native Implementation (Kotlin):
+    - Within the VPN service, implement a packet-capturing mechanism to track total bytes sent and received. This data should be stored persistently (e.g., using SharedPreferences) to survive app restarts.
+    - Expose methods via the MethodChannel to retrieve both Total Data Usage and Current Session Data Usage.
+- Flutter UI - Stats Section:
+    - Create a "Stats" card on the home screen. This card will display:
+        - VPN Connection Status (Connected/Disconnected)
+        - Active Proxy Protocol (e.g., "SOCKS5")
+        - Hotspot Status (Active/Inactive)
+        - Data usage metrics for the current session and overall totals.
+
+#### 4. Logging Screen
+
+- Implementation:
+    - Create a LogService singleton in Flutter that maintains a list of log strings with timestamps and severity levels (Info, Warning, Error).
+    - Log significant events throughout the app's lifecycle: proxy start/stop, client connections/disconnections, permission grants, and errors.
+    - The "Logs" screen will display this data in a clean, scrollable list. Provide options to filter by severity and a button to copy all logs or clear them.
+
+#### 5. Settings and Customization
+
+- Protocol & Port Selection:
+    - The "Settings" screen should provide dropdowns for selecting the proxy protocol (HTTP, SOCKS4, SOCKS5) and a text field to change the default port.
+    - These selections are saved using SharedPreferences and sent to the native Kotlin code when the service starts to configure the proxy server accordingly. By default, SOCKS5 is active.
+- Personalization & Theming:
+    - Integrate Dynamic Color (Material You) using the material_you_dynamic_theme package. This should be the default, allowing the app's color scheme to adapt to the user's Android 12+ wallpaper.
+    - Provide options in the Settings screen to Manually Select a Theme Mode: Light, Dark, or System Default. This preference should override or fallback from the dynamic theme. Save the user's preference with SharedPreferences.
+
+#### 6. UI/UX Design Specifications
+
+- Navigation and Layout:
+    - Use a BottomNavigationBar for primary navigation between the following sections: 1. Home, 2. Hotspot, 3. Logs, 4. Settings.
+    - Each section should be a separate page managed by a PageView or IndexedStack to preserve state.
+    - The navigation bar must be positioned above the standard Android navigation gesture area, respecting safe insets. Use SafeArea to achieve this.
+- Glassmorphism Aesthetic:
+    - Implement the modern "glass" look across key UI elements like cards, the bottom navigation bar, and the app bar.
+    - Achieve this effect using the BackdropFilter widget to apply a blur and a semi-transparent Container with a subtle white/black color and low opacity.
+    - The overall design should be clean, minimalist, and intuitive.
+
+#### 7. Notifications, Permissions, and Service Lifecycle
+- Permissions Request:
+    - On the first launch, the app must request all necessary runtime permissions. This includes ACCESS_FINE_LOCATION (required for retrieving SSID) and POST_NOTIFICATIONS (for Android 13+).
+    - The VPN permission is requested via an Intent when calling VpnService.prepare(). Ensure this flow is handled gracefully.
+- Persistent Notification:
+    - When the proxy service is running, the app must display an ongoing notification.
+    - Content: The notification should display the current proxy IP:port, real-time data usage, and have "Stop" and "Restart" action buttons.
+    - Style: Set the notification's accent color to a shade of purple (e.g., Colors.deepPurple).
+    - Lifecycle: Clicking the notification body must launch the main app. When the service is stopped, the notification must be immediately dismissed.
