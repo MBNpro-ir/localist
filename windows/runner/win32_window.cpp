@@ -17,6 +17,8 @@ namespace {
 #endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+constexpr DWORD kFixedWindowStyle =
+    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
 /// Registry key for app theme preference.
 ///
@@ -35,6 +37,14 @@ using EnableNonClientDpiScaling = BOOL __stdcall(HWND hwnd);
 // scale factor
 int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
+}
+
+RECT GetAdjustedWindowBounds(const Win32Window::Size& size,
+                             double scale_factor) {
+  RECT frame = {0, 0, Scale(size.width, scale_factor),
+                Scale(size.height, scale_factor)};
+  AdjustWindowRect(&frame, kFixedWindowStyle, FALSE);
+  return frame;
 }
 
 // Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
@@ -134,11 +144,13 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  RECT adjusted_bounds = GetAdjustedWindowBounds(size, scale_factor);
   HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
+      window_class, title.c_str(), kFixedWindowStyle,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
-      nullptr, nullptr, GetModuleHandle(nullptr), this);
+      adjusted_bounds.right - adjusted_bounds.left,
+      adjusted_bounds.bottom - adjusted_bounds.top, nullptr, nullptr,
+      GetModuleHandle(nullptr), this);
 
   if (!window) {
     return false;

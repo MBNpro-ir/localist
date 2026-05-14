@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.yourcompany" "\0"
-            VALUE "FileDescription", "localist" "\0"
+            VALUE "CompanyName", "PRS" "\0"
+            VALUE "FileDescription", "Localist" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "localist" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.yourcompany. All rights reserved." "\0"
-            VALUE "OriginalFilename", "localist.exe" "\0"
-            VALUE "ProductName", "localist" "\0"
+            VALUE "InternalName", "Localist" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 PRS. All rights reserved." "\0"
+            VALUE "OriginalFilename", "Localist.exe" "\0"
+            VALUE "ProductName", "Localist" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

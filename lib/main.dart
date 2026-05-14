@@ -20,15 +20,19 @@ import 'services/native_bridge_service.dart';
 import 'widgets/glass.dart';
 
 const _onboardingSeenKey = 'localist.onboarding.v2.seen';
+const _windowsSettingsSignatureKey = 'windows.settings.signature';
+const _windowsAdminBootstrapArg = '--enable-admin';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
   binding.deferFirstFrame();
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   try {
+    await _bootstrapWindowsSettings(args);
     final settings = await AppSettings.load();
     await runAppDynamic(
-      title: 'localist',
+      title: 'Localist',
+      builder: _windowsCompactBuilder,
       debugShowCheckedModeBanner: false,
       themeAnimationDuration: Duration.zero,
       themeAnimationCurve: Curves.easeInOutCubic,
@@ -37,6 +41,50 @@ Future<void> main() async {
   } finally {
     binding.allowFirstFrame();
   }
+}
+
+Widget _windowsCompactBuilder(BuildContext context, Widget? child) {
+  if (!Platform.isWindows) {
+    return child ?? const Offstage();
+  }
+  final theme = Theme.of(context);
+  return MediaQuery(
+    data: MediaQuery.of(
+      context,
+    ).copyWith(textScaler: const TextScaler.linear(.84)),
+    child: Theme(
+      data: theme.copyWith(
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        iconTheme: theme.iconTheme.copyWith(size: 20),
+        appBarTheme: theme.appBarTheme.copyWith(toolbarHeight: 46),
+        navigationBarTheme: theme.navigationBarTheme.copyWith(height: 62),
+      ),
+      child: child ?? const Offstage(),
+    ),
+  );
+}
+
+Future<void> _bootstrapWindowsSettings(List<String> args) async {
+  if (!Platform.isWindows) {
+    return;
+  }
+  final prefs = await SharedPreferences.getInstance();
+  if (args.contains(_windowsAdminBootstrapArg)) {
+    await prefs.setBool('root.routingEnabled', true);
+  }
+  final signature = await NativeBridgeService.instance
+      .getWindowsSettingsSignature();
+  if (signature == null || signature.isEmpty) {
+    return;
+  }
+  final previous = prefs.getString(_windowsSettingsSignatureKey);
+  if (previous != null && previous != signature) {
+    await prefs.remove('theme');
+    await prefs.remove('colorSchemeType');
+    await prefs.remove('seedColor');
+  }
+  await prefs.setString(_windowsSettingsSignatureKey, signature);
 }
 
 class LocalistShell extends StatefulWidget {
@@ -137,7 +185,7 @@ class _LocalistShellState extends State<LocalistShell> {
     }
     setState(() => _busy = true);
     try {
-      if (widget.settings.rootRoutingEnabled) {
+      if (!Platform.isWindows && widget.settings.rootRoutingEnabled) {
         if (!widget.settings.shareAllRoutes &&
             widget.settings.selectedLocalIps.isEmpty) {
           _logs.warning('No local IP was selected for root sharing');
@@ -166,7 +214,9 @@ class _LocalistShellState extends State<LocalistShell> {
         await _refreshState();
         return;
       }
-      await _requestRuntimePermissions();
+      if (!Platform.isWindows) {
+        await _requestRuntimePermissions();
+      }
       if (!widget.settings.shareAllRoutes &&
           widget.settings.selectedLocalIps.isEmpty) {
         _logs.warning('No local IP was selected for proxy sharing');
@@ -468,7 +518,7 @@ class _LocalistShellState extends State<LocalistShell> {
             title: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('localist'),
+                const Text('Localist'),
                 const SizedBox(width: 6),
                 IconButton(
                   tooltip: 'App guide',
@@ -483,11 +533,12 @@ class _LocalistShellState extends State<LocalistShell> {
                 onPressed: _showLogsSheet,
                 icon: const Icon(Icons.subject_outlined),
               ),
-              IconButton(
-                tooltip: 'Share APK',
-                onPressed: _shareApk,
-                icon: const Icon(Icons.ios_share),
-              ),
+              if (!Platform.isWindows)
+                IconButton(
+                  tooltip: 'Share APK',
+                  onPressed: _shareApk,
+                  icon: const Icon(Icons.ios_share),
+                ),
               IconButton(
                 tooltip: themeSettings.isDarkMode ? 'Light mode' : 'Dark mode',
                 onPressed: () => _toggleTheme(themeSettings),
@@ -669,11 +720,12 @@ class _OnboardingGuideDialog extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                const _GuideStep(
+                _GuideStep(
                   emoji: '📤',
                   title: 'Sharing',
-                  body:
-                      'On the source device, turn on Android Hotspot manually, then tap Start proxy service.',
+                  body: Platform.isWindows
+                      ? 'On the source computer, tap Start proxy service and scan the QR from your phone.'
+                      : 'On the source device, turn on Android Hotspot manually, then tap Start proxy service.',
                 ),
                 const _GuideStep(
                   emoji: '📷',

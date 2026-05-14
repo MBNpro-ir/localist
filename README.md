@@ -1,64 +1,186 @@
-# Localist
+<p align="center">
+  <img src="ico/logo.png" alt="Localist" width="112" />
+</p>
 
-Localist is a Flutter Android app prototype for sharing a device VPN connection through a local proxy and Android hotspot flow.
+<h1 align="center">Localist</h1>
 
-## Current Build Notes
+<p align="center">
+  Share a local proxy between Android and Windows with QR handoff, compact desktop UI, and release builds for GitHub.
+</p>
 
-- Flutter SDK is installed at `C:\tools\flutter`.
-- This project was created with `flutter create --org com.yourcompany localist`.
-- Android is configured with `minSdk = 26` (Android 8.0+) and `targetSdk = 35`.
-- `flutter doctor -v` reports a healthy Flutter/Android toolchain with Android SDK `36.1.0`.
-- Dart analysis, unit tests, and `flutter build apk --debug` pass.
-- Debug APK output: `build\app\outputs\flutter-apk\app-debug.apk`.
+<p align="center">
+  <a href="https://flutter.dev"><img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white"></a>
+  <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
+  <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
+  <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/github/actions/workflow/status/MBNpro-ir/localist/release.yml?branch=master&label=release&logo=github"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.0.0-blue"></a>
+</p>
 
-## Toolchain Setup on Windows
+## Overview
 
-1. Install Android Studio from the official Android developer site.
-2. Open Android Studio once and install Android SDK Platform 35+, Android SDK Build-Tools, Android SDK Platform-Tools, and a JDK 17 runtime.
-3. Accept Android SDK licenses:
+Localist is a Flutter app for moving proxy/VPN access between Android and Windows:
 
-   ```powershell
-   C:\tools\flutter\bin\flutter.bat doctor --android-licenses
-   ```
+- Android can share HTTP/SOCKS5 proxy endpoints and receive a remote endpoint as VPN or local proxy.
+- Windows can share proxy endpoints, show QR codes, scan proxy QR codes with a webcam, and apply Windows VPN mode through the system proxy.
+- Settings are persisted in each platform's standard app-support storage so reinstalling the app keeps user preferences.
+- Windows uses the Android app icon, fixed `350x720` client size, no maximize button, no resize frame, and Windows accent colors.
 
-4. Add Flutter to PATH for normal shell use:
+## Repository Layout
 
-   ```powershell
-   setx PATH "$env:PATH;C:\tools\flutter\bin"
-   ```
-
-5. Reopen PowerShell and verify:
-
-   ```powershell
-   flutter doctor -v
-   flutter build apk --debug
-   ```
-
-If Android SDK is installed somewhere custom, point Flutter at it:
-
-```powershell
-C:\tools\flutter\bin\flutter.bat config --android-sdk C:\Path\To\Android\Sdk
+```text
+lib/                       Flutter UI, settings, QR, proxy state, Windows Dart services
+android/                   Android Kotlin VPN/proxy bridge and Gradle project
+windows/                   Windows runner, Win32 MethodChannel bridge, app icon/resource setup
+test/                      Flutter unit tests
+.github/workflows/         GitHub Actions release pipeline
+ico/                       Localist app icon assets
 ```
 
-## Implemented
+## Requirements
 
-- Material 3 Flutter UI with glass panels, safe bottom navigation, and four tabs: Home, Hotspot, Logs, Settings.
-- Material You dynamic theme integration through `material_you_dynamic_theme`, plus manual System/Light/Dark selection.
-- Settings persistence for proxy protocol, port, and selective sharing.
-- QR code proxy URL generation with `qr_flutter`.
-- Optional rooted VPN sharing mode that disables proxy mode and applies reversible routing/NAT rules from local client subnets to the active VPN interface.
-- Runtime permission requests for location and notification access.
-- `MethodChannel` bridge named `com.localist.vpn`.
-- Kotlin `VpnService` declaration and foreground service lifecycle.
-- Ongoing notification with Stop and Restart actions.
-- Local TCP proxy implementation for HTTP, SOCKS4, and SOCKS5 CONNECT-style forwarding.
-- Data counters persisted with Android `SharedPreferences`.
-- Android local-only hotspot integration through `WifiManager.startLocalOnlyHotspot`.
+Install these tools before building from a fresh clone:
 
-## Platform Limits
+- Flutter stable SDK with desktop support enabled.
+- Android Studio or Android command-line tools with Android SDK Platform 35+.
+- JDK 17.
+- Visual Studio 2022 with "Desktop development with C++" for Windows builds.
+- Windows 10/11 WebView2 Runtime for the Windows QR scanner.
+- 7-Zip if you want the smallest local Windows ZIP package.
 
-Android does not allow ordinary third-party apps to fully configure the system portable hotspot SSID/password or force tethering on modern Android releases. Localist uses Android's supported local-only hotspot API, which can expose SSID/passphrase but does not replace privileged carrier/OEM tethering APIs.
+Verify the toolchain:
 
-The included `VpnService` creates a TUN interface and records packets, but production VPN forwarding needs a real packet forwarding engine such as a tun2socks/native routing layer. The proxy server is functional as a local TCP proxy, while full "route every connected client through VPN" behavior depends on completing that forwarding path.
+```powershell
+flutter doctor -v
+flutter config --enable-windows-desktop
+flutter pub get
+```
 
-Rooted mode is a separate source-device path: when root is granted and a VPN interface is already active, Localist applies best-effort `ip rule` and `iptables` forwarding/NAT rules for hotspot/local client subnets. Hotspot clients normally receive the phone as their gateway automatically; devices on a home router may still need the phone set as their gateway because Android cannot change another device's default route by itself.
+Accept Android licenses when needed:
+
+```powershell
+flutter doctor --android-licenses
+```
+
+## Development Checks
+
+Run these before opening a pull request:
+
+```powershell
+flutter pub get
+flutter analyze
+flutter test
+```
+
+## Android Build Commands
+
+Debug APK:
+
+```powershell
+flutter build apk --debug
+```
+
+Smallest release APKs split by Android CPU architecture:
+
+```powershell
+flutter build apk --release `
+  --split-per-abi `
+  --target-platform android-arm,android-arm64,android-x64 `
+  --obfuscate `
+  --split-debug-info=build\symbols\android `
+  --tree-shake-icons `
+  --build-name=1.0.0 `
+  --build-number=1
+```
+
+Release Android App Bundle:
+
+```powershell
+flutter build appbundle --release `
+  --obfuscate `
+  --split-debug-info=build\symbols\android-aab `
+  --tree-shake-icons `
+  --build-name=1.0.0 `
+  --build-number=1
+```
+
+Android release outputs:
+
+```text
+build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+build/app/outputs/flutter-apk/app-x86_64-release.apk
+build/app/outputs/bundle/release/app-release.aab
+```
+
+The current Gradle release config enables code minification, resource shrinking, icon tree-shaking, and compressed native libraries. Replace the debug signing config with your production keystore before publishing to a store.
+
+## Windows Build Commands
+
+Release build with Dart symbol splitting and icon tree-shaking:
+
+```powershell
+flutter build windows --release `
+  --obfuscate `
+  --split-debug-info=build\symbols\windows-x64 `
+  --tree-shake-icons `
+  --build-name=1.0.0 `
+  --build-number=1
+```
+
+Windows release output folder:
+
+```text
+build/windows/x64/runner/Release/
+```
+
+Create a maximum-compression ZIP package:
+
+```powershell
+New-Item -ItemType Directory -Force release\v1 | Out-Null
+& "$env:ProgramFiles\7-Zip\7z.exe" a -tzip -mx=9 `
+  release\v1\localist-v1-windows-x64.zip `
+  .\build\windows\x64\runner\Release\*
+```
+
+Flutter's Windows desktop build in this toolchain produces an x64 runner. Android release builds are split into `armeabi-v7a`, `arm64-v8a`, and `x86_64` APKs.
+
+## GitHub Actions Release
+
+The release workflow builds and uploads:
+
+- `localist-v1-android-armeabi-v7a.apk`
+- `localist-v1-android-arm64-v8a.apk`
+- `localist-v1-android-x86_64.apk`
+- `localist-v1-android-universal.aab`
+- `localist-v1-windows-x64.zip`
+
+Create release version 1 from GitHub by pushing a tag:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+You can also run the workflow manually from the GitHub Actions tab and keep the default tag `v1.0.0`.
+
+## Localist Modes
+
+Sharing:
+
+- Android: proxy service plus Android hotspot/manual network sharing flow.
+- Windows: proxy service only; no hotspot controls and no APK share button.
+
+Receiving:
+
+- Android: QR/manual config, local proxy mode, or Android `VpnService` receiving mode.
+- Windows: QR/manual config, local proxy mode, or Windows VPN mode through system proxy.
+
+Settings:
+
+- Android root routing is still Android-only.
+- Windows admin access is requested through UAC and remains enabled after approval.
+- Theme follows Android dynamic colors or Windows accent colors.
+
+## Notes
+
+Windows TUN driver mode requires a signed driver/packet engine such as Wintun. The current Windows VPN mode is intentionally implemented as a system-proxy route so the desktop build remains installable and reproducible from a clean Flutter checkout.

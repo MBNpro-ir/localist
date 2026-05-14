@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:material_you_dynamic_theme/material_you_dynamic_theme.dart';
 import 'package:provider/provider.dart';
@@ -7,10 +9,11 @@ import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
 import '../widgets/glass.dart';
 
-const _appName = 'localist';
-const _appVersion = '1.0.0';
+const _appName = 'Localist';
+const _appVersion = '1';
 const _appDeveloper = 'PRS';
 const _appPackageName = 'com.prs.localist';
+const _windowsAppId = 'PRS.Localist';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.settings});
@@ -71,6 +74,9 @@ class _SettingsPageState extends State<SettingsPage> {
     final dynamicColorsAvailable = context
         .watch<BrightnessGetColorScheme>()
         .isDynamicColorSupported;
+    final isWindows = Platform.isWindows;
+    final logoSize = isWindows ? 56.0 : 72.0;
+    final settingsPath = isWindows ? _windowsSettingsPath() : null;
     return AnimatedBuilder(
       animation: widget.settings,
       builder: (context, _) {
@@ -101,16 +107,26 @@ class _SettingsPageState extends State<SettingsPage> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.admin_panel_settings_outlined),
-                    title: const Text('Root VPN sharing'),
+                    title: Text(
+                      isWindows ? 'Windows admin access' : 'Root VPN sharing',
+                    ),
                     subtitle: Text(
-                      widget.settings.rootRoutingEnabled
+                      isWindows
+                          ? widget.settings.rootRoutingEnabled
+                                ? 'Granted for Windows mode'
+                                : 'Ask Windows for administrator approval'
+                          : widget.settings.rootRoutingEnabled
                           ? 'Proxy mode is disabled'
                           : 'Use proxy mode without root',
                     ),
                     value: widget.settings.rootRoutingEnabled,
-                    onChanged: _rootBusy ? null : _setRootRoutingEnabled,
+                    onChanged:
+                        _rootBusy ||
+                            (isWindows && widget.settings.rootRoutingEnabled)
+                        ? null
+                        : _setRootRoutingEnabled,
                   ),
-                  if (!widget.settings.rootRoutingEnabled) ...[
+                  if (isWindows || !widget.settings.rootRoutingEnabled) ...[
                     const SizedBox(height: 12),
                     for (final protocol in ProxyProtocol.values)
                       CheckboxListTile(
@@ -209,7 +225,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     title: const Text('Use Material You colors'),
                     subtitle: Text(
                       dynamicColorsAvailable
-                          ? 'Uses Android wallpaper colors'
+                          ? isWindows
+                                ? 'Uses Windows accent colors'
+                                : 'Uses Android wallpaper colors'
+                          : isWindows
+                          ? 'Unavailable on this Windows version'
                           : 'Unavailable on this Android version',
                     ),
                     value:
@@ -252,8 +272,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         borderRadius: BorderRadius.circular(12),
                         child: Image.asset(
                           'ico/logo.png',
-                          width: 72,
-                          height: 72,
+                          width: logoSize,
+                          height: logoSize,
                           fit: BoxFit.cover,
                         ),
                       ),
@@ -268,7 +288,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Developer: $_appDeveloper',
+                              isWindows
+                                  ? 'Windows Desktop - Version $_appVersion'
+                                  : 'Developer: $_appDeveloper',
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                           ],
@@ -277,23 +299,35 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  const MetricTile(
+                  MetricTile(
                     label: 'Version',
                     value: _appVersion,
                     icon: Icons.tag_outlined,
                   ),
                   const SizedBox(height: 10),
-                  const MetricTile(
-                    label: 'Package',
-                    value: _appPackageName,
-                    icon: Icons.inventory_2_outlined,
+                  MetricTile(
+                    label: isWindows ? 'Platform' : 'Package',
+                    value: isWindows ? 'Windows Desktop' : _appPackageName,
+                    icon: isWindows
+                        ? Icons.desktop_windows_outlined
+                        : Icons.inventory_2_outlined,
                   ),
                   const SizedBox(height: 10),
-                  const MetricTile(
-                    label: 'Developer',
-                    value: _appDeveloper,
-                    icon: Icons.badge_outlined,
+                  MetricTile(
+                    label: isWindows ? 'App ID' : 'Developer',
+                    value: isWindows ? _windowsAppId : _appDeveloper,
+                    icon: isWindows
+                        ? Icons.verified_outlined
+                        : Icons.badge_outlined,
                   ),
+                  if (settingsPath != null) ...[
+                    const SizedBox(height: 10),
+                    MetricTile(
+                      label: 'Settings',
+                      value: settingsPath,
+                      icon: Icons.folder_outlined,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -301,6 +335,12 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       },
     );
+  }
+
+  String _windowsSettingsPath() {
+    final appData = Platform.environment['APPDATA'];
+    final root = appData == null || appData.isEmpty ? r'%APPDATA%' : appData;
+    return '$root\\PRS\\Localist\\shared_preferences.json';
   }
 
   bool get _portsChanged {
@@ -398,9 +438,36 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _setRootRoutingEnabled(bool enabled) async {
+    if (Platform.isWindows && !enabled) {
+      return;
+    }
     setState(() => _rootBusy = true);
     try {
       final root = await _bridge.setRootRoutingEnabled(enabled);
+      if (Platform.isWindows) {
+        if (root.enabled || root.available) {
+          await widget.settings.setRootRoutingEnabled(true);
+          _logs.info('Windows administrator access enabled');
+        } else {
+          _logs.warning(
+            root.lastError.isEmpty
+                ? 'Windows administrator approval was not completed'
+                : root.lastError,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  root.lastError.isEmpty
+                      ? 'Approve the Windows admin prompt to continue.'
+                      : root.lastError,
+                ),
+              ),
+            );
+          }
+        }
+        return;
+      }
       if (enabled && !root.available) {
         _logs.warning(
           root.lastError.isEmpty

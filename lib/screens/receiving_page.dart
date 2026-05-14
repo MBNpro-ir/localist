@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:simple_barcode_scanner/simple_barcode_scanner.dart';
 
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
@@ -94,6 +97,8 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 running
                     ? proxyRunning
                           ? 'Local proxy is active on 127.0.0.1:3781.'
+                          : Platform.isWindows
+                          ? 'Windows VPN mode is active through system proxy.'
                           : 'prstun VPN receiving mode is active.'
                     : 'Paste a Smart config or scan a localist QR, then load it into Proxy Config.',
                 style: Theme.of(context).textTheme.bodyMedium,
@@ -233,7 +238,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
                       ? null
                       : () => widget.onStartReceiving(config),
                   icon: const Icon(Icons.vpn_key_outlined),
-                  label: const Text('Start as VPN'),
+                  label: Text(
+                    Platform.isWindows
+                        ? 'Start Windows VPN mode'
+                        : 'Start as VPN',
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
@@ -270,7 +279,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 child: FilledButton.tonalIcon(
                   onPressed: proxyRunning ? _openTelegramProxy : null,
                   icon: const Icon(Icons.send_outlined),
-                  label: const Text('Open Telegram proxy'),
+                  label: Text(
+                    Platform.isWindows
+                        ? 'Open Telegram Desktop proxy'
+                        : 'Open Telegram proxy',
+                  ),
                 ),
               ),
             ],
@@ -301,6 +314,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   Future<void> _startScanner() async {
+    if (Platform.isWindows) {
+      await _startWindowsScanner();
+      return;
+    }
     final permission = await Permission.camera.request();
     if (!permission.isGranted || !mounted) {
       return;
@@ -310,6 +327,71 @@ class _ReceivingPageState extends State<ReceivingPage> {
       _scanning = true;
     });
     await _scannerController.start();
+  }
+
+  Future<void> _startWindowsScanner() async {
+    final device = await _chooseWindowsCameraDevice();
+    if (device == null || !mounted) {
+      return;
+    }
+    final result = await SimpleBarcodeScanner.scanBarcode(
+      context,
+      scanType: ScanType.qr,
+      scanFormat: ScanFormat.ONLY_QR_CODE,
+      cameraFace: CameraFace.front,
+      barcodeAppBar: const BarcodeAppBar(
+        appBarTitle: 'Localist QR',
+        centerTitle: true,
+        enableBackButton: true,
+        backButtonIcon: Icon(Icons.arrow_back),
+      ),
+      delayMillis: 500,
+    );
+    final value = result?.trim();
+    if (value == null || value.isEmpty || value == '-1' || !mounted) {
+      return;
+    }
+    setState(() => _configController.text = value);
+    await _handleConfigValue(value);
+  }
+
+  Future<String?> _chooseWindowsCameraDevice() async {
+    final devices = await _bridge.getWindowsCameraDevices();
+    if (!mounted) {
+      return null;
+    }
+    if (devices.isEmpty) {
+      return showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Scanner device'),
+          content: const Text('Use the default Windows camera device?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop('default'),
+              child: const Text('Default camera'),
+            ),
+          ],
+        ),
+      );
+    }
+    return showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Scanner device'),
+        children: [
+          for (final device in devices)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(device),
+              child: Text(device),
+            ),
+        ],
+      ),
+    );
   }
 
   Future<void> _stopScanner() async {

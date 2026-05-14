@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,8 +33,11 @@ class SharingPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rootMode = settings.rootRoutingEnabled;
+    final rootSharingMode = !Platform.isWindows && rootMode;
     final running =
-        snapshot.proxyRunning || snapshot.vpnConnected || snapshot.root.active;
+        snapshot.proxyRunning ||
+        snapshot.vpnConnected ||
+        (!Platform.isWindows && snapshot.root.active);
     final activeProtocols = running
         ? snapshot.protocols
         : settings.enabledProtocols;
@@ -56,7 +60,8 @@ class SharingPage extends StatelessWidget {
           snapshot: snapshot,
           busy: busy,
           running: running,
-          rootMode: rootMode,
+          rootMode: rootSharingMode,
+          isWindows: Platform.isWindows,
           activeProtocols: activeProtocols,
           localIps: localIps,
           fallbackIp: fallbackIp,
@@ -64,14 +69,14 @@ class SharingPage extends StatelessWidget {
           onStopSharing: onStopSharing,
           onRefresh: onRefresh,
         ),
-        if (running)
+        if (running && !Platform.isWindows)
           _HotspotPanel(
             hotspot: hotspot,
             busy: busy,
             onOpenHotspotSettings: onOpenHotspotSettings,
             onRefresh: onRefresh,
           ),
-        if (running && !rootMode)
+        if (running && !rootSharingMode)
           _ProxyQrSection(
             protocols: activeProtocols,
             endpointIps: endpointIps,
@@ -89,6 +94,7 @@ class _SharingControlPanel extends StatelessWidget {
     required this.busy,
     required this.running,
     required this.rootMode,
+    required this.isWindows,
     required this.activeProtocols,
     required this.localIps,
     required this.fallbackIp,
@@ -102,6 +108,7 @@ class _SharingControlPanel extends StatelessWidget {
   final bool busy;
   final bool running;
   final bool rootMode;
+  final bool isWindows;
   final Set<ProxyProtocol> activeProtocols;
   final List<String> localIps;
   final String fallbackIp;
@@ -160,7 +167,9 @@ class _SharingControlPanel extends StatelessWidget {
             _LocalProxyIpsTile(
               value: localIps.isEmpty
                   ? (fallbackIp.isEmpty
-                        ? 'Turn on Android Hotspot, then refresh.'
+                        ? isWindows
+                              ? 'Connect this PC to a network, then refresh.'
+                              : 'Turn on Android Hotspot, then refresh.'
                         : fallbackIp)
                   : localIps.join('\n'),
             ),
@@ -582,15 +591,17 @@ class _QrPreview extends StatelessWidget {
                       label: const Text('Copy config'),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton.filledTonal(
-                    tooltip: 'Share config',
-                    onPressed: () => NativeBridgeService.instance.shareText(
-                      text: endpoint.data,
-                      title: 'localist Smart config',
+                  if (!Platform.isWindows) ...[
+                    const SizedBox(width: 8),
+                    IconButton.filledTonal(
+                      tooltip: 'Share config',
+                      onPressed: () => NativeBridgeService.instance.shareText(
+                        text: endpoint.data,
+                        title: 'localist Smart config',
+                      ),
+                      icon: const Icon(Icons.ios_share),
                     ),
-                    icon: const Icon(Icons.ios_share),
-                  ),
+                  ],
                 ],
               )
             else
