@@ -1,4 +1,4 @@
-name: Release v1.0.2
+name: Release v1.0.3
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       release_tag:
         description: Git tag to create or update.
         required: true
-        default: v1.0.2
+        default: v1.0.3
   push:
     tags:
       - "v*"
@@ -15,8 +15,8 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION: "1.0.2"
-  BUILD_NUMBER: "3"
+  APP_VERSION: "1.0.3"
+  BUILD_NUMBER: "4"
 
 jobs:
   android:
@@ -76,19 +76,19 @@ jobs:
       - name: Stage Android assets
         run: |
           mkdir -p release/android
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk release/android/localist-v1.0.2-android-armeabi-v7a.apk
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk release/android/localist-v1.0.2-android-arm64-v8a.apk
-          cp build/app/outputs/flutter-apk/app-x86_64-release.apk release/android/localist-v1.0.2-android-x86_64.apk
-          cp build/app/outputs/bundle/release/app-release.aab release/android/localist-v1.0.2-android-universal.aab
-          7z a -tzip -mx=9 release/localist-v1.0.2-android-symbols.zip build/symbols/android build/symbols/android-aab
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk release/android/localist-v1.0.3-android-armeabi-v7a.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk release/android/localist-v1.0.3-android-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk release/android/localist-v1.0.3-android-x86_64.apk
+          cp build/app/outputs/bundle/release/app-release.aab release/android/localist-v1.0.3-android-universal.aab
+          7z a -tzip -mx=9 release/localist-v1.0.3-android-symbols.zip build/symbols/android build/symbols/android-aab
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: localist-v1.0.2-android
+          name: localist-v1.0.3-android
           path: |
             release/android/*
-            release/localist-v1.0.2-android-symbols.zip
+            release/localist-v1.0.3-android-symbols.zip
           if-no-files-found: error
           compression-level: 9
 
@@ -123,16 +123,16 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
           $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
-          & $sevenZip a -tzip -mx=9 release\localist-v1.0.2-windows-x64.zip .\build\windows\x64\runner\Release\*
-          & $sevenZip a -tzip -mx=9 release\localist-v1.0.2-windows-x64-symbols.zip .\build\symbols\windows-x64\*
+          & $sevenZip a -tzip -mx=9 release\localist-v1.0.3-windows-x64.zip .\build\windows\x64\runner\Release\*
+          & $sevenZip a -tzip -mx=9 release\localist-v1.0.3-windows-x64-symbols.zip .\build\symbols\windows-x64\*
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: localist-v1.0.2-windows-x64
+          name: localist-v1.0.3-windows-x64
           path: |
-            release/localist-v1.0.2-windows-x64.zip
-            release/localist-v1.0.2-windows-x64-symbols.zip
+            release/localist-v1.0.3-windows-x64.zip
+            release/localist-v1.0.3-windows-x64-symbols.zip
           if-no-files-found: error
           compression-level: 9
 
@@ -160,21 +160,17 @@ jobs:
       - name: Create release notes
         run: |
           cat > RELEASE_NOTES.md <<'EOF'
-          # Localist v1.0.2
+          # Localist v1.0.3
 
-          Maintenance release for Android and Windows.
+          Bug fix release for Android and Windows.
 
           ## Changes
 
-          - Windows now always requests administrator privileges at startup for VPN mode.
-          - Removed the Windows admin toggle from Settings.
-          - Added Windows close behavior settings: ask, move to taskbar tray, or exit.
-          - Added a Localist taskbar tray icon with Open and Close actions.
-          - Added Windows single-instance protection with a native already-open popup.
-          - Added mutual locking between Sharing and Receiving while either mode is active.
-          - Updated App info to show "Developed by PRS" under the app name.
-          - Improved the Windows QR scanner with a visible close action and themed layout.
-          - Fixed long Settings path text in App info.
+          - Fixed navigation from Sharing to Settings while Receiving is locked.
+          - Locked proxy port editing while Sharing is active.
+          - Hardened Windows taskbar tray open, close-to-tray, and exit actions.
+          - Centered the Close Localist dialog actions.
+          - Added Windows debug/build commands to note.txt.
 
           ## Assets
 
@@ -197,7 +193,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" "${files[@]}" \
               --target "$GITHUB_SHA" \
-              --title "Localist v1.0.2" \
+              --title "Localist v1.0.3" \
               --notes-file RELEASE_NOTES.md \
               --repo "$GH_REPO"
           fi

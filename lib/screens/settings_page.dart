@@ -10,15 +10,20 @@ import '../services/native_bridge_service.dart';
 import '../widgets/glass.dart';
 
 const _appName = 'Localist';
-const _appVersion = '1.0.2';
+const _appVersion = '1.0.3';
 const _appDeveloper = 'PRS';
 const _appPackageName = 'com.prs.localist';
 const _windowsAppId = 'PRS.Localist';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, required this.settings});
+  const SettingsPage({
+    super.key,
+    required this.settings,
+    required this.portsLocked,
+  });
 
   final AppSettings settings;
+  final bool portsLocked;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -90,6 +95,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _portsChanged &&
             httpError == null &&
             socks5Error == null &&
+            !widget.portsLocked &&
             !_portsSaving;
         return PageSurface(
           children: [
@@ -143,6 +149,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       protocol: ProxyProtocol.http,
                       controller: _httpPortController,
                       errorText: httpError,
+                      enabled: !widget.portsLocked,
                       onSubmitted: (_) => _savePorts(),
                     ),
                     const SizedBox(height: 12),
@@ -150,8 +157,13 @@ class _SettingsPageState extends State<SettingsPage> {
                       protocol: ProxyProtocol.socks5,
                       controller: _socks5PortController,
                       errorText: socks5Error,
+                      enabled: !widget.portsLocked,
                       onSubmitted: (_) => _savePorts(),
                     ),
+                    if (widget.portsLocked) ...[
+                      const SizedBox(height: 10),
+                      const _LockedPortsNotice(),
+                    ],
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 180),
                       switchInCurve: Curves.easeOutCubic,
@@ -407,6 +419,12 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _savePorts() async {
+    if (widget.portsLocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Stop sharing before changing ports.')),
+      );
+      return;
+    }
     final httpPort = int.tryParse(_httpPortController.text.trim());
     final socks5Port = int.tryParse(_socks5PortController.text.trim());
     if (_portError(_httpPortController.text) != null ||
@@ -541,26 +559,62 @@ class _ProtocolPortField extends StatelessWidget {
     required this.protocol,
     required this.controller,
     required this.errorText,
+    required this.enabled,
     required this.onSubmitted,
   });
 
   final ProxyProtocol protocol;
   final TextEditingController controller;
   final String? errorText;
+  final bool enabled;
   final ValueChanged<String> onSubmitted;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      enabled: enabled,
       keyboardType: TextInputType.number,
       decoration: InputDecoration(
         labelText: '${protocol.label} port',
         prefixIcon: const Icon(Icons.numbers),
-        helperText: 'Default: ${protocol.defaultPort}',
+        helperText: enabled
+            ? 'Default: ${protocol.defaultPort}'
+            : 'Locked while sharing is active',
         errorText: errorText,
       ),
       onSubmitted: onSubmitted,
+    );
+  }
+}
+
+class _LockedPortsNotice extends StatelessWidget {
+  const _LockedPortsNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: .38),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .28)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.lock_outline, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Stop sharing before changing ports.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -126,6 +126,9 @@ class _LocalistShellState extends State<LocalistShell>
   bool _busy = false;
   bool _handlingWindowClose = false;
   bool _exitingApplication = false;
+  bool _trayReady = false;
+  bool _trayDestroyed = false;
+  bool _windowActionInProgress = false;
 
   @override
   void initState() {
@@ -152,7 +155,6 @@ class _LocalistShellState extends State<LocalistShell>
     if (Platform.isWindows) {
       windowManager.removeListener(this);
       tray.trayManager.removeListener(this);
-      unawaited(tray.trayManager.destroy());
     }
     widget.settings.removeListener(_handleSettingsChanged);
     _refreshTimer?.cancel();
@@ -170,22 +172,27 @@ class _LocalistShellState extends State<LocalistShell>
 
   @override
   void onTrayIconMouseDown() {
-    unawaited(_showWindowFromTray());
+    _runTrayAction(_showWindowFromTray);
   }
 
   @override
   void onTrayIconRightMouseDown() {
-    unawaited(tray.trayManager.popUpContextMenu());
+    // Windows expects the context menu to open on mouse-up.
+  }
+
+  @override
+  void onTrayIconRightMouseUp() {
+    _runTrayAction(_showTrayContextMenu);
   }
 
   @override
   void onTrayMenuItemClick(tray.MenuItem menuItem) {
     switch (menuItem.key) {
       case 'open':
-        unawaited(_showWindowFromTray());
+        _runTrayAction(_showWindowFromTray);
         break;
       case 'close':
-        unawaited(_exitApplication());
+        _runTrayAction(_exitApplication);
         break;
     }
   }
@@ -212,6 +219,7 @@ class _LocalistShellState extends State<LocalistShell>
         ],
       );
       await tray.trayManager.setContextMenu(menu);
+      _trayReady = true;
     } catch (error) {
       _logs.warning('Windows tray setup failed: $error');
     }
@@ -266,6 +274,8 @@ class _LocalistShellState extends State<LocalistShell>
           builder: (context, setDialogState) {
             return AlertDialog(
               title: const Text('Close Localist'),
+              actionsAlignment: MainAxisAlignment.center,
+              actionsOverflowAlignment: OverflowBarAlignment.center,
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -313,16 +323,52 @@ class _LocalistShellState extends State<LocalistShell>
     );
   }
 
+  void _runTrayAction(Future<void> Function() action) {
+    unawaited(Future<void>.delayed(const Duration(milliseconds: 80), action));
+  }
+
+  Future<void> _showTrayContextMenu() async {
+    if (!_trayReady || _trayDestroyed || _exitingApplication) {
+      return;
+    }
+    try {
+      await tray.trayManager.popUpContextMenu();
+    } catch (error) {
+      _logs.warning('Tray menu failed: $error');
+    }
+  }
+
   Future<void> _hideWindowToTray() async {
-    await windowManager.setSkipTaskbar(true);
-    await windowManager.hide();
-    _logs.info('Localist moved to the taskbar tray');
+    if (_windowActionInProgress || _exitingApplication) {
+      return;
+    }
+    _windowActionInProgress = true;
+    try {
+      await windowManager.setPreventClose(true);
+      await windowManager.hide();
+      await windowManager.setSkipTaskbar(true);
+      _logs.info('Localist moved to the taskbar tray');
+    } catch (error) {
+      _logs.warning('Unable to move Localist to the taskbar tray: $error');
+    } finally {
+      _windowActionInProgress = false;
+    }
   }
 
   Future<void> _showWindowFromTray() async {
-    await windowManager.setSkipTaskbar(false);
-    await windowManager.show();
-    await windowManager.focus();
+    if (_windowActionInProgress || _exitingApplication) {
+      return;
+    }
+    _windowActionInProgress = true;
+    try {
+      await windowManager.setSkipTaskbar(false);
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (error) {
+      _logs.warning('Unable to show Localist from the taskbar tray: $error');
+    } finally {
+      _windowActionInProgress = false;
+    }
   }
 
   Future<void> _exitApplication() async {
@@ -337,12 +383,26 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.warning('Cleanup before exit failed: $error');
     }
     try {
-      await tray.trayManager.destroy();
+      await _destroyTrayIcon();
       await windowManager.setPreventClose(false);
       await windowManager.destroy();
     } catch (error) {
       _logs.warning('Window close failed: $error');
       exit(0);
+    }
+  }
+
+  Future<void> _destroyTrayIcon() async {
+    if (_trayDestroyed) {
+      return;
+    }
+    _trayDestroyed = true;
+    _trayReady = false;
+    try {
+      tray.trayManager.removeListener(this);
+      await tray.trayManager.destroy();
+    } catch (error) {
+      _logs.warning('Tray cleanup failed: $error');
     }
   }
 
@@ -698,7 +758,7 @@ class _LocalistShellState extends State<LocalistShell>
   Widget build(BuildContext context) {
     final themeSettings = context.watch<ThemeSettingsModel>();
     final statsAvailable = _statsAvailable;
-    final navigationLocked = _sharingActive || _receivingActive;
+    final userNavigationLocked = _sharingActive || _receivingActive;
     final overlayStyle = SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       systemNavigationBarColor: Colors.transparent,
@@ -728,7 +788,7 @@ class _LocalistShellState extends State<LocalistShell>
         onStartLocalProxy: _startLocalProxy,
         onStopReceiving: _stopReceiving,
       ),
-      SettingsPage(settings: widget.settings),
+      SettingsPage(settings: widget.settings, portsLocked: _sharingActive),
     ];
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -794,7 +854,7 @@ class _LocalistShellState extends State<LocalistShell>
             bottom: false,
             child: PageView(
               controller: _pageController,
-              physics: navigationLocked
+              physics: userNavigationLocked
                   ? const NeverScrollableScrollPhysics()
                   : const PageScrollPhysics(),
               onPageChanged: _handlePageChanged,
@@ -879,6 +939,7 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
+    final currentIndex = _index;
     if (_index == value && !force) {
       return;
     }
@@ -888,11 +949,15 @@ class _LocalistShellState extends State<LocalistShell>
     if (!_pageController.hasClients) {
       return;
     }
-    _pageController.animateToPage(
-      value,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-    );
+    if (_pathContainsLockedPage(from: currentIndex, to: value)) {
+      _pageController.jumpToPage(value);
+    } else {
+      _pageController.animateToPage(
+        value,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   bool _pageLocked(int value) {
@@ -901,6 +966,20 @@ class _LocalistShellState extends State<LocalistShell>
       1 => _sharingActive,
       _ => false,
     };
+  }
+
+  bool _pathContainsLockedPage({required int from, required int to}) {
+    if (from == to) {
+      return false;
+    }
+    final start = from < to ? from + 1 : to;
+    final end = from < to ? to : from - 1;
+    for (var page = start; page <= end; page++) {
+      if (page != to && _pageLocked(page)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void _ensureUnlockedPage() {

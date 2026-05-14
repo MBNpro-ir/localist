@@ -13,7 +13,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/github/actions/workflow/status/MBNpro-ir/localist/release.yml?branch=master&label=release&logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.0.2-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.0.3-blue"></a>
 </p>
 
 ## Overview
@@ -88,8 +88,8 @@ flutter build apk --release `
   --obfuscate `
   --split-debug-info=build\symbols\android `
   --tree-shake-icons `
-  --build-name=1.0.2 `
-  --build-number=3
+  --build-name=1.0.3 `
+  --build-number=4
 ```
 
 Release Android App Bundle:
@@ -99,8 +99,8 @@ flutter build appbundle --release `
   --obfuscate `
   --split-debug-info=build\symbols\android-aab `
   --tree-shake-icons `
-  --build-name=1.0.2 `
-  --build-number=3
+  --build-name=1.0.3 `
+  --build-number=4
 ```
 
 Android release outputs:
@@ -123,8 +123,8 @@ flutter build windows --release `
   --obfuscate `
   --split-debug-info=build\symbols\windows-x64 `
   --tree-shake-icons `
-  --build-name=1.0.2 `
-  --build-number=3
+  --build-name=1.0.3 `
+  --build-number=4
 ```
 
 Windows release output folder:
@@ -136,9 +136,9 @@ build/windows/x64/runner/Release/
 Create a maximum-compression ZIP package:
 
 ```powershell
-New-Item -ItemType Directory -Force release\v1.0.2 | Out-Null
+New-Item -ItemType Directory -Force release\v1.0.3 | Out-Null
 & "$env:ProgramFiles\7-Zip\7z.exe" a -tzip -mx=9 `
-  release\v1.0.2\localist-v1.0.2-windows-x64.zip `
+  release\v1.0.3\localist-v1.0.3-windows-x64.zip `
   .\build\windows\x64\runner\Release\*
 ```
 
@@ -148,20 +148,20 @@ Flutter's Windows desktop build in this toolchain produces an x64 runner. Androi
 
 The release workflow builds and uploads:
 
-- `localist-v1.0.2-android-armeabi-v7a.apk`
-- `localist-v1.0.2-android-arm64-v8a.apk`
-- `localist-v1.0.2-android-x86_64.apk`
-- `localist-v1.0.2-android-universal.aab`
-- `localist-v1.0.2-windows-x64.zip`
+- `localist-v1.0.3-android-armeabi-v7a.apk`
+- `localist-v1.0.3-android-arm64-v8a.apk`
+- `localist-v1.0.3-android-x86_64.apk`
+- `localist-v1.0.3-android-universal.aab`
+- `localist-v1.0.3-windows-x64.zip`
 
-Create release version 1.0.2 from GitHub by pushing a tag:
+Create release version 1.0.3 from GitHub by pushing a tag:
 
 ```powershell
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
-You can also run the workflow manually from the GitHub Actions tab and keep the default tag `v1.0.2`.
+You can also run the workflow manually from the GitHub Actions tab and keep the default tag `v1.0.3`.
 
 ## Localist Modes
 
@@ -180,6 +180,7 @@ Settings:
 - Android root routing is still Android-only.
 - Windows starts with administrator privileges for VPN mode, so there is no admin toggle in Settings.
 - Windows close behavior can ask each time, move the window to the taskbar tray, or fully exit.
+- Proxy ports are locked while Sharing is active.
 - Theme follows Android dynamic colors or Windows accent colors.
 
 ## Notes
