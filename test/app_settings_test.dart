@@ -16,5 +16,6 @@ void main() {
     expect(settings.shareAllRoutes, isTrue);
     expect(settings.selectedLocalIps, isEmpty);
     expect(settings.rootRoutingEnabled, isFalse);
+    expect(settings.windowsCloseBehavior, WindowsCloseBehavior.ask);
   });
 }

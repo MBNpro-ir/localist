@@ -21,6 +21,16 @@ add_executable(${BINARY_NAME} WIN32
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
+# Localist's Windows VPN mode changes machine-level network state, so the
+# desktop runner must always request administrator privileges at startup.
+set_target_properties(${BINARY_NAME} PROPERTIES
+  VS_GLOBAL_UACExecutionLevel "RequireAdministrator"
+  VS_GLOBAL_UACUIAccess "false"
+)
+target_link_options(${BINARY_NAME} PRIVATE
+  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+)
+
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")

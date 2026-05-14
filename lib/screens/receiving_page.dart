@@ -1,9 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:simple_barcode_scanner/simple_barcode_scanner.dart';
+import 'package:webview_windows/webview_windows.dart';
 
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
@@ -334,18 +335,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
     if (device == null || !mounted) {
       return;
     }
-    final result = await SimpleBarcodeScanner.scanBarcode(
-      context,
-      scanType: ScanType.qr,
-      scanFormat: ScanFormat.ONLY_QR_CODE,
-      cameraFace: CameraFace.front,
-      barcodeAppBar: const BarcodeAppBar(
-        appBarTitle: 'Localist QR',
-        centerTitle: true,
-        enableBackButton: true,
-        backButtonIcon: Icon(Icons.arrow_back),
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (context) => _WindowsQrScannerPage(deviceName: device),
       ),
-      delayMillis: 500,
     );
     final value = result?.trim();
     if (value == null || value.isEmpty || value == '-1' || !mounted) {
@@ -542,6 +535,171 @@ class _ReceivingPageState extends State<ReceivingPage> {
       }
       return first.host.compareTo(second.host);
     });
+  }
+}
+
+class _WindowsQrScannerPage extends StatefulWidget {
+  const _WindowsQrScannerPage({required this.deviceName});
+
+  final String deviceName;
+
+  @override
+  State<_WindowsQrScannerPage> createState() => _WindowsQrScannerPageState();
+}
+
+class _WindowsQrScannerPageState extends State<_WindowsQrScannerPage> {
+  late final WebviewController _controller;
+  late final Future<void> _initialized;
+  bool _completed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebviewController();
+    _initialized = _initWebview();
+  }
+
+  @override
+  void dispose() {
+    _postClose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initWebview() async {
+    await _controller.initialize();
+    _controller.webMessage.listen(_handleWebMessage);
+    await _controller.loadUrl(_scannerAssetUrl());
+  }
+
+  void _handleWebMessage(dynamic event) {
+    if (_completed || !mounted || event is! Map) {
+      return;
+    }
+    if (event['methodName'] != 'successCallback') {
+      return;
+    }
+    final data = event['data'];
+    if (data is! String || data.trim().isEmpty) {
+      return;
+    }
+    _completed = true;
+    Navigator.of(context).pop(data.trim());
+  }
+
+  String _scannerAssetUrl() {
+    final assetsDirectory =
+        '${File(Platform.resolvedExecutable).parent.path}\\data\\flutter_assets\\packages\\simple_barcode_scanner\\assets\\barcode.html';
+    return Uri.file(assetsDirectory).toString();
+  }
+
+  Future<WebviewPermissionDecision> _handlePermissionRequest(
+    String url,
+    WebviewPermissionKind kind,
+    bool isUserInitiated,
+  ) async {
+    if (kind == WebviewPermissionKind.camera) {
+      return WebviewPermissionDecision.allow;
+    }
+    return WebviewPermissionDecision.none;
+  }
+
+  void _closeScanner() {
+    _completed = true;
+    _postClose();
+    Navigator.of(context).pop();
+  }
+
+  void _postClose() {
+    try {
+      _controller.postWebMessage(json.encode({'event': 'close'}));
+    } catch (_) {
+      // The webview may not have finished initializing yet.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      backgroundColor: scheme.surface,
+      appBar: AppBar(
+        title: const Text('Localist QR'),
+        centerTitle: true,
+        leading: IconButton(
+          tooltip: 'Close scanner',
+          onPressed: _closeScanner,
+          icon: const Icon(Icons.close),
+        ),
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 16),
+          child: Column(
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: .55),
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    height: 318,
+                    width: double.infinity,
+                    child: FutureBuilder<void>(
+                      future: _initialized,
+                      builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(
+                                'Scanner could not start.',
+                                style: TextStyle(color: scheme.error),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          );
+                        }
+                        if (snapshot.connectionState != ConnectionState.done) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        return Webview(
+                          _controller,
+                          permissionRequested: _handlePermissionRequest,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.videocam_outlined),
+                title: const Text('Scanner device'),
+                subtitle: Text(widget.deviceName),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  onPressed: _closeScanner,
+                  icon: const Icon(Icons.close),
+                  label: const Text('Close scanner'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

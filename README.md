@@ -13,7 +13,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/github/actions/workflow/status/MBNpro-ir/localist/release.yml?branch=master&label=release&logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.0.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.0.2-blue"></a>
 </p>
 
 ## Overview
@@ -21,7 +21,7 @@
 Localist is a Flutter app for moving proxy/VPN access between Android and Windows:
 
 - Android can share HTTP/SOCKS5 proxy endpoints and receive a remote endpoint as VPN or local proxy.
-- Windows can share proxy endpoints, show QR codes, scan proxy QR codes with a webcam, and apply Windows VPN mode through the system proxy.
+- Windows can share proxy endpoints, show QR codes, scan proxy QR codes with a webcam, run with administrator privileges, minimize to the taskbar tray, and apply Windows VPN mode through the system proxy.
 - Settings are persisted in each platform's standard app-support storage so reinstalling the app keeps user preferences.
 - Windows uses the Android app icon, fixed `350x720` client size, no maximize button, no resize frame, and Windows accent colors.
 
@@ -88,8 +88,8 @@ flutter build apk --release `
   --obfuscate `
   --split-debug-info=build\symbols\android `
   --tree-shake-icons `
-  --build-name=1.0.0 `
-  --build-number=1
+  --build-name=1.0.2 `
+  --build-number=3
 ```
 
 Release Android App Bundle:
@@ -99,8 +99,8 @@ flutter build appbundle --release `
   --obfuscate `
   --split-debug-info=build\symbols\android-aab `
   --tree-shake-icons `
-  --build-name=1.0.0 `
-  --build-number=1
+  --build-name=1.0.2 `
+  --build-number=3
 ```
 
 Android release outputs:
@@ -123,8 +123,8 @@ flutter build windows --release `
   --obfuscate `
   --split-debug-info=build\symbols\windows-x64 `
   --tree-shake-icons `
-  --build-name=1.0.0 `
-  --build-number=1
+  --build-name=1.0.2 `
+  --build-number=3
 ```
 
 Windows release output folder:
@@ -136,9 +136,9 @@ build/windows/x64/runner/Release/
 Create a maximum-compression ZIP package:
 
 ```powershell
-New-Item -ItemType Directory -Force release\v1 | Out-Null
+New-Item -ItemType Directory -Force release\v1.0.2 | Out-Null
 & "$env:ProgramFiles\7-Zip\7z.exe" a -tzip -mx=9 `
-  release\v1\localist-v1-windows-x64.zip `
+  release\v1.0.2\localist-v1.0.2-windows-x64.zip `
   .\build\windows\x64\runner\Release\*
 ```
 
@@ -148,20 +148,20 @@ Flutter's Windows desktop build in this toolchain produces an x64 runner. Androi
 
 The release workflow builds and uploads:
 
-- `localist-v1-android-armeabi-v7a.apk`
-- `localist-v1-android-arm64-v8a.apk`
-- `localist-v1-android-x86_64.apk`
-- `localist-v1-android-universal.aab`
-- `localist-v1-windows-x64.zip`
+- `localist-v1.0.2-android-armeabi-v7a.apk`
+- `localist-v1.0.2-android-arm64-v8a.apk`
+- `localist-v1.0.2-android-x86_64.apk`
+- `localist-v1.0.2-android-universal.aab`
+- `localist-v1.0.2-windows-x64.zip`
 
-Create release version 1 from GitHub by pushing a tag:
+Create release version 1.0.2 from GitHub by pushing a tag:
 
 ```powershell
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
-You can also run the workflow manually from the GitHub Actions tab and keep the default tag `v1.0.0`.
+You can also run the workflow manually from the GitHub Actions tab and keep the default tag `v1.0.2`.
 
 ## Localist Modes
 
@@ -178,7 +178,8 @@ Receiving:
 Settings:
 
 - Android root routing is still Android-only.
-- Windows admin access is requested through UAC and remains enabled after approval.
+- Windows starts with administrator privileges for VPN mode, so there is no admin toggle in Settings.
+- Windows close behavior can ask each time, move the window to the taskbar tray, or fully exit.
 - Theme follows Android dynamic colors or Windows accent colors.
 
 ## Notes

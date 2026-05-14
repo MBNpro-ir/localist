@@ -19,6 +19,23 @@ enum ProxyProtocol {
   }
 }
 
+enum WindowsCloseBehavior {
+  ask('ask'),
+  tray('tray'),
+  exit('exit');
+
+  const WindowsCloseBehavior(this.storageValue);
+
+  final String storageValue;
+
+  static WindowsCloseBehavior fromStorage(String? value) {
+    return WindowsCloseBehavior.values.firstWhere(
+      (behavior) => behavior.storageValue == value,
+      orElse: () => WindowsCloseBehavior.ask,
+    );
+  }
+}
+
 class AppSettings extends ChangeNotifier {
   AppSettings({
     required Set<ProxyProtocol> enabledProtocols,
@@ -26,11 +43,13 @@ class AppSettings extends ChangeNotifier {
     required bool shareAllRoutes,
     required Set<String> selectedLocalIps,
     required bool rootRoutingEnabled,
+    required WindowsCloseBehavior windowsCloseBehavior,
   }) : _enabledProtocols = _coerceProtocols(enabledProtocols),
        _protocolPorts = _coerceProtocolPorts(protocolPorts),
        _shareAllRoutes = shareAllRoutes,
        _selectedLocalIps = {...selectedLocalIps},
-       _rootRoutingEnabled = rootRoutingEnabled;
+       _rootRoutingEnabled = rootRoutingEnabled,
+       _windowsCloseBehavior = windowsCloseBehavior;
 
   static const _protocolKey = 'proxy.protocol';
   static const _protocolsKey = 'proxy.protocols';
@@ -41,12 +60,14 @@ class AppSettings extends ChangeNotifier {
   static const _legacySelectiveKey = 'vpn.selectiveSharing';
   static const _selectedLocalIpsKey = 'sharing.selectedLocalIps';
   static const _rootRoutingKey = 'root.routingEnabled';
+  static const _windowsCloseBehaviorKey = 'windows.closeBehavior';
 
   Set<ProxyProtocol> _enabledProtocols;
   Map<ProxyProtocol, int> _protocolPorts;
   bool _shareAllRoutes;
   Set<String> _selectedLocalIps;
   bool _rootRoutingEnabled;
+  WindowsCloseBehavior _windowsCloseBehavior;
 
   Set<ProxyProtocol> get enabledProtocols =>
       Set.unmodifiable(_enabledProtocols);
@@ -56,6 +77,7 @@ class AppSettings extends ChangeNotifier {
   bool get shareAllRoutes => _shareAllRoutes;
   Set<String> get selectedLocalIps => Set.unmodifiable(_selectedLocalIps);
   bool get rootRoutingEnabled => _rootRoutingEnabled;
+  WindowsCloseBehavior get windowsCloseBehavior => _windowsCloseBehavior;
 
   int portFor(ProxyProtocol protocol) {
     return _protocolPorts[protocol] ?? protocol.defaultPort;
@@ -99,6 +121,9 @@ class AppSettings extends ChangeNotifier {
       selectedLocalIps:
           prefs.getStringList(_selectedLocalIpsKey)?.toSet() ?? const {},
       rootRoutingEnabled: prefs.getBool(_rootRoutingKey) ?? false,
+      windowsCloseBehavior: WindowsCloseBehavior.fromStorage(
+        prefs.getString(_windowsCloseBehaviorKey),
+      ),
     );
   }
 
@@ -183,6 +208,16 @@ class AppSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_rootRoutingKey, value);
+  }
+
+  Future<void> setWindowsCloseBehavior(WindowsCloseBehavior value) async {
+    if (_windowsCloseBehavior == value) {
+      return;
+    }
+    _windowsCloseBehavior = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_windowsCloseBehaviorKey, value.storageValue);
   }
 
   static const _defaultProtocols = {ProxyProtocol.socks5};

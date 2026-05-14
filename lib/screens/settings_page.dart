@@ -10,7 +10,7 @@ import '../services/native_bridge_service.dart';
 import '../widgets/glass.dart';
 
 const _appName = 'Localist';
-const _appVersion = '1';
+const _appVersion = '1.0.2';
 const _appDeveloper = 'PRS';
 const _appPackageName = 'com.prs.localist';
 const _windowsAppId = 'PRS.Localist';
@@ -98,34 +98,26 @@ class _SettingsPageState extends State<SettingsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Proxy', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: _rootBusy
-                        ? const SizedBox.square(
-                            dimension: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.admin_panel_settings_outlined),
-                    title: Text(
-                      isWindows ? 'Windows admin access' : 'Root VPN sharing',
+                  if (!isWindows) ...[
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: _rootBusy
+                          ? const SizedBox.square(
+                              dimension: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.admin_panel_settings_outlined),
+                      title: const Text('Root VPN sharing'),
+                      subtitle: Text(
+                        widget.settings.rootRoutingEnabled
+                            ? 'Proxy mode is disabled'
+                            : 'Use proxy mode without root',
+                      ),
+                      value: widget.settings.rootRoutingEnabled,
+                      onChanged: _rootBusy ? null : _setRootRoutingEnabled,
                     ),
-                    subtitle: Text(
-                      isWindows
-                          ? widget.settings.rootRoutingEnabled
-                                ? 'Granted for Windows mode'
-                                : 'Ask Windows for administrator approval'
-                          : widget.settings.rootRoutingEnabled
-                          ? 'Proxy mode is disabled'
-                          : 'Use proxy mode without root',
-                    ),
-                    value: widget.settings.rootRoutingEnabled,
-                    onChanged:
-                        _rootBusy ||
-                            (isWindows && widget.settings.rootRoutingEnabled)
-                        ? null
-                        : _setRootRoutingEnabled,
-                  ),
+                  ],
                   if (isWindows || !widget.settings.rootRoutingEnabled) ...[
                     const SizedBox(height: 12),
                     for (final protocol in ProxyProtocol.values)
@@ -190,6 +182,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
+            if (isWindows)
+              GlassPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Window close',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    _WindowsCloseBehaviorSelector(settings: widget.settings),
+                  ],
+                ),
+              ),
             GlassPanel(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -288,9 +294,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              isWindows
-                                  ? 'Windows Desktop - Version $_appVersion'
-                                  : 'Developer: $_appDeveloper',
+                              'Developed by $_appDeveloper',
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                           ],
@@ -326,6 +330,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       label: 'Settings',
                       value: settingsPath,
                       icon: Icons.folder_outlined,
+                      wrapValue: true,
                     ),
                   ],
                 ],
@@ -492,6 +497,42 @@ class _SettingsPageState extends State<SettingsPage> {
         setState(() => _rootBusy = false);
       }
     }
+  }
+}
+
+class _WindowsCloseBehaviorSelector extends StatelessWidget {
+  const _WindowsCloseBehaviorSelector({required this.settings});
+
+  final AppSettings settings;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<WindowsCloseBehavior>(
+      initialValue: settings.windowsCloseBehavior,
+      decoration: const InputDecoration(
+        labelText: 'Close button',
+        prefixIcon: Icon(Icons.close_fullscreen_outlined),
+      ),
+      items: const [
+        DropdownMenuItem(
+          value: WindowsCloseBehavior.ask,
+          child: Text('Ask every time'),
+        ),
+        DropdownMenuItem(
+          value: WindowsCloseBehavior.tray,
+          child: Text('Taskbar tray'),
+        ),
+        DropdownMenuItem(
+          value: WindowsCloseBehavior.exit,
+          child: Text('Exit Localist'),
+        ),
+      ],
+      onChanged: (value) {
+        if (value != null) {
+          settings.setWindowsCloseBehavior(value);
+        }
+      },
+    );
   }
 }
 

@@ -5,7 +5,10 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   permission_handler_windows
+  screen_retriever_windows
+  tray_manager
   webview_windows
+  window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

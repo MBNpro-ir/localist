@@ -149,11 +149,13 @@ class MetricTile extends StatelessWidget {
     required this.label,
     required this.value,
     required this.icon,
+    this.wrapValue = false,
   });
 
   final String label;
   final String value;
   final IconData icon;
+  final bool wrapValue;
 
   @override
   Widget build(BuildContext context) {
@@ -182,7 +184,11 @@ class MetricTile extends StatelessWidget {
                   Text(
                     value,
                     style: textTheme.titleMedium,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: wrapValue ? null : 1,
+                    overflow: wrapValue
+                        ? TextOverflow.visible
+                        : TextOverflow.ellipsis,
+                    softWrap: wrapValue,
                   ),
                 ],
               ),

@@ -7,6 +7,8 @@ import 'package:material_you_dynamic_theme/material_you_dynamic_theme.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tray_manager/tray_manager.dart' as tray;
+import 'package:window_manager/window_manager.dart';
 
 import 'models/app_settings.dart';
 import 'models/service_state.dart';
@@ -28,6 +30,7 @@ Future<void> main(List<String> args) async {
   binding.deferFirstFrame();
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   try {
+    await _bootstrapWindowsWindow();
     await _bootstrapWindowsSettings(args);
     final settings = await AppSettings.load();
     await runAppDynamic(
@@ -41,6 +44,13 @@ Future<void> main(List<String> args) async {
   } finally {
     binding.allowFirstFrame();
   }
+}
+
+Future<void> _bootstrapWindowsWindow() async {
+  if (!Platform.isWindows) {
+    return;
+  }
+  await windowManager.ensureInitialized();
 }
 
 Widget _windowsCompactBuilder(BuildContext context, Widget? child) {
@@ -96,7 +106,8 @@ class LocalistShell extends StatefulWidget {
   State<LocalistShell> createState() => _LocalistShellState();
 }
 
-class _LocalistShellState extends State<LocalistShell> {
+class _LocalistShellState extends State<LocalistShell>
+    with WindowListener, tray.TrayListener {
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final LogService _logs = LogService.instance;
   late final PageController _pageController;
@@ -113,11 +124,18 @@ class _LocalistShellState extends State<LocalistShell> {
     port: ProxyProtocol.socks5.defaultPort,
   );
   bool _busy = false;
+  bool _handlingWindowClose = false;
+  bool _exitingApplication = false;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
+    if (Platform.isWindows) {
+      windowManager.addListener(this);
+      tray.trayManager.addListener(this);
+      unawaited(_configureWindowsWindow());
+    }
     widget.settings.addListener(_handleSettingsChanged);
     _refreshState();
     _refreshTimer = Timer.periodic(
@@ -131,10 +149,201 @@ class _LocalistShellState extends State<LocalistShell> {
 
   @override
   void dispose() {
+    if (Platform.isWindows) {
+      windowManager.removeListener(this);
+      tray.trayManager.removeListener(this);
+      unawaited(tray.trayManager.destroy());
+    }
     widget.settings.removeListener(_handleSettingsChanged);
     _refreshTimer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  @override
+  void onWindowClose() {
+    if (!Platform.isWindows || _exitingApplication) {
+      return;
+    }
+    unawaited(_handleWindowsCloseRequest());
+  }
+
+  @override
+  void onTrayIconMouseDown() {
+    unawaited(_showWindowFromTray());
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    unawaited(tray.trayManager.popUpContextMenu());
+  }
+
+  @override
+  void onTrayMenuItemClick(tray.MenuItem menuItem) {
+    switch (menuItem.key) {
+      case 'open':
+        unawaited(_showWindowFromTray());
+        break;
+      case 'close':
+        unawaited(_exitApplication());
+        break;
+    }
+  }
+
+  Future<void> _configureWindowsWindow() async {
+    const fixedSize = Size(350, 720);
+    try {
+      await windowManager.setTitle('Localist');
+      await windowManager.setSize(fixedSize);
+      await windowManager.setMinimumSize(fixedSize);
+      await windowManager.setMaximumSize(fixedSize);
+      await windowManager.setResizable(false);
+      await windowManager.setMaximizable(false);
+      await windowManager.setPreventClose(true);
+      await windowManager.setIcon('ico/logo.ico');
+
+      await tray.trayManager.setIcon('ico/logo.ico');
+      await tray.trayManager.setToolTip('Localist');
+      final menu = tray.Menu(
+        items: [
+          tray.MenuItem(key: 'open', label: 'Open'),
+          tray.MenuItem.separator(),
+          tray.MenuItem(key: 'close', label: 'Close'),
+        ],
+      );
+      await tray.trayManager.setContextMenu(menu);
+    } catch (error) {
+      _logs.warning('Windows tray setup failed: $error');
+    }
+  }
+
+  Future<void> _handleWindowsCloseRequest() async {
+    if (_handlingWindowClose) {
+      return;
+    }
+    _handlingWindowClose = true;
+    try {
+      switch (widget.settings.windowsCloseBehavior) {
+        case WindowsCloseBehavior.tray:
+          await _hideWindowToTray();
+          return;
+        case WindowsCloseBehavior.exit:
+          await _exitApplication();
+          return;
+        case WindowsCloseBehavior.ask:
+          break;
+      }
+
+      final decision = await _showWindowsCloseDialog();
+      if (decision == null) {
+        return;
+      }
+      if (decision.remember) {
+        await widget.settings.setWindowsCloseBehavior(decision.behavior);
+      }
+      switch (decision.behavior) {
+        case WindowsCloseBehavior.tray:
+          await _hideWindowToTray();
+          return;
+        case WindowsCloseBehavior.exit:
+          await _exitApplication();
+          return;
+        case WindowsCloseBehavior.ask:
+          return;
+      }
+    } finally {
+      _handlingWindowClose = false;
+    }
+  }
+
+  Future<_WindowsCloseDecision?> _showWindowsCloseDialog() {
+    var remember = false;
+    return showDialog<_WindowsCloseDecision>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Close Localist'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: remember,
+                    title: const Text('Remember my choice'),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    onChanged: (value) {
+                      setDialogState(() => remember = value ?? false);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: () => Navigator.of(context).pop(
+                    _WindowsCloseDecision(
+                      WindowsCloseBehavior.tray,
+                      remember: remember,
+                    ),
+                  ),
+                  icon: const Icon(Icons.system_update_alt_outlined),
+                  label: const Text('Taskbar tray'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).pop(
+                    _WindowsCloseDecision(
+                      WindowsCloseBehavior.exit,
+                      remember: remember,
+                    ),
+                  ),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Exit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _hideWindowToTray() async {
+    await windowManager.setSkipTaskbar(true);
+    await windowManager.hide();
+    _logs.info('Localist moved to the taskbar tray');
+  }
+
+  Future<void> _showWindowFromTray() async {
+    await windowManager.setSkipTaskbar(false);
+    await windowManager.show();
+    await windowManager.focus();
+  }
+
+  Future<void> _exitApplication() async {
+    if (_exitingApplication) {
+      return;
+    }
+    _exitingApplication = true;
+    try {
+      await _bridge.stopRootSharing();
+      await _bridge.stopProxyService();
+    } catch (error) {
+      _logs.warning('Cleanup before exit failed: $error');
+    }
+    try {
+      await tray.trayManager.destroy();
+      await windowManager.setPreventClose(false);
+      await windowManager.destroy();
+    } catch (error) {
+      _logs.warning('Window close failed: $error');
+      exit(0);
+    }
   }
 
   Future<void> _handleSettingsChanged() async {
@@ -161,6 +370,7 @@ class _LocalistShellState extends State<LocalistShell> {
         return;
       }
       setState(() => _snapshot = snapshot);
+      _ensureUnlockedPage();
     } catch (error) {
       if (!quiet) {
         _logs.warning('Unable to refresh native state: $error');
@@ -181,6 +391,10 @@ class _LocalistShellState extends State<LocalistShell> {
 
   Future<void> _startSharing() async {
     if (_busy) {
+      return;
+    }
+    if (_receivingActive) {
+      _showLockedPageMessage(0);
       return;
     }
     setState(() => _busy = true);
@@ -309,6 +523,10 @@ class _LocalistShellState extends State<LocalistShell> {
     if (_busy) {
       return;
     }
+    if (_sharingActive) {
+      _showLockedPageMessage(1);
+      return;
+    }
     setState(() => _busy = true);
     try {
       final reachable = await _testProxyConnection(config);
@@ -342,6 +560,10 @@ class _LocalistShellState extends State<LocalistShell> {
 
   Future<void> _startLocalProxy(RemoteProxyConfig config) async {
     if (_busy) {
+      return;
+    }
+    if (_sharingActive) {
+      _showLockedPageMessage(1);
       return;
     }
     setState(() => _busy = true);
@@ -476,6 +698,7 @@ class _LocalistShellState extends State<LocalistShell> {
   Widget build(BuildContext context) {
     final themeSettings = context.watch<ThemeSettingsModel>();
     final statsAvailable = _statsAvailable;
+    final navigationLocked = _sharingActive || _receivingActive;
     final overlayStyle = SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       systemNavigationBarColor: Colors.transparent,
@@ -571,7 +794,10 @@ class _LocalistShellState extends State<LocalistShell> {
             bottom: false,
             child: PageView(
               controller: _pageController,
-              onPageChanged: (value) => setState(() => _index = value),
+              physics: navigationLocked
+                  ? const NeverScrollableScrollPhysics()
+                  : const PageScrollPhysics(),
+              onPageChanged: _handlePageChanged,
               children: pages,
             ),
           ),
@@ -598,6 +824,8 @@ class _LocalistShellState extends State<LocalistShell> {
                 destinations: [
                   for (var i = 0; i < _items.length; i++)
                     NavigationDestination(
+                      enabled: !_pageLocked(i),
+                      tooltip: _navTooltip(i),
                       icon: AnimatedNavIcon(
                         icon: _items[i].icon,
                         selected: _index == i,
@@ -617,21 +845,103 @@ class _LocalistShellState extends State<LocalistShell> {
     );
   }
 
-  bool get _statsAvailable {
+  bool get _sharingActive {
     return _snapshot.proxyRunning ||
-        _snapshot.vpnConnected ||
-        _snapshot.root.active ||
-        _snapshot.receivingRunning ||
-        _snapshot.localProxyRunning;
+        (!Platform.isWindows && _snapshot.root.active);
+  }
+
+  bool get _receivingActive {
+    return _snapshot.receivingRunning || _snapshot.localProxyRunning;
+  }
+
+  bool get _statsAvailable {
+    return _sharingActive || _receivingActive || _snapshot.vpnConnected;
   }
 
   void _goToPage(int value) {
+    if (_pageLocked(value)) {
+      _showLockedPageMessage(value);
+      return;
+    }
+    _setPage(value);
+  }
+
+  void _handlePageChanged(int value) {
+    if (_pageLocked(value)) {
+      _showLockedPageMessage(value);
+      _setPage(_firstUnlockedPage(), force: true);
+      return;
+    }
     setState(() => _index = value);
+  }
+
+  void _setPage(int value, {bool force = false}) {
+    if (!mounted) {
+      return;
+    }
+    if (_index == value && !force) {
+      return;
+    }
+    if (_index != value) {
+      setState(() => _index = value);
+    }
+    if (!_pageController.hasClients) {
+      return;
+    }
     _pageController.animateToPage(
       value,
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
     );
+  }
+
+  bool _pageLocked(int value) {
+    return switch (value) {
+      0 => _receivingActive,
+      1 => _sharingActive,
+      _ => false,
+    };
+  }
+
+  void _ensureUnlockedPage() {
+    if (!_pageLocked(_index)) {
+      return;
+    }
+    _setPage(_firstUnlockedPage());
+  }
+
+  int _firstUnlockedPage() {
+    for (final fallback in const [0, 1, 2]) {
+      if (!_pageLocked(fallback)) {
+        return fallback;
+      }
+    }
+    return 2;
+  }
+
+  String? _navTooltip(int value) {
+    if (!_pageLocked(value)) {
+      return null;
+    }
+    return switch (value) {
+      0 => 'Stop receiving before opening Sharing',
+      1 => 'Stop sharing before opening Receiving',
+      _ => null,
+    };
+  }
+
+  void _showLockedPageMessage(int value) {
+    if (!mounted) {
+      return;
+    }
+    final message = switch (value) {
+      0 => 'Stop receiving before opening Sharing.',
+      1 => 'Stop sharing before opening Receiving.',
+      _ => 'This page is locked.',
+    };
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _toggleTheme(ThemeSettingsModel themeSettings) {
@@ -686,6 +996,13 @@ class _NavItem {
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+}
+
+class _WindowsCloseDecision {
+  const _WindowsCloseDecision(this.behavior, {required this.remember});
+
+  final WindowsCloseBehavior behavior;
+  final bool remember;
 }
 
 class _OnboardingGuideDialog extends StatelessWidget {
