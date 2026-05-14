@@ -166,12 +166,16 @@ class SmartProxyPayload {
   final List<SmartProxyEndpoint> endpoints;
 
   String encode() {
-    final payload = {
-      'type': 'localist.smart.v1',
-      'proxies': endpoints.map((endpoint) => endpoint.toMap()).toList(),
-    };
-    final data = base64Url.encode(utf8.encode(jsonEncode(payload)));
-    return 'localist://smart?data=$data';
+    final encodedEndpoints = endpoints
+        .map((endpoint) {
+          return [
+            endpoint.protocol.name,
+            Uri.encodeComponent(endpoint.host),
+            endpoint.port,
+          ].join(',');
+        })
+        .join(';');
+    return 'localist://smart?e=$encodedEndpoints';
   }
 
   static SmartProxyPayload? tryParse(String value) {
@@ -180,6 +184,17 @@ class SmartProxyPayload {
       String? rawJson;
       final uri = Uri.tryParse(trimmed);
       if (uri != null && uri.scheme == 'localist' && uri.host == 'smart') {
+        final compactEndpoints = uri.queryParameters['e'];
+        if (compactEndpoints != null && compactEndpoints.isNotEmpty) {
+          final endpoints = _parseCompactEndpoints(compactEndpoints);
+          if (endpoints.isNotEmpty) {
+            return SmartProxyPayload(
+              hotspotSsid: '',
+              hotspotPassword: '',
+              endpoints: endpoints,
+            );
+          }
+        }
         final data = uri.queryParameters['data'];
         if (data != null) {
           rawJson = utf8.decode(base64Url.decode(base64Url.normalize(data)));
@@ -214,6 +229,32 @@ class SmartProxyPayload {
     } catch (_) {
       return null;
     }
+  }
+
+  static List<SmartProxyEndpoint> _parseCompactEndpoints(String value) {
+    return value
+        .split(';')
+        .map((entry) {
+          final parts = entry.split(',');
+          if (parts.length != 3) {
+            return null;
+          }
+          final port = int.tryParse(parts[2]);
+          if (port == null || port < 1 || port > 65535) {
+            return null;
+          }
+          final host = Uri.decodeComponent(parts[1]).trim();
+          if (host.isEmpty) {
+            return null;
+          }
+          return SmartProxyEndpoint(
+            protocol: ProxyProtocol.fromName(parts[0]),
+            host: host,
+            port: port,
+          );
+        })
+        .nonNulls
+        .toList(growable: false);
   }
 }
 

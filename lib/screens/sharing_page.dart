@@ -16,6 +16,8 @@ class SharingPage extends StatelessWidget {
     required this.settings,
     required this.snapshot,
     required this.busy,
+    required this.controlsLocked,
+    required this.lockMessage,
     required this.onStartSharing,
     required this.onStopSharing,
     required this.onOpenHotspotSettings,
@@ -25,6 +27,8 @@ class SharingPage extends StatelessWidget {
   final AppSettings settings;
   final ServiceSnapshot snapshot;
   final bool busy;
+  final bool controlsLocked;
+  final String lockMessage;
   final VoidCallback onStartSharing;
   final VoidCallback onStopSharing;
   final VoidCallback onOpenHotspotSettings;
@@ -35,9 +39,7 @@ class SharingPage extends StatelessWidget {
     final rootMode = settings.rootRoutingEnabled;
     final rootSharingMode = !Platform.isWindows && rootMode;
     final running =
-        snapshot.proxyRunning ||
-        snapshot.vpnConnected ||
-        (!Platform.isWindows && snapshot.root.active);
+        snapshot.proxyRunning || (!Platform.isWindows && snapshot.root.active);
     final activeProtocols = running
         ? snapshot.protocols
         : settings.enabledProtocols;
@@ -59,6 +61,8 @@ class SharingPage extends StatelessWidget {
           settings: settings,
           snapshot: snapshot,
           busy: busy,
+          controlsLocked: controlsLocked,
+          lockMessage: lockMessage,
           running: running,
           rootMode: rootSharingMode,
           isWindows: Platform.isWindows,
@@ -92,6 +96,8 @@ class _SharingControlPanel extends StatelessWidget {
     required this.settings,
     required this.snapshot,
     required this.busy,
+    required this.controlsLocked,
+    required this.lockMessage,
     required this.running,
     required this.rootMode,
     required this.isWindows,
@@ -106,6 +112,8 @@ class _SharingControlPanel extends StatelessWidget {
   final AppSettings settings;
   final ServiceSnapshot snapshot;
   final bool busy;
+  final bool controlsLocked;
+  final String lockMessage;
   final bool running;
   final bool rootMode;
   final bool isWindows;
@@ -118,6 +126,7 @@ class _SharingControlPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final oppositeServiceActive = controlsLocked && !running;
     final actionLabel = busy
         ? running
               ? 'Stopping sharing...'
@@ -143,7 +152,7 @@ class _SharingControlPanel extends StatelessWidget {
               ),
               IconButton(
                 tooltip: 'Refresh',
-                onPressed: busy ? null : onRefresh,
+                onPressed: busy || oppositeServiceActive ? null : onRefresh,
                 icon: const Icon(Icons.sync),
               ),
             ],
@@ -158,7 +167,7 @@ class _SharingControlPanel extends StatelessWidget {
                   : 'Choose the exact local IPs that should serve proxy',
             ),
             value: settings.shareAllRoutes,
-            onChanged: busy || running
+            onChanged: busy || running || oppositeServiceActive
                 ? null
                 : (value) => settings.setShareAllRoutes(value),
           ),
@@ -196,7 +205,7 @@ class _SharingControlPanel extends StatelessWidget {
                       avatar: const Icon(Icons.lan_outlined, size: 18),
                       label: Text(ip),
                       selected: settings.isLocalIpSelected(ip),
-                      onSelected: busy || running
+                      onSelected: busy || running || oppositeServiceActive
                           ? null
                           : (selected) =>
                                 settings.setLocalIpSelected(ip, selected),
@@ -240,7 +249,7 @@ class _SharingControlPanel extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: busy
+              onPressed: busy || oppositeServiceActive
                   ? null
                   : (running ? onStopSharing : onStartSharing),
               icon: busy
@@ -254,6 +263,10 @@ class _SharingControlPanel extends StatelessWidget {
               label: Text(actionLabel),
             ),
           ),
+          if (oppositeServiceActive) ...[
+            const SizedBox(height: 12),
+            ServiceLockNotice(message: lockMessage),
+          ],
         ],
       ),
     );
@@ -538,6 +551,7 @@ class _QrPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final qrSize = endpoint.isSmart ? 252.0 : 232.0;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: .54),
@@ -566,7 +580,7 @@ class _QrPreview extends StatelessWidget {
               child: Center(
                 child: _CachedQrImage(
                   data: endpoint.data,
-                  size: 232,
+                  size: qrSize,
                   semanticLabel: '${endpoint.title} QR code',
                 ),
               ),
@@ -647,8 +661,6 @@ class _CachedQrImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final quietZone = (size * .07).clamp(12.0, 18.0).toDouble();
-    final imageSize = size - quietZone * 2;
     return SizedBox.square(
       dimension: size,
       child: DecoratedBox(
@@ -656,34 +668,31 @@ class _CachedQrImage extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Padding(
-          padding: EdgeInsets.all(quietZone),
-          child: FutureBuilder<Uint8List>(
-            future: _QrRasterCache.imageFor(data: data, size: imageSize),
-            builder: (context, snapshot) {
-              if (snapshot.hasData) {
-                return Image.memory(
-                  snapshot.data!,
-                  width: imageSize,
-                  height: imageSize,
-                  gaplessPlayback: true,
-                  filterQuality: FilterQuality.none,
-                  semanticLabel: semanticLabel,
-                );
-              }
-              if (snapshot.hasError) {
-                return const Center(
-                  child: Icon(Icons.qr_code_2, color: Colors.black54),
-                );
-              }
-              return const Center(
-                child: SizedBox.square(
-                  dimension: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+        child: FutureBuilder<Uint8List>(
+          future: _QrRasterCache.imageFor(data: data, size: size),
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              return Image.memory(
+                snapshot.data!,
+                width: size,
+                height: size,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.none,
+                semanticLabel: semanticLabel,
               );
-            },
-          ),
+            }
+            if (snapshot.hasError) {
+              return const Center(
+                child: Icon(Icons.qr_code_2, color: Colors.black54),
+              );
+            }
+            return const Center(
+              child: SizedBox.square(
+                dimension: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -712,6 +721,9 @@ class _QrRasterCache {
     required String data,
     required double size,
   }) async {
+    final imageSize = size.round();
+    final quietZone = (imageSize * .075).round().clamp(16, 22);
+    final qrSize = imageSize - quietZone * 2;
     final painter = QrPainter(
       data: data,
       version: QrVersions.auto,
@@ -725,10 +737,18 @@ class _QrRasterCache {
         color: Colors.black,
       ),
     );
-    final imageData = await painter.toImageData(
-      size,
-      format: ui.ImageByteFormat.png,
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, imageSize.toDouble(), imageSize.toDouble()),
+      Paint()..color = Colors.white,
     );
+    canvas.translate(quietZone.toDouble(), quietZone.toDouble());
+    painter.paint(canvas, Size.square(qrSize.toDouble()));
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(imageSize, imageSize);
+    final imageData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
     if (imageData == null) {
       throw StateError('Unable to render QR image.');
     }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -17,6 +18,8 @@ class ReceivingPage extends StatefulWidget {
     super.key,
     required this.snapshot,
     required this.busy,
+    required this.controlsLocked,
+    required this.lockMessage,
     required this.onStartReceiving,
     required this.onStartLocalProxy,
     required this.onStopReceiving,
@@ -24,6 +27,8 @@ class ReceivingPage extends StatefulWidget {
 
   final ServiceSnapshot snapshot;
   final bool busy;
+  final bool controlsLocked;
+  final String lockMessage;
   final ValueChanged<RemoteProxyConfig> onStartReceiving;
   final ValueChanged<RemoteProxyConfig> onStartLocalProxy;
   final VoidCallback onStopReceiving;
@@ -67,6 +72,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
     if (remote != null && remote.url != oldWidget.snapshot.remoteProxy?.url) {
       _applyConfig(remote);
     }
+    if (widget.controlsLocked && _scanning && !oldWidget.controlsLocked) {
+      unawaited(_stopScanner());
+    }
   }
 
   @override
@@ -82,6 +90,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
   Widget build(BuildContext context) {
     final running =
         widget.snapshot.receivingRunning || widget.snapshot.localProxyRunning;
+    final oppositeServiceActive = widget.controlsLocked && !running;
     final proxyRunning = widget.snapshot.localProxyRunning;
     final config = _currentConfig();
 
@@ -107,7 +116,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
               const SizedBox(height: 14),
               TextField(
                 controller: _configController,
-                enabled: !running && !widget.busy,
+                enabled: !running && !widget.busy && !oppositeServiceActive,
                 minLines: 2,
                 maxLines: 4,
                 decoration: const InputDecoration(
@@ -120,7 +129,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.tonalIcon(
-                  onPressed: widget.busy || running
+                  onPressed: widget.busy || running || oppositeServiceActive
                       ? null
                       : () => _handleConfigValue(_configController.text),
                   icon: const Icon(Icons.download_done_outlined),
@@ -131,7 +140,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: widget.busy
+                  onPressed: widget.busy || oppositeServiceActive
                       ? null
                       : running
                       ? widget.onStopReceiving
@@ -144,6 +153,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
                   label: Text(running ? 'Stop receiving' : 'Scan proxy QR'),
                 ),
               ),
+              if (oppositeServiceActive) ...[
+                const SizedBox(height: 12),
+                ServiceLockNotice(message: widget.lockMessage),
+              ],
             ],
           ),
         ),
@@ -193,7 +206,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
                     ),
                 ],
                 selected: {_protocol},
-                onSelectionChanged: running
+                onSelectionChanged: running || oppositeServiceActive
                     ? null
                     : (values) => setState(() {
                         _protocol = values.single;
@@ -203,7 +216,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
               const SizedBox(height: 12),
               TextField(
                 controller: _hostController,
-                enabled: !running,
+                enabled: !running && !oppositeServiceActive,
                 decoration: const InputDecoration(
                   labelText: 'Proxy host',
                   prefixIcon: Icon(Icons.dns_outlined),
@@ -212,7 +225,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
               const SizedBox(height: 12),
               TextField(
                 controller: _portController,
-                enabled: !running,
+                enabled: !running && !oppositeServiceActive,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
                   labelText: 'Proxy port',
@@ -235,7 +248,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: widget.busy || running || config == null
+                  onPressed:
+                      widget.busy ||
+                          running ||
+                          oppositeServiceActive ||
+                          config == null
                       ? null
                       : () => widget.onStartReceiving(config),
                   icon: const Icon(Icons.vpn_key_outlined),
@@ -250,7 +267,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.tonalIcon(
-                  onPressed: widget.busy || running || config == null
+                  onPressed:
+                      widget.busy ||
+                          running ||
+                          oppositeServiceActive ||
+                          config == null
                       ? null
                       : () => widget.onStartLocalProxy(config),
                   icon: const Icon(Icons.settings_ethernet),
@@ -278,7 +299,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.tonalIcon(
-                  onPressed: proxyRunning ? _openTelegramProxy : null,
+                  onPressed: proxyRunning && !oppositeServiceActive
+                      ? _openTelegramProxy
+                      : null,
                   icon: const Icon(Icons.send_outlined),
                   label: Text(
                     Platform.isWindows
@@ -315,6 +338,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   Future<void> _startScanner() async {
+    if (widget.controlsLocked) {
+      return;
+    }
     if (Platform.isWindows) {
       await _startWindowsScanner();
       return;

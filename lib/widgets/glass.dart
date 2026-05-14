@@ -200,6 +200,44 @@ class MetricTile extends StatelessWidget {
   }
 }
 
+class ServiceLockNotice extends StatelessWidget {
+  const ServiceLockNotice({
+    super.key,
+    required this.message,
+    this.icon = Icons.lock_outline,
+  });
+
+  final String message;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: .38),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .28)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(icon, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class AnimatedNavIcon extends StatelessWidget {
   const AnimatedNavIcon({
     super.key,

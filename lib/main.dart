@@ -200,6 +200,7 @@ class _LocalistShellState extends State<LocalistShell>
   Future<void> _configureWindowsWindow() async {
     const fixedSize = Size(350, 720);
     try {
+      final iconPath = _windowsBundledAssetPath('ico/logo.ico');
       await windowManager.setTitle('Localist');
       await windowManager.setSize(fixedSize);
       await windowManager.setMinimumSize(fixedSize);
@@ -207,9 +208,9 @@ class _LocalistShellState extends State<LocalistShell>
       await windowManager.setResizable(false);
       await windowManager.setMaximizable(false);
       await windowManager.setPreventClose(true);
-      await windowManager.setIcon('ico/logo.ico');
+      await windowManager.setIcon(iconPath);
 
-      await tray.trayManager.setIcon('ico/logo.ico');
+      await tray.trayManager.setIcon(iconPath);
       await tray.trayManager.setToolTip('Localist');
       final menu = tray.Menu(
         items: [
@@ -223,6 +224,23 @@ class _LocalistShellState extends State<LocalistShell>
     } catch (error) {
       _logs.warning('Windows tray setup failed: $error');
     }
+  }
+
+  String _windowsBundledAssetPath(String relativePath) {
+    final separator = Platform.pathSeparator;
+    final normalized = relativePath.split('/').join(separator);
+    final executableDir = File(Platform.resolvedExecutable).parent.path;
+    final bundledAsset = File(
+      '$executableDir${separator}data${separator}flutter_assets$separator$normalized',
+    );
+    if (bundledAsset.existsSync()) {
+      return bundledAsset.path;
+    }
+    final projectAsset = File(normalized);
+    if (projectAsset.existsSync()) {
+      return projectAsset.absolute.path;
+    }
+    return normalized;
   }
 
   Future<void> _handleWindowsCloseRequest() async {
@@ -342,11 +360,24 @@ class _LocalistShellState extends State<LocalistShell>
     if (_windowActionInProgress || _exitingApplication) {
       return;
     }
+    if (!_trayReady || _trayDestroyed) {
+      _logs.warning('Taskbar tray is not ready; keeping Localist open.');
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('Taskbar tray is not ready. Localist stayed open.'),
+            ),
+          );
+      }
+      return;
+    }
     _windowActionInProgress = true;
     try {
       await windowManager.setPreventClose(true);
-      await windowManager.hide();
       await windowManager.setSkipTaskbar(true);
+      await windowManager.hide();
       _logs.info('Localist moved to the taskbar tray');
     } catch (error) {
       _logs.warning('Unable to move Localist to the taskbar tray: $error');
@@ -362,6 +393,9 @@ class _LocalistShellState extends State<LocalistShell>
     _windowActionInProgress = true;
     try {
       await windowManager.setSkipTaskbar(false);
+      if (await windowManager.isMinimized()) {
+        await windowManager.restore();
+      }
       await windowManager.show();
       await windowManager.focus();
     } catch (error) {
@@ -383,27 +417,22 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.warning('Cleanup before exit failed: $error');
     }
     try {
-      await _destroyTrayIcon();
+      _detachTrayIcon();
       await windowManager.setPreventClose(false);
-      await windowManager.destroy();
+      await windowManager.close();
     } catch (error) {
       _logs.warning('Window close failed: $error');
       exit(0);
     }
   }
 
-  Future<void> _destroyTrayIcon() async {
+  void _detachTrayIcon() {
     if (_trayDestroyed) {
       return;
     }
     _trayDestroyed = true;
     _trayReady = false;
-    try {
-      tray.trayManager.removeListener(this);
-      await tray.trayManager.destroy();
-    } catch (error) {
-      _logs.warning('Tray cleanup failed: $error');
-    }
+    tray.trayManager.removeListener(this);
   }
 
   Future<void> _handleSettingsChanged() async {
@@ -430,7 +459,6 @@ class _LocalistShellState extends State<LocalistShell>
         return;
       }
       setState(() => _snapshot = snapshot);
-      _ensureUnlockedPage();
     } catch (error) {
       if (!quiet) {
         _logs.warning('Unable to refresh native state: $error');
@@ -454,7 +482,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     if (_receivingActive) {
-      _showLockedPageMessage(0);
+      _showServiceConflictMessage('Receiving', 'Sharing');
       return;
     }
     setState(() => _busy = true);
@@ -584,7 +612,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     if (_sharingActive) {
-      _showLockedPageMessage(1);
+      _showServiceConflictMessage('Sharing', 'Receiving');
       return;
     }
     setState(() => _busy = true);
@@ -623,7 +651,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     if (_sharingActive) {
-      _showLockedPageMessage(1);
+      _showServiceConflictMessage('Sharing', 'Receiving');
       return;
     }
     setState(() => _busy = true);
@@ -758,7 +786,6 @@ class _LocalistShellState extends State<LocalistShell>
   Widget build(BuildContext context) {
     final themeSettings = context.watch<ThemeSettingsModel>();
     final statsAvailable = _statsAvailable;
-    final userNavigationLocked = _sharingActive || _receivingActive;
     final overlayStyle = SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       systemNavigationBarColor: Colors.transparent,
@@ -776,6 +803,9 @@ class _LocalistShellState extends State<LocalistShell>
         settings: widget.settings,
         snapshot: _snapshot,
         busy: _busy,
+        controlsLocked: _receivingActive,
+        lockMessage:
+            'Receiving is active. Stop Receiving before using Sharing.',
         onStartSharing: _startSharing,
         onStopSharing: _stopSharing,
         onOpenHotspotSettings: _openHotspotSettings,
@@ -784,6 +814,8 @@ class _LocalistShellState extends State<LocalistShell>
       ReceivingPage(
         snapshot: _snapshot,
         busy: _busy,
+        controlsLocked: _sharingActive,
+        lockMessage: 'Sharing is active. Stop Sharing before using Receiving.',
         onStartReceiving: _startReceiving,
         onStartLocalProxy: _startLocalProxy,
         onStopReceiving: _stopReceiving,
@@ -854,9 +886,7 @@ class _LocalistShellState extends State<LocalistShell>
             bottom: false,
             child: PageView(
               controller: _pageController,
-              physics: userNavigationLocked
-                  ? const NeverScrollableScrollPhysics()
-                  : const PageScrollPhysics(),
+              physics: const PageScrollPhysics(),
               onPageChanged: _handlePageChanged,
               children: pages,
             ),
@@ -884,8 +914,6 @@ class _LocalistShellState extends State<LocalistShell>
                 destinations: [
                   for (var i = 0; i < _items.length; i++)
                     NavigationDestination(
-                      enabled: !_pageLocked(i),
-                      tooltip: _navTooltip(i),
                       icon: AnimatedNavIcon(
                         icon: _items[i].icon,
                         selected: _index == i,
@@ -919,19 +947,10 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   void _goToPage(int value) {
-    if (_pageLocked(value)) {
-      _showLockedPageMessage(value);
-      return;
-    }
     _setPage(value);
   }
 
   void _handlePageChanged(int value) {
-    if (_pageLocked(value)) {
-      _showLockedPageMessage(value);
-      _setPage(_firstUnlockedPage(), force: true);
-      return;
-    }
     setState(() => _index = value);
   }
 
@@ -939,7 +958,6 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
-    final currentIndex = _index;
     if (_index == value && !force) {
       return;
     }
@@ -949,78 +967,26 @@ class _LocalistShellState extends State<LocalistShell>
     if (!_pageController.hasClients) {
       return;
     }
-    if (_pathContainsLockedPage(from: currentIndex, to: value)) {
-      _pageController.jumpToPage(value);
-    } else {
-      _pageController.animateToPage(
-        value,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-      );
-    }
+    _pageController.animateToPage(
+      value,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
   }
 
-  bool _pageLocked(int value) {
-    return switch (value) {
-      0 => _receivingActive,
-      1 => _sharingActive,
-      _ => false,
-    };
-  }
-
-  bool _pathContainsLockedPage({required int from, required int to}) {
-    if (from == to) {
-      return false;
-    }
-    final start = from < to ? from + 1 : to;
-    final end = from < to ? to : from - 1;
-    for (var page = start; page <= end; page++) {
-      if (page != to && _pageLocked(page)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  void _ensureUnlockedPage() {
-    if (!_pageLocked(_index)) {
-      return;
-    }
-    _setPage(_firstUnlockedPage());
-  }
-
-  int _firstUnlockedPage() {
-    for (final fallback in const [0, 1, 2]) {
-      if (!_pageLocked(fallback)) {
-        return fallback;
-      }
-    }
-    return 2;
-  }
-
-  String? _navTooltip(int value) {
-    if (!_pageLocked(value)) {
-      return null;
-    }
-    return switch (value) {
-      0 => 'Stop receiving before opening Sharing',
-      1 => 'Stop sharing before opening Receiving',
-      _ => null,
-    };
-  }
-
-  void _showLockedPageMessage(int value) {
+  void _showServiceConflictMessage(String activeService, String targetService) {
     if (!mounted) {
       return;
     }
-    final message = switch (value) {
-      0 => 'Stop receiving before opening Sharing.',
-      1 => 'Stop sharing before opening Receiving.',
-      _ => 'This page is locked.',
-    };
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            '$activeService is active. Stop it before starting $targetService.',
+          ),
+        ),
+      );
   }
 
   void _toggleTheme(ThemeSettingsModel themeSettings) {

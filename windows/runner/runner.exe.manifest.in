@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity version="1.0.3.4" processorArchitecture="amd64" name="PRS.Localist" type="win32"/>
+  <assemblyIdentity version="@FLUTTER_VERSION_MAJOR@.@FLUTTER_VERSION_MINOR@.@FLUTTER_VERSION_PATCH@.@FLUTTER_VERSION_BUILD@" processorArchitecture="amd64" name="PRS.Localist" type="win32"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>
       <requestedPrivileges>

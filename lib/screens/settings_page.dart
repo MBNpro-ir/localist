@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:material_you_dynamic_theme/material_you_dynamic_theme.dart';
 import 'package:provider/provider.dart';
 
@@ -10,7 +12,6 @@ import '../services/native_bridge_service.dart';
 import '../widgets/glass.dart';
 
 const _appName = 'Localist';
-const _appVersion = '1.0.3';
 const _appDeveloper = 'PRS';
 const _appPackageName = 'com.prs.localist';
 const _windowsAppId = 'PRS.Localist';
@@ -38,6 +39,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _hasPortEdits = false;
   bool _portsSaving = false;
   bool _syncingPortControllers = false;
+  String? _appVersion;
 
   @override
   void initState() {
@@ -51,6 +53,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _httpPortController.addListener(_handlePortTextChanged);
     _socks5PortController.addListener(_handlePortTextChanged);
     widget.settings.addListener(_syncPortControllersFromSettings);
+    unawaited(_loadAppVersion());
   }
 
   @override
@@ -317,7 +320,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 14),
                   MetricTile(
                     label: 'Version',
-                    value: _appVersion,
+                    value: _appVersion ?? 'Loading',
                     icon: Icons.tag_outlined,
                   ),
                   const SizedBox(height: 10),
@@ -365,6 +368,28 @@ class _SettingsPageState extends State<SettingsPage> {
             widget.settings.portFor(ProxyProtocol.http).toString() ||
         _socks5PortController.text.trim() !=
             widget.settings.portFor(ProxyProtocol.socks5).toString();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final pubspec = await rootBundle.loadString('pubspec.yaml');
+      final version = _parsePubspecVersion(pubspec);
+      if (mounted) {
+        setState(() => _appVersion = version);
+      }
+    } catch (error) {
+      _logs.warning('Unable to load app version: $error');
+    }
+  }
+
+  String _parsePubspecVersion(String pubspec) {
+    for (final line in pubspec.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.startsWith('version:')) {
+        return trimmed.substring('version:'.length).trim();
+      }
+    }
+    return 'Development';
   }
 
   void _handlePortTextChanged() {

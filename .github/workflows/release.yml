@@ -1,22 +1,18 @@
-name: Release v1.0.3
+name: Release
 
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Git tag to create or update.
-        required: true
-        default: v1.0.3
+        description: Optional tag to create or update. Leave empty to use pubspec.yaml.
+        required: false
+        default: ""
   push:
     tags:
       - "v*"
 
 permissions:
   contents: write
-
-env:
-  APP_VERSION: "1.0.3"
-  BUILD_NUMBER: "4"
 
 jobs:
   android:
@@ -26,6 +22,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read pubspec version
+        shell: bash
+        run: |
+          version_line="$(grep -E '^version:[[:space:]]*' pubspec.yaml | head -n1 | sed 's/^version:[[:space:]]*//')"
+          app_version="${version_line%%+*}"
+          build_number="${version_line#*+}"
+          if [ "$build_number" = "$version_line" ]; then
+            build_number="1"
+          fi
+          echo "APP_VERSION=$app_version" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -76,19 +84,19 @@ jobs:
       - name: Stage Android assets
         run: |
           mkdir -p release/android
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk release/android/localist-v1.0.3-android-armeabi-v7a.apk
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk release/android/localist-v1.0.3-android-arm64-v8a.apk
-          cp build/app/outputs/flutter-apk/app-x86_64-release.apk release/android/localist-v1.0.3-android-x86_64.apk
-          cp build/app/outputs/bundle/release/app-release.aab release/android/localist-v1.0.3-android-universal.aab
-          7z a -tzip -mx=9 release/localist-v1.0.3-android-symbols.zip build/symbols/android build/symbols/android-aab
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release/android/localist-v${APP_VERSION}-android-armeabi-v7a.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release/android/localist-v${APP_VERSION}-android-arm64-v8a.apk"
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk "release/android/localist-v${APP_VERSION}-android-x86_64.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "release/android/localist-v${APP_VERSION}-android-universal.aab"
+          7z a -tzip -mx=9 "release/localist-v${APP_VERSION}-android-symbols.zip" build/symbols/android build/symbols/android-aab
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: localist-v1.0.3-android
+          name: localist-android
           path: |
             release/android/*
-            release/localist-v1.0.3-android-symbols.zip
+            release/*-android-symbols.zip
           if-no-files-found: error
           compression-level: 9
 
@@ -100,6 +108,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read pubspec version
+        shell: pwsh
+        run: |
+          $match = Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$'
+          $versionLine = $match.Matches[0].Groups[1].Value.Trim()
+          $parts = $versionLine -split '\+', 2
+          $appVersion = $parts[0]
+          $buildNumber = if ($parts.Count -gt 1) { $parts[1] } else { '1' }
+          "APP_VERSION=$appVersion" >> $env:GITHUB_ENV
+          "BUILD_NUMBER=$buildNumber" >> $env:GITHUB_ENV
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -110,29 +129,28 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows x64
-        run: >
-          flutter build windows --release
-          --obfuscate
-          --split-debug-info=build\symbols\windows-x64
-          --tree-shake-icons
-          --build-name=${{ env.APP_VERSION }}
-          --build-number=${{ env.BUILD_NUMBER }}
+        shell: pwsh
+        run: |
+          flutter build windows --release `
+            --obfuscate `
+            --split-debug-info=build\symbols\windows-x64 `
+            --tree-shake-icons `
+            --build-name=$env:APP_VERSION `
+            --build-number=$env:BUILD_NUMBER
 
       - name: Package Windows x64
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
           $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
-          & $sevenZip a -tzip -mx=9 release\localist-v1.0.3-windows-x64.zip .\build\windows\x64\runner\Release\*
-          & $sevenZip a -tzip -mx=9 release\localist-v1.0.3-windows-x64-symbols.zip .\build\symbols\windows-x64\*
+          & $sevenZip a -tzip -mx=9 "release\localist-v${env:APP_VERSION}-windows-x64.zip" .\build\windows\x64\runner\Release\*
+          & $sevenZip a -tzip -mx=9 "release\localist-v${env:APP_VERSION}-windows-x64-symbols.zip" .\build\symbols\windows-x64\*
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: localist-v1.0.3-windows-x64
-          path: |
-            release/localist-v1.0.3-windows-x64.zip
-            release/localist-v1.0.3-windows-x64-symbols.zip
+          name: localist-windows-x64
+          path: release/*
           if-no-files-found: error
           compression-level: 9
 
@@ -144,13 +162,37 @@ jobs:
       - windows
 
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read pubspec version
+        shell: bash
+        run: |
+          version_line="$(grep -E '^version:[[:space:]]*' pubspec.yaml | head -n1 | sed 's/^version:[[:space:]]*//')"
+          app_version="${version_line%%+*}"
+          build_number="${version_line#*+}"
+          if [ "$build_number" = "$version_line" ]; then
+            build_number="1"
+          fi
+          echo "APP_VERSION=$app_version" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
+
+      - name: Resolve release tag
+        shell: bash
+        run: |
+          if [ -n "$INPUT_RELEASE_TAG" ]; then
+            release_tag="$INPUT_RELEASE_TAG"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            release_tag="v${APP_VERSION}"
+          fi
+          echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -159,18 +201,19 @@ jobs:
 
       - name: Create release notes
         run: |
-          cat > RELEASE_NOTES.md <<'EOF'
-          # Localist v1.0.3
+          cat > RELEASE_NOTES.md <<EOF
+          # Localist v${APP_VERSION}
 
           Bug fix release for Android and Windows.
 
           ## Changes
 
-          - Fixed navigation from Sharing to Settings while Receiving is locked.
-          - Locked proxy port editing while Sharing is active.
-          - Hardened Windows taskbar tray open, close-to-tray, and exit actions.
-          - Centered the Close Localist dialog actions.
-          - Added Windows debug/build commands to note.txt.
+          - Keeps Sharing and Receiving pages navigable while disabling conflicting controls during an active service.
+          - Shows an in-page notice when Sharing or Receiving is unavailable because the other service is active.
+          - Makes Smart QR codes more scannable with a compact payload and consistent white quiet zone.
+          - Fixes Windows taskbar tray icon resolution and safer close-to-tray / full-exit handling.
+          - Uses pubspec.yaml as the source for build versioning, Windows metadata, artifact names, and release notes.
+          - Removes note.txt from the repository.
 
           ## Assets
 
@@ -189,11 +232,15 @@ jobs:
           fi
 
           if gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "Localist v${APP_VERSION}" \
+              --notes-file RELEASE_NOTES.md \
+              --repo "$GH_REPO"
             gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "$GH_REPO"
           else
             gh release create "$RELEASE_TAG" "${files[@]}" \
               --target "$GITHUB_SHA" \
-              --title "Localist v1.0.3" \
+              --title "Localist v${APP_VERSION}" \
               --notes-file RELEASE_NOTES.md \
               --repo "$GH_REPO"
           fi

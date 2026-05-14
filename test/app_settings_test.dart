@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/models/app_settings.dart';
+import 'package:localist/models/service_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -17,5 +18,34 @@ void main() {
     expect(settings.selectedLocalIps, isEmpty);
     expect(settings.rootRoutingEnabled, isFalse);
     expect(settings.windowsCloseBehavior, WindowsCloseBehavior.ask);
+  });
+
+  test('smart proxy payload uses compact scannable links', () {
+    const payload = SmartProxyPayload(
+      hotspotSsid: '',
+      hotspotPassword: '',
+      endpoints: [
+        SmartProxyEndpoint(
+          protocol: ProxyProtocol.http,
+          host: '192.168.1.10',
+          port: 2060,
+        ),
+        SmartProxyEndpoint(
+          protocol: ProxyProtocol.socks5,
+          host: '192.168.1.10',
+          port: 3075,
+        ),
+      ],
+    );
+
+    final encoded = payload.encode();
+    final decoded = SmartProxyPayload.tryParse(encoded);
+
+    expect(encoded, startsWith('localist://smart?e='));
+    expect(encoded.length, lessThan(90));
+    expect(decoded, isNotNull);
+    expect(decoded!.endpoints, hasLength(2));
+    expect(decoded.endpoints.first.config.url, 'http://192.168.1.10:2060');
+    expect(decoded.endpoints.last.config.url, 'socks5://192.168.1.10:3075');
   });
 }
