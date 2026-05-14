@@ -24,6 +24,7 @@ class NativeBridgeService {
     required Map<ProxyProtocol, int> ports,
     required bool shareAllRoutes,
     required Set<String> selectedLocalIps,
+    RemoteProxyConfig? upstreamProxy,
   }) async {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.startProxyService(
@@ -31,6 +32,7 @@ class NativeBridgeService {
         ports: ports,
         shareAllRoutes: shareAllRoutes,
         selectedLocalIps: selectedLocalIps,
+        upstreamProxy: upstreamProxy,
       );
     }
     return await _channel.invokeMethod<bool>('startProxyService', {

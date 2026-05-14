@@ -44,12 +44,19 @@ class AppSettings extends ChangeNotifier {
     required Set<String> selectedLocalIps,
     required bool rootRoutingEnabled,
     required WindowsCloseBehavior windowsCloseBehavior,
+    required bool windowsVpnProxyEnabled,
+    required int windowsVpnProxyPort,
   }) : _enabledProtocols = _coerceProtocols(enabledProtocols),
        _protocolPorts = _coerceProtocolPorts(protocolPorts),
        _shareAllRoutes = shareAllRoutes,
        _selectedLocalIps = {...selectedLocalIps},
        _rootRoutingEnabled = rootRoutingEnabled,
-       _windowsCloseBehavior = windowsCloseBehavior;
+       _windowsCloseBehavior = windowsCloseBehavior,
+       _windowsVpnProxyEnabled = windowsVpnProxyEnabled,
+       _windowsVpnProxyPort = _coercePort(
+         windowsVpnProxyPort,
+         fallback: _defaultWindowsVpnProxyPort,
+       );
 
   static const _protocolKey = 'proxy.protocol';
   static const _protocolsKey = 'proxy.protocols';
@@ -61,6 +68,8 @@ class AppSettings extends ChangeNotifier {
   static const _selectedLocalIpsKey = 'sharing.selectedLocalIps';
   static const _rootRoutingKey = 'root.routingEnabled';
   static const _windowsCloseBehaviorKey = 'windows.closeBehavior';
+  static const _windowsVpnProxyEnabledKey = 'windows.vpnProxy.enabled';
+  static const _windowsVpnProxyPortKey = 'windows.vpnProxy.port';
 
   Set<ProxyProtocol> _enabledProtocols;
   Map<ProxyProtocol, int> _protocolPorts;
@@ -68,6 +77,8 @@ class AppSettings extends ChangeNotifier {
   Set<String> _selectedLocalIps;
   bool _rootRoutingEnabled;
   WindowsCloseBehavior _windowsCloseBehavior;
+  bool _windowsVpnProxyEnabled;
+  int _windowsVpnProxyPort;
 
   Set<ProxyProtocol> get enabledProtocols =>
       Set.unmodifiable(_enabledProtocols);
@@ -78,6 +89,8 @@ class AppSettings extends ChangeNotifier {
   Set<String> get selectedLocalIps => Set.unmodifiable(_selectedLocalIps);
   bool get rootRoutingEnabled => _rootRoutingEnabled;
   WindowsCloseBehavior get windowsCloseBehavior => _windowsCloseBehavior;
+  bool get windowsVpnProxyEnabled => _windowsVpnProxyEnabled;
+  int get windowsVpnProxyPort => _windowsVpnProxyPort;
 
   int portFor(ProxyProtocol protocol) {
     return _protocolPorts[protocol] ?? protocol.defaultPort;
@@ -124,6 +137,10 @@ class AppSettings extends ChangeNotifier {
       windowsCloseBehavior: WindowsCloseBehavior.fromStorage(
         prefs.getString(_windowsCloseBehaviorKey),
       ),
+      windowsVpnProxyEnabled:
+          prefs.getBool(_windowsVpnProxyEnabledKey) ?? false,
+      windowsVpnProxyPort:
+          prefs.getInt(_windowsVpnProxyPortKey) ?? _defaultWindowsVpnProxyPort,
     );
   }
 
@@ -220,7 +237,25 @@ class AppSettings extends ChangeNotifier {
     await prefs.setString(_windowsCloseBehaviorKey, value.storageValue);
   }
 
+  Future<void> setWindowsVpnProxy({
+    required bool enabled,
+    required int port,
+  }) async {
+    final safePort = _coercePort(port, fallback: _defaultWindowsVpnProxyPort);
+    if (_windowsVpnProxyEnabled == enabled &&
+        _windowsVpnProxyPort == safePort) {
+      return;
+    }
+    _windowsVpnProxyEnabled = enabled;
+    _windowsVpnProxyPort = safePort;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_windowsVpnProxyEnabledKey, enabled);
+    await prefs.setInt(_windowsVpnProxyPortKey, safePort);
+  }
+
   static const _defaultProtocols = {ProxyProtocol.socks5};
+  static const _defaultWindowsVpnProxyPort = 10808;
 
   static int _coercePort(int value, {int fallback = 3075}) {
     if (value < 1024) {

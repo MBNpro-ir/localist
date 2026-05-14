@@ -42,18 +42,21 @@ class WindowsLocalistService {
     required Map<ProxyProtocol, int> ports,
     required bool shareAllRoutes,
     required Set<String> selectedLocalIps,
+    RemoteProxyConfig? upstreamProxy,
   }) async {
     await _ensureTotalsLoaded();
-    await stopProxyService();
     final activeProtocols = protocols.isEmpty
         ? {ProxyProtocol.socks5}
         : {...protocols};
     final addresses = shareAllRoutes ? <String>{} : selectedLocalIps;
     _validatePorts(activeProtocols, ports);
+    await _validateUpstreamProxy(activeProtocols, ports, upstreamProxy);
+    await stopProxyService();
     final server = WindowsProxyServer(
       protocols: activeProtocols,
       ports: ports,
       bindAddresses: addresses,
+      upstreamProxy: upstreamProxy,
       onTraffic: _recordTraffic,
     );
     await server.start();
@@ -375,6 +378,43 @@ class WindowsLocalistService {
     }
   }
 
+  Future<void> _validateUpstreamProxy(
+    Set<ProxyProtocol> protocols,
+    Map<ProxyProtocol, int> ports,
+    RemoteProxyConfig? upstreamProxy,
+  ) async {
+    if (upstreamProxy == null) {
+      return;
+    }
+    if (upstreamProxy.port < 1024 || upstreamProxy.port > 65535) {
+      throw PlatformException(
+        code: 'internal_vpn_proxy_unavailable',
+        message:
+            'Internal VPN proxy port ${upstreamProxy.port} is outside 1024-65535.',
+      );
+    }
+    final activeListenPorts = {
+      for (final protocol in protocols) ports[protocol] ?? protocol.defaultPort,
+    };
+    final upstreamIsLoopback =
+        upstreamProxy.host == InternetAddress.loopbackIPv4.address ||
+        upstreamProxy.host == InternetAddress.loopbackIPv6.address ||
+        upstreamProxy.host.toLowerCase() == 'localhost';
+    if (upstreamIsLoopback && activeListenPorts.contains(upstreamProxy.port)) {
+      throw PlatformException(
+        code: 'internal_vpn_proxy_unavailable',
+        message: 'Internal VPN proxy port must differ from sharing ports.',
+      );
+    }
+    if (!await _isTcpConnectable(upstreamProxy.host, upstreamProxy.port)) {
+      throw PlatformException(
+        code: 'internal_vpn_proxy_unavailable',
+        message:
+            'Internal VPN proxy is not reachable on ${upstreamProxy.host}:${upstreamProxy.port}.',
+      );
+    }
+  }
+
   Future<bool> _isLocalPortAvailable(int port) async {
     ServerSocket? socket;
     try {
@@ -384,6 +424,22 @@ class WindowsLocalistService {
       return false;
     } finally {
       await socket?.close();
+    }
+  }
+
+  Future<bool> _isTcpConnectable(String host, int port) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        host,
+        port,
+        timeout: const Duration(seconds: 2),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      socket?.destroy();
     }
   }
 
@@ -476,12 +532,14 @@ class WindowsProxyServer {
     required this.protocols,
     required this.ports,
     required this.bindAddresses,
+    required this.upstreamProxy,
     required this.onTraffic,
   });
 
   final Set<ProxyProtocol> protocols;
   final Map<ProxyProtocol, int> ports;
   final Set<String> bindAddresses;
+  final RemoteProxyConfig? upstreamProxy;
   final void Function(int uploadedBytes, int downloadedBytes) onTraffic;
   final List<ServerSocket> _servers = [];
   bool _running = false;
@@ -560,19 +618,14 @@ class WindowsProxyServer {
     }
     final host = await _readSocksHost(reader, addressType);
     final targetPort = await reader.readPort();
-    final remote = await Socket.connect(
-      host,
-      targetPort,
-      timeout: const Duration(seconds: 10),
-    );
-    remote.setOption(SocketOption.tcpNoDelay, true);
+    final remote = await _connectProxyTarget(upstreamProxy, host, targetPort);
     client.add([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
     await client.flush();
     await _relay(
       leftReader: reader,
       leftSocket: client,
-      rightReader: _SocketReader(remote),
-      rightSocket: remote,
+      rightReader: remote.reader,
+      rightSocket: remote.socket,
     );
   }
 
@@ -591,19 +644,18 @@ class WindowsProxyServer {
 
     if (firstParts[0].toUpperCase() == 'CONNECT') {
       final target = _parseHostPort(firstParts[1], 443);
-      final remote = await Socket.connect(
+      final remote = await _connectProxyTarget(
+        upstreamProxy,
         target.host,
         target.port,
-        timeout: const Duration(seconds: 10),
       );
-      remote.setOption(SocketOption.tcpNoDelay, true);
       client.add(ascii.encode('HTTP/1.1 200 Connection Established\r\n\r\n'));
       await client.flush();
       await _relay(
         leftReader: reader,
         leftSocket: client,
-        rightReader: _SocketReader(remote),
-        rightSocket: remote,
+        rightReader: remote.reader,
+        rightSocket: remote.socket,
       );
       return;
     }
@@ -644,19 +696,14 @@ class WindowsProxyServer {
     }
     rebuilt.write('\r\n');
 
-    final remote = await Socket.connect(
-      host,
-      targetPort,
-      timeout: const Duration(seconds: 10),
-    );
-    remote.setOption(SocketOption.tcpNoDelay, true);
-    remote.add(ascii.encode(rebuilt.toString()));
-    await remote.flush();
+    final remote = await _connectProxyTarget(upstreamProxy, host, targetPort);
+    remote.socket.add(ascii.encode(rebuilt.toString()));
+    await remote.socket.flush();
     await _relay(
       leftReader: reader,
       leftSocket: client,
-      rightReader: _SocketReader(remote),
-      rightSocket: remote,
+      rightReader: remote.reader,
+      rightSocket: remote.socket,
     );
   }
 
@@ -840,58 +887,15 @@ class WindowsLocalProxyForwarder {
     String targetHost,
     int targetPort,
   ) async {
-    final socket = await Socket.connect(
-      remoteHost,
-      remotePort,
-      timeout: const Duration(seconds: 10),
+    return _connectProxyTarget(
+      RemoteProxyConfig(
+        protocol: remoteProtocol,
+        host: remoteHost,
+        port: remotePort,
+      ),
+      targetHost,
+      targetPort,
     );
-    socket.setOption(SocketOption.tcpNoDelay, true);
-    final reader = _SocketReader(socket);
-    if (remoteProtocol == ProxyProtocol.http) {
-      socket.add(
-        ascii.encode(
-          'CONNECT $targetHost:$targetPort HTTP/1.1\r\n'
-          'Host: $targetHost:$targetPort\r\n'
-          'Proxy-Connection: keep-alive\r\n\r\n',
-        ),
-      );
-      await socket.flush();
-      final response = latin1.decode(await reader.readHttpHeader());
-      if (!RegExp(r'^HTTP/1\.[01] 200\b').hasMatch(response)) {
-        socket.destroy();
-        await reader.cancel();
-        throw StateError('Remote HTTP proxy refused $targetHost:$targetPort');
-      }
-    } else {
-      socket.add([0x05, 0x01, 0x00]);
-      await socket.flush();
-      final version = await reader.readByte();
-      final method = await reader.readByte();
-      if (version != 0x05 || method != 0x00) {
-        socket.destroy();
-        await reader.cancel();
-        throw StateError('Remote SOCKS5 auth refused');
-      }
-      final hostBytes = utf8.encode(targetHost);
-      socket.add([
-        0x05,
-        0x01,
-        0x00,
-        0x03,
-        hostBytes.length,
-        ...hostBytes,
-        (targetPort >> 8) & 0xff,
-        targetPort & 0xff,
-      ]);
-      await socket.flush();
-      final reply = await reader.readExact(10);
-      if (reply.length < 2 || reply[1] != 0x00) {
-        socket.destroy();
-        await reader.cancel();
-        throw StateError('Remote SOCKS5 refused $targetHost:$targetPort');
-      }
-    }
-    return _ProxyConnection(socket: socket, reader: reader);
   }
 
   Future<void> _relay({
@@ -923,6 +927,80 @@ class _ProxyConnection {
 
   final Socket socket;
   final _SocketReader reader;
+}
+
+Future<_ProxyConnection> _connectProxyTarget(
+  RemoteProxyConfig? proxy,
+  String targetHost,
+  int targetPort,
+) async {
+  if (proxy == null) {
+    final socket = await Socket.connect(
+      targetHost,
+      targetPort,
+      timeout: const Duration(seconds: 10),
+    );
+    socket.setOption(SocketOption.tcpNoDelay, true);
+    return _ProxyConnection(socket: socket, reader: _SocketReader(socket));
+  }
+
+  final socket = await Socket.connect(
+    proxy.host,
+    proxy.port,
+    timeout: const Duration(seconds: 10),
+  );
+  socket.setOption(SocketOption.tcpNoDelay, true);
+  final reader = _SocketReader(socket);
+  try {
+    if (proxy.protocol == ProxyProtocol.http) {
+      socket.add(
+        ascii.encode(
+          'CONNECT $targetHost:$targetPort HTTP/1.1\r\n'
+          'Host: $targetHost:$targetPort\r\n'
+          'Proxy-Connection: keep-alive\r\n\r\n',
+        ),
+      );
+      await socket.flush();
+      final response = latin1.decode(await reader.readHttpHeader());
+      if (!RegExp(r'^HTTP/1\.[01] 200\b').hasMatch(response)) {
+        throw StateError('Remote HTTP proxy refused $targetHost:$targetPort');
+      }
+    } else {
+      socket.add([0x05, 0x01, 0x00]);
+      await socket.flush();
+      final version = await reader.readByte();
+      final method = await reader.readByte();
+      if (version != 0x05 || method != 0x00) {
+        throw StateError('Remote SOCKS5 auth refused');
+      }
+      final hostBytes = utf8.encode(targetHost);
+      socket.add([
+        0x05,
+        0x01,
+        0x00,
+        0x03,
+        hostBytes.length,
+        ...hostBytes,
+        (targetPort >> 8) & 0xff,
+        targetPort & 0xff,
+      ]);
+      await socket.flush();
+      final replyVersion = await reader.readByte();
+      final replyCode = await reader.readByte();
+      await reader.readByte();
+      final addressType = await reader.readByte();
+      if (replyVersion != 0x05 || replyCode != 0x00) {
+        throw StateError('Remote SOCKS5 refused $targetHost:$targetPort');
+      }
+      await _readSocksHost(reader, addressType);
+      await reader.readPort();
+    }
+    return _ProxyConnection(socket: socket, reader: reader);
+  } catch (_) {
+    socket.destroy();
+    await reader.cancel();
+    rethrow;
+  }
 }
 
 class _HostPort {

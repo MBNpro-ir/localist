@@ -211,6 +211,7 @@ jobs:
           - Keeps Sharing and Receiving pages navigable while disabling conflicting controls during an active service.
           - Shows an in-page notice when Sharing or Receiving is unavailable because the other service is active.
           - Makes Smart QR codes more scannable with a compact payload and consistent white quiet zone.
+          - Adds a Windows Sharing option to route shared proxy traffic through an internal v2rayN SOCKS proxy such as 127.0.0.1:10808.
           - Fixes Windows taskbar tray icon resolution and safer close-to-tray / full-exit handling.
           - Uses pubspec.yaml as the source for build versioning, Windows metadata, artifact names, and release notes.
           - Removes note.txt from the repository.

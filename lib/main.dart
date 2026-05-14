@@ -129,6 +129,7 @@ class _LocalistShellState extends State<LocalistShell>
   bool _trayReady = false;
   bool _trayDestroyed = false;
   bool _windowActionInProgress = false;
+  bool _trayMenuInProgress = false;
 
   @override
   void initState() {
@@ -177,12 +178,12 @@ class _LocalistShellState extends State<LocalistShell>
 
   @override
   void onTrayIconRightMouseDown() {
-    // Windows expects the context menu to open on mouse-up.
+    _runTrayAction(_showTrayContextMenu);
   }
 
   @override
   void onTrayIconRightMouseUp() {
-    _runTrayAction(_showTrayContextMenu);
+    // The Windows tray plugin reports right-click release as mouse-down.
   }
 
   @override
@@ -346,13 +347,19 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _showTrayContextMenu() async {
-    if (!_trayReady || _trayDestroyed || _exitingApplication) {
+    if (!_trayReady ||
+        _trayDestroyed ||
+        _exitingApplication ||
+        _trayMenuInProgress) {
       return;
     }
+    _trayMenuInProgress = true;
     try {
       await tray.trayManager.popUpContextMenu();
     } catch (error) {
       _logs.warning('Tray menu failed: $error');
+    } finally {
+      _trayMenuInProgress = false;
     }
   }
 
@@ -376,7 +383,6 @@ class _LocalistShellState extends State<LocalistShell>
     _windowActionInProgress = true;
     try {
       await windowManager.setPreventClose(true);
-      await windowManager.setSkipTaskbar(true);
       await windowManager.hide();
       _logs.info('Localist moved to the taskbar tray');
     } catch (error) {
@@ -392,7 +398,6 @@ class _LocalistShellState extends State<LocalistShell>
     }
     _windowActionInProgress = true;
     try {
-      await windowManager.setSkipTaskbar(false);
       if (await windowManager.isMinimized()) {
         await windowManager.restore();
       }
@@ -534,6 +539,14 @@ class _LocalistShellState extends State<LocalistShell>
         ports: widget.settings.protocolPorts,
         shareAllRoutes: widget.settings.shareAllRoutes,
         selectedLocalIps: widget.settings.selectedLocalIps,
+        upstreamProxy:
+            Platform.isWindows && widget.settings.windowsVpnProxyEnabled
+            ? RemoteProxyConfig(
+                protocol: ProxyProtocol.socks5,
+                host: InternetAddress.loopbackIPv4.address,
+                port: widget.settings.windowsVpnProxyPort,
+              )
+            : null,
       );
       if (started) {
         _logs.info(
@@ -554,6 +567,8 @@ class _LocalistShellState extends State<LocalistShell>
             content: Text(
               '$error'.contains('port_unavailable')
                   ? 'Port is busy. Change the protocol port in Settings.'
+                  : '$error'.contains('internal_vpn_proxy_unavailable')
+                  ? 'Internal VPN proxy is not reachable. Check v2rayN and the port.'
                   : 'Failed to start proxy service.',
             ),
           ),

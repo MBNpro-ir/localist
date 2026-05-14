@@ -165,6 +165,7 @@ Sharing:
 
 - Android: proxy service plus Android hotspot/manual network sharing flow.
 - Windows: proxy service only; no hotspot controls and no APK share button.
+- Windows Sharing can optionally route shared traffic through a local v2rayN SOCKS proxy, defaulting to `127.0.0.1:10808`.
 
 Receiving:
 

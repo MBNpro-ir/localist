@@ -213,6 +213,13 @@ class _SharingControlPanel extends StatelessWidget {
                 ],
               ),
           ],
+          if (isWindows) ...[
+            const SizedBox(height: 12),
+            _WindowsVpnProxySettings(
+              settings: settings,
+              enabled: !busy && !running && !oppositeServiceActive,
+            ),
+          ],
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -243,6 +250,11 @@ class _SharingControlPanel extends StatelessWidget {
                   avatar: const Icon(Icons.error_outline, size: 18),
                   label: Text(snapshot.root.lastError),
                 ),
+              if (isWindows && settings.windowsVpnProxyEnabled)
+                Chip(
+                  avatar: const Icon(Icons.vpn_lock_outlined, size: 18),
+                  label: Text('VPN proxy :${settings.windowsVpnProxyPort}'),
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -270,6 +282,201 @@ class _SharingControlPanel extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _WindowsVpnProxySettings extends StatefulWidget {
+  const _WindowsVpnProxySettings({
+    required this.settings,
+    required this.enabled,
+  });
+
+  final AppSettings settings;
+  final bool enabled;
+
+  @override
+  State<_WindowsVpnProxySettings> createState() =>
+      _WindowsVpnProxySettingsState();
+}
+
+class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
+  late final TextEditingController _portController;
+  late bool _enabledDraft;
+  bool _saving = false;
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _enabledDraft = widget.settings.windowsVpnProxyEnabled;
+    _portController = TextEditingController(
+      text: widget.settings.windowsVpnProxyPort.toString(),
+    );
+    _portController.addListener(_handleChanged);
+    widget.settings.addListener(_syncFromSettings);
+  }
+
+  @override
+  void didUpdateWidget(covariant _WindowsVpnProxySettings oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings != widget.settings) {
+      oldWidget.settings.removeListener(_syncFromSettings);
+      widget.settings.addListener(_syncFromSettings);
+      _syncFromSettings();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.settings.removeListener(_syncFromSettings);
+    _portController.removeListener(_handleChanged);
+    _portController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final errorText = _hasEdits ? _portError(_portController.text) : null;
+    final canSave =
+        widget.enabled && _hasEdits && errorText == null && !_saving;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _portController,
+          enabled: widget.enabled,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            labelText: 'Internal VPN proxy',
+            prefixIcon: const Icon(Icons.vpn_lock_outlined),
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 48,
+              minHeight: 48,
+            ),
+            suffixIcon: Tooltip(
+              message: 'Use internal VPN proxy',
+              child: Checkbox(
+                value: _enabledDraft,
+                onChanged: widget.enabled
+                    ? (value) => setState(() {
+                        _enabledDraft = value ?? false;
+                      })
+                    : null,
+              ),
+            ),
+            helperText: widget.enabled
+                ? _enabledDraft
+                      ? 'Uses v2rayN SOCKS on 127.0.0.1'
+                      : 'Off; sharing uses the Windows route'
+                : 'Locked while sharing is active',
+            errorText: errorText,
+          ),
+          onSubmitted: (_) {
+            if (canSave) {
+              _save();
+            }
+          },
+        ),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: _hasEdits || _saving
+              ? Padding(
+                  key: const ValueKey('save-windows-vpn-proxy'),
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton.icon(
+                      onPressed: canSave ? _save : null,
+                      icon: _saving
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save_outlined),
+                      label: const Text('Save VPN proxy'),
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  bool get _hasEdits {
+    return _enabledDraft != widget.settings.windowsVpnProxyEnabled ||
+        _portController.text.trim() !=
+            widget.settings.windowsVpnProxyPort.toString();
+  }
+
+  void _handleChanged() {
+    if (_syncing || !mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  void _syncFromSettings() {
+    if (_hasEdits) {
+      return;
+    }
+    _syncing = true;
+    _enabledDraft = widget.settings.windowsVpnProxyEnabled;
+    final value = widget.settings.windowsVpnProxyPort.toString();
+    if (_portController.text != value) {
+      _portController.value = TextEditingValue(
+        text: value,
+        selection: TextSelection.collapsed(offset: value.length),
+      );
+    }
+    _syncing = false;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  String? _portError(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) {
+      return 'Numbers only';
+    }
+    if (parsed < 1024 || parsed > 65535) {
+      return 'Use 1024-65535';
+    }
+    for (final protocol in widget.settings.enabledProtocols) {
+      if (widget.settings.portFor(protocol) == parsed) {
+        return 'Use a different port';
+      }
+    }
+    return null;
+  }
+
+  Future<void> _save() async {
+    final port = int.tryParse(_portController.text.trim());
+    if (_portError(_portController.text) != null || port == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid VPN proxy port first.')),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await widget.settings.setWindowsVpnProxy(
+        enabled: _enabledDraft,
+        port: port,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('VPN proxy saved')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
   }
 }
 

@@ -18,6 +18,19 @@ void main() {
     expect(settings.selectedLocalIps, isEmpty);
     expect(settings.rootRoutingEnabled, isFalse);
     expect(settings.windowsCloseBehavior, WindowsCloseBehavior.ask);
+    expect(settings.windowsVpnProxyEnabled, isFalse);
+    expect(settings.windowsVpnProxyPort, 10808);
+  });
+
+  test('saves Windows internal VPN proxy settings', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = await AppSettings.load();
+
+    await settings.setWindowsVpnProxy(enabled: true, port: 10809);
+    final reloaded = await AppSettings.load();
+
+    expect(reloaded.windowsVpnProxyEnabled, isTrue);
+    expect(reloaded.windowsVpnProxyPort, 10809);
   });
 
   test('smart proxy payload uses compact scannable links', () {
