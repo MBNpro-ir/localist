@@ -13,7 +13,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.5.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.6.0-blue"></a>
 </p>
 
 ## Overview
@@ -21,7 +21,7 @@
 Localist is a Flutter app for moving proxy/VPN access between Android and Windows:
 
 - Android can share HTTP/SOCKS5 proxy endpoints and receive a remote endpoint as VPN or local proxy, with first-run permission setup and background-transfer protection.
-- Windows can share proxy endpoints, show QR codes, scan proxy QR codes with a webcam, run with administrator privileges, minimize to the taskbar tray, and apply Windows VPN mode through the system proxy.
+- Windows can share proxy endpoints, show QR codes, scan proxy QR codes with a webcam, run with administrator privileges, minimize to the taskbar tray, and start Receiving VPN mode with bundled Wintun/tun2socks tools when they are available.
 - Settings are persisted in each platform's standard app-support storage so reinstalling the app keeps user preferences.
 - Windows uses the Android app icon, starts at `440x680`, keeps width fixed at `440`, allows taller vertical resizing, has no maximize button, and follows Windows accent colors.
 
@@ -193,8 +193,10 @@ While Android sharing, receiving VPN, or local proxy modes are active, the foreg
 
 ## Windows VPN and Wintun
 
-The current Windows VPN mode still uses a system-proxy route for reproducible GitHub Actions builds. Native Wintun support requires bundling `wintun.dll`, creating an adapter, starting a Wintun session, reading/writing packet rings, and routing packets through the same proxy engine. The repository now documents that boundary explicitly so the Windows release remains buildable while Wintun integration can be completed as a native packet-driver feature.
+Windows Receiving VPN mode starts `tun2socks.exe` with `wintun.dll` when those tools are bundled next to `Localist.exe`. The release workflow downloads both tools for the Windows x64 package, and the app configures the Wintun interface, DNS, split default routes, and a bypass route for the selected upstream proxy before marking VPN mode active.
+
+If `tun2socks.exe` or `wintun.dll` is missing, Windows Receiving falls back to the previous system-proxy route so development builds remain usable from a clean Flutter checkout.
 
 ## Notes
 
-Windows TUN driver mode requires a signed driver/packet engine such as Wintun. The current Windows VPN mode is intentionally implemented as a system-proxy route so the desktop build remains installable and reproducible from a clean Flutter checkout.
+Windows TUN driver mode requires administrator privileges and the signed Wintun runtime. Keep `tun2socks.exe` and `wintun.dll` beside the Windows executable when packaging outside GitHub Actions.

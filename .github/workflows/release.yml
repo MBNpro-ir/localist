@@ -128,6 +128,57 @@ jobs:
       - name: Restore packages
         run: flutter pub get
 
+      - name: Download Windows Wintun tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $toolsDir = Join-Path $PWD 'windows\runner\resources'
+          New-Item -ItemType Directory -Force $toolsDir | Out-Null
+
+          $tun2socksVersion = 'v2.6.0'
+          $tun2socksZip = Join-Path $env:RUNNER_TEMP 'tun2socks.zip'
+          $tun2socksDir = Join-Path $env:RUNNER_TEMP 'tun2socks'
+          $tun2socksAssets = @(
+            "tun2socks-windows-amd64.zip",
+            "tun2socks-windows-amd64-v3.zip"
+          )
+          $downloadedTun2socks = $false
+          foreach ($asset in $tun2socksAssets) {
+            try {
+              Invoke-WebRequest `
+                -Uri "https://github.com/xjasonlyu/tun2socks/releases/download/$tun2socksVersion/$asset" `
+                -OutFile $tun2socksZip
+              $downloadedTun2socks = $true
+              break
+            } catch {
+              Write-Host "Unable to download $asset, trying next asset name."
+            }
+          }
+          if (-not $downloadedTun2socks) {
+            throw 'Unable to download a Windows amd64 tun2socks release archive.'
+          }
+          Expand-Archive -Path $tun2socksZip -DestinationPath $tun2socksDir -Force
+          $tun2socksExe = Get-ChildItem -Path $tun2socksDir -Recurse -Filter '*.exe' |
+            Select-Object -First 1
+          if (-not $tun2socksExe) {
+            throw 'tun2socks.exe was not found in the release archive.'
+          }
+          Copy-Item -Path $tun2socksExe.FullName -Destination (Join-Path $toolsDir 'tun2socks.exe') -Force
+
+          $wintunZip = Join-Path $env:RUNNER_TEMP 'wintun.zip'
+          $wintunDir = Join-Path $env:RUNNER_TEMP 'wintun'
+          Invoke-WebRequest `
+            -Uri 'https://www.wintun.net/builds/wintun-0.14.1.zip' `
+            -OutFile $wintunZip
+          Expand-Archive -Path $wintunZip -DestinationPath $wintunDir -Force
+          $wintunDll = Get-ChildItem -Path $wintunDir -Recurse -Filter 'wintun.dll' |
+            Where-Object { $_.FullName -match '\\amd64\\' } |
+            Select-Object -First 1
+          if (-not $wintunDll) {
+            throw 'amd64 wintun.dll was not found in the Wintun archive.'
+          }
+          Copy-Item -Path $wintunDll.FullName -Destination (Join-Path $toolsDir 'wintun.dll') -Force
+
       - name: Build Windows x64
         shell: pwsh
         run: |
@@ -219,6 +270,27 @@ jobs:
           - 🟢 Improves selected local IP chips and adds the Telegram icon to the proxy button.
           - 🧪 Documents current Windows VPN/Wintun status and release workflow behavior.
           - 🏷️ Bumps the app version to v${APP_VERSION}.
+
+          ## Assets
+
+          - Android split APKs: armeabi-v7a, arm64-v8a, x86_64
+          - Android App Bundle: universal AAB
+          - Windows Desktop: x64 ZIP package
+          - Split debug symbols are uploaded as separate ZIP files for crash symbolication.
+          EOF
+          cat > RELEASE_NOTES.md <<EOF
+          # Localist v${APP_VERSION}
+
+          Feature release for Android and Windows.
+
+          ## Changes
+
+          - Adds clear buttons to Receiving config, host, and port fields.
+          - Highlights selectable Allowed proxy IPs with a black border and side bar.
+          - Adds a close button to the QR code preview.
+          - Starts Windows Receiving VPN with bundled tun2socks and Wintun when available, with the previous Windows system-proxy route as fallback.
+          - Downloads and bundles tun2socks.exe and wintun.dll in the Windows GitHub Actions package.
+          - Bumps the app version to v${APP_VERSION}.
 
           ## Assets
 

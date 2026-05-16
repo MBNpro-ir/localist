@@ -189,27 +189,29 @@ class _SharingControlPanel extends StatelessWidget {
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
-            if (localIps.isEmpty)
-              const MetricTile(
-                label: 'Local IPs',
-                value: 'No local IPs detected',
-                icon: Icons.lan_outlined,
-              )
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final ip in localIps)
-                    _LocalIpFilterChip(
-                      ip: ip,
-                      selected: settings.isLocalIpSelected(ip),
-                      enabled: !busy && !running && !oppositeServiceActive,
-                      onSelected: (selected) =>
-                          settings.setLocalIpSelected(ip, selected),
+            _AllowedProxyIpsBox(
+              child: localIps.isEmpty
+                  ? const MetricTile(
+                      label: 'Local IPs',
+                      value: 'No local IPs detected',
+                      icon: Icons.lan_outlined,
+                    )
+                  : Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final ip in localIps)
+                          _LocalIpFilterChip(
+                            ip: ip,
+                            selected: settings.isLocalIpSelected(ip),
+                            enabled:
+                                !busy && !running && !oppositeServiceActive,
+                            onSelected: (selected) =>
+                                settings.setLocalIpSelected(ip, selected),
+                          ),
+                      ],
                     ),
-                ],
-              ),
+            ),
           ],
           if (isWindows) ...[
             const SizedBox(height: 12),
@@ -478,6 +480,41 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
   }
 }
 
+class _AllowedProxyIpsBox extends StatelessWidget {
+  const _AllowedProxyIpsBox({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: .26),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.black, width: 1.4),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(7),
+        child: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: Container(width: 6, color: Colors.black),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 12, 12),
+              child: child,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LocalProxyIpsTile extends StatelessWidget {
   const _LocalProxyIpsTile({required this.value});
 
@@ -673,7 +710,10 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
                   : Padding(
                       key: ValueKey(selected.id),
                       padding: const EdgeInsets.only(top: 14),
-                      child: _QrPreview(endpoint: selected),
+                      child: _QrPreview(
+                        endpoint: selected,
+                        onClose: () => setState(() => _selectedId = null),
+                      ),
                     ),
             ),
           ],
@@ -774,9 +814,10 @@ class _QrEndpointChip extends StatelessWidget {
 }
 
 class _QrPreview extends StatelessWidget {
-  const _QrPreview({required this.endpoint});
+  const _QrPreview({required this.endpoint, required this.onClose});
 
   final _QrEndpoint endpoint;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
@@ -802,6 +843,11 @@ class _QrPreview extends StatelessWidget {
                     '${endpoint.title} - ${endpoint.subtitle}',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
+                ),
+                IconButton.filledTonal(
+                  tooltip: 'Close QR code',
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close),
                 ),
               ],
             ),

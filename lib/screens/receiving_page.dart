@@ -110,6 +110,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
     final hostError = _hostError(_hostController.text);
     final portError = _portError(_portController.text);
     final config = _currentConfig();
+    final configFieldEnabled =
+        !running && !widget.busy && !oppositeServiceActive;
+    final proxyFieldEnabled = !running && !oppositeServiceActive;
 
     return PageSurface(
       key: const PageStorageKey<String>('receiving-page'),
@@ -132,13 +135,19 @@ class _ReceivingPageState extends State<ReceivingPage> {
               const SizedBox(height: 14),
               TextField(
                 controller: _configController,
-                enabled: !running && !widget.busy && !oppositeServiceActive,
+                enabled: configFieldEnabled,
                 minLines: 2,
                 maxLines: 4,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Smart/manual config',
                   hintText: 'localist://smart?... or http://host:2060',
-                  prefixIcon: Icon(Icons.data_object_outlined),
+                  prefixIcon: const Icon(Icons.data_object_outlined),
+                  suffixIcon: _clearTextButton(
+                    controller: _configController,
+                    enabled: configFieldEnabled,
+                    tooltip: 'Clear config',
+                    afterClear: () => _configTip = null,
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
@@ -223,20 +232,31 @@ class _ReceivingPageState extends State<ReceivingPage> {
               const SizedBox(height: 12),
               TextField(
                 controller: _hostController,
-                enabled: !running && !oppositeServiceActive,
-                decoration: const InputDecoration(
+                enabled: proxyFieldEnabled,
+                decoration: InputDecoration(
                   labelText: 'Proxy host',
-                  prefixIcon: Icon(Icons.dns_outlined),
-                ).copyWith(errorText: hostError),
+                  prefixIcon: const Icon(Icons.dns_outlined),
+                  suffixIcon: _clearTextButton(
+                    controller: _hostController,
+                    enabled: proxyFieldEnabled,
+                    tooltip: 'Clear host',
+                  ),
+                  errorText: hostError,
+                ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _portController,
-                enabled: !running && !oppositeServiceActive,
+                enabled: proxyFieldEnabled,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: 'Proxy port',
                   prefixIcon: const Icon(Icons.numbers),
+                  suffixIcon: _clearTextButton(
+                    controller: _portController,
+                    enabled: proxyFieldEnabled,
+                    tooltip: 'Clear port',
+                  ),
                   errorText: portError,
                 ),
               ),
@@ -361,6 +381,27 @@ class _ReceivingPageState extends State<ReceivingPage> {
     }
   }
 
+  Widget? _clearTextButton({
+    required TextEditingController controller,
+    required bool enabled,
+    required String tooltip,
+    VoidCallback? afterClear,
+  }) {
+    if (!enabled || controller.text.isEmpty) {
+      return null;
+    }
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: () {
+        controller.clear();
+        if (afterClear != null && mounted) {
+          setState(afterClear);
+        }
+      },
+      icon: const Icon(Icons.close),
+    );
+  }
+
   Future<void> _showPermissionPopup({
     required String title,
     required String message,
@@ -400,7 +441,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
       return 'Local proxy is active on 127.0.0.1:3781.';
     }
     return Platform.isWindows
-        ? 'Windows VPN mode is active through system proxy.'
+        ? 'Windows VPN mode is active.'
         : 'prstun VPN receiving mode is active.';
   }
 

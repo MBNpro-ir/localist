@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,6 +18,7 @@ class WindowsLocalistService {
 
   WindowsProxyServer? _proxyServer;
   WindowsLocalProxyForwarder? _localForwarder;
+  final WindowsWintunController _wintun = WindowsWintunController();
   bool _proxyRunning = false;
   bool _receivingRunning = false;
   bool _localProxyRunning = false;
@@ -77,11 +79,22 @@ class WindowsLocalistService {
   Future<bool> startReceivingVpn(RemoteProxyConfig config) async {
     await _ensureTotalsLoaded();
     await _startLocalForwarder(config, localPort: _localProxyPort);
-    await _applyWindowsSystemProxy(_localProxyPort);
+    await _restoreWindowsSystemProxyIfNeeded();
+    late final bool wintunStarted;
+    try {
+      wintunStarted = await _wintun.start(config);
+      if (!wintunStarted) {
+        await _applyWindowsSystemProxy(_localProxyPort);
+      }
+    } catch (_) {
+      await _localForwarder?.stop();
+      _localForwarder = null;
+      rethrow;
+    }
     _proxyRunning = false;
     _receivingRunning = true;
     _localProxyRunning = true;
-    _windowsProxyApplied = true;
+    _windowsProxyApplied = !wintunStarted;
     _remoteProxy = config;
     _protocols = {config.protocol};
     _protocolPorts = _coercePorts({
@@ -105,6 +118,7 @@ class WindowsLocalistService {
         message: 'Local port $localPort is busy.',
       );
     }
+    await _wintun.stop();
     await _restoreWindowsSystemProxyIfNeeded();
     await _startLocalForwarder(config, localPort: localPort);
     _proxyRunning = false;
@@ -164,6 +178,7 @@ class WindowsLocalistService {
   }
 
   Future<bool> stopProxyService() async {
+    await _wintun.stop();
     await _proxyServer?.stop();
     _proxyServer = null;
     await _localForwarder?.stop();
@@ -208,7 +223,7 @@ class WindowsLocalistService {
     final ports = _protocolPorts.isEmpty ? fallbackPorts : _protocolPorts;
     return ServiceSnapshot(
       vpnConnected: _receivingRunning,
-      deviceVpnActive: _windowsProxyApplied,
+      deviceVpnActive: _wintun.running || _windowsProxyApplied,
       proxyRunning: _proxyRunning,
       receivingRunning: _receivingRunning,
       localProxyRunning: _localProxyRunning,
@@ -449,6 +464,352 @@ class WindowsLocalistService {
   static const _restoreProxyEnabledKey = 'windows.proxy.restore.enabled';
   static const _restoreProxyServerKey = 'windows.proxy.restore.server';
   static const _restoreProxyBypassKey = 'windows.proxy.restore.bypass';
+}
+
+class WindowsWintunController {
+  Process? _process;
+  String? _remoteRouteIp;
+  String? _remoteRouteInterface;
+  String? _remoteRouteNextHop;
+  bool _running = false;
+
+  static const _tunInterface = 'wintun';
+  static const _tunAddress = '198.18.0.1';
+  static const _tunMask = '255.254.0.0';
+
+  bool get running => _running;
+
+  Future<bool> start(RemoteProxyConfig config) async {
+    await stop();
+    final tools = await _findTools();
+    if (tools == null) {
+      return false;
+    }
+    final route = await _findRouteForHost(config.host);
+    final args = <String>[
+      '-device',
+      _tunInterface,
+      '-proxy',
+      config.url,
+      '-loglevel',
+      'warning',
+    ];
+    if (route != null) {
+      args.addAll(['-interface', route.interfaceAlias]);
+    }
+
+    try {
+      _process = await Process.start(
+        tools.tun2socksPath,
+        args,
+        workingDirectory: tools.directory,
+        mode: ProcessStartMode.detachedWithStdio,
+      );
+      unawaited(_process!.stdout.drain<void>());
+      unawaited(_process!.stderr.drain<void>());
+      final earlyExit = await Future.any<int?>([
+        _process!.exitCode,
+        Future<int?>.delayed(const Duration(milliseconds: 850), () => null),
+      ]);
+      if (earlyExit != null) {
+        throw PlatformException(
+          code: 'wintun_start_failed',
+          message: 'tun2socks exited with code $earlyExit.',
+        );
+      }
+      await _waitForInterface();
+      await _configureInterface();
+      if (route != null) {
+        await _addRemoteBypassRoute(route);
+      }
+      await _addDefaultRoutes();
+      _running = true;
+      return true;
+    } catch (error) {
+      await stop();
+      if (error is PlatformException) {
+        rethrow;
+      }
+      throw PlatformException(
+        code: 'wintun_start_failed',
+        message: 'Unable to start Wintun VPN: $error',
+      );
+    }
+  }
+
+  Future<void> stop() async {
+    await _deleteDefaultRoutes();
+    await _deleteRemoteBypassRoute();
+    _process?.kill();
+    _process = null;
+    _running = false;
+  }
+
+  Future<_WindowsWintunTools?> _findTools() async {
+    final bundledTun2socks = _fileNearExecutable('tun2socks.exe');
+    final bundledWintun = _fileNearExecutable('wintun.dll');
+    if (await bundledTun2socks.exists() && await bundledWintun.exists()) {
+      return _WindowsWintunTools(
+        tun2socksPath: bundledTun2socks.path,
+        directory: bundledTun2socks.parent.path,
+      );
+    }
+
+    final resourceTun2socks = File(
+      '${Directory.current.path}\\windows\\runner\\resources\\tun2socks.exe',
+    );
+    final resourceWintun = File(
+      '${Directory.current.path}\\windows\\runner\\resources\\wintun.dll',
+    );
+    if (await resourceTun2socks.exists() && await resourceWintun.exists()) {
+      return _WindowsWintunTools(
+        tun2socksPath: resourceTun2socks.path,
+        directory: resourceTun2socks.parent.path,
+      );
+    }
+
+    final pathTun2socks = await _where('tun2socks.exe');
+    if (pathTun2socks == null) {
+      return null;
+    }
+    final pathWintun = File('${File(pathTun2socks).parent.path}\\wintun.dll');
+    if (!await pathWintun.exists()) {
+      return null;
+    }
+    return _WindowsWintunTools(
+      tun2socksPath: pathTun2socks,
+      directory: File(pathTun2socks).parent.path,
+    );
+  }
+
+  File _fileNearExecutable(String name) {
+    return File('${File(Platform.resolvedExecutable).parent.path}\\$name');
+  }
+
+  Future<String?> _where(String executable) async {
+    final result = await Process.run('where.exe', [executable]);
+    if (result.exitCode != 0) {
+      return null;
+    }
+    final output = result.stdout.toString().trim().split(RegExp(r'\r?\n'));
+    return output.where((line) => line.trim().isNotEmpty).firstOrNull?.trim();
+  }
+
+  Future<_WindowsRoute?> _findRouteForHost(String host) async {
+    final ip = await _resolveIpv4(host);
+    if (ip == null) {
+      return null;
+    }
+    final script =
+        r"$route = Find-NetRoute -RemoteIPAddress '" +
+        ip +
+        r"' | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1; "
+            r"if ($route) { "
+            r"$route.InterfaceAlias + '|' + $route.NextHop "
+            r"}";
+    final result = await Process.run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      script,
+    ]);
+    if (result.exitCode != 0) {
+      return null;
+    }
+    final output = result.stdout.toString().trim();
+    final parts = output.split('|');
+    if (parts.length != 2 || parts.first.trim().isEmpty) {
+      return null;
+    }
+    return _WindowsRoute(
+      ip: ip,
+      interfaceAlias: parts[0].trim(),
+      nextHop: parts[1].trim().isEmpty ? '0.0.0.0' : parts[1].trim(),
+    );
+  }
+
+  Future<String?> _resolveIpv4(String host) async {
+    if (InternetAddress.tryParse(host)?.type == InternetAddressType.IPv4) {
+      return host;
+    }
+    try {
+      final addresses = await InternetAddress.lookup(
+        host,
+        type: InternetAddressType.IPv4,
+      );
+      return addresses.firstOrNull?.address;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _waitForInterface() async {
+    for (var attempt = 0; attempt < 20; attempt++) {
+      final result = await Process.run('netsh.exe', [
+        'interface',
+        'show',
+        'interface',
+        'name=$_tunInterface',
+      ]);
+      if (result.exitCode == 0) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    throw PlatformException(
+      code: 'wintun_interface_missing',
+      message: 'The Wintun interface did not appear after tun2socks started.',
+    );
+  }
+
+  Future<void> _configureInterface() async {
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'set',
+      'address',
+      'name=$_tunInterface',
+      'source=static',
+      'addr=$_tunAddress',
+      'mask=$_tunMask',
+    ]);
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'set',
+      'dnsservers',
+      'name=$_tunInterface',
+      'static',
+      'address=1.1.1.1',
+      'register=none',
+      'validate=no',
+    ], allowFailure: true);
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'add',
+      'dnsservers',
+      'name=$_tunInterface',
+      'address=8.8.8.8',
+      'index=2',
+      'validate=no',
+    ], allowFailure: true);
+  }
+
+  Future<void> _addDefaultRoutes() async {
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'add',
+      'route',
+      '0.0.0.0/1',
+      _tunInterface,
+      _tunAddress,
+      'metric=1',
+    ], allowFailure: true);
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'add',
+      'route',
+      '128.0.0.0/1',
+      _tunInterface,
+      _tunAddress,
+      'metric=1',
+    ], allowFailure: true);
+  }
+
+  Future<void> _deleteDefaultRoutes() async {
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'delete',
+      'route',
+      '0.0.0.0/1',
+      _tunInterface,
+      _tunAddress,
+    ], allowFailure: true);
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'delete',
+      'route',
+      '128.0.0.0/1',
+      _tunInterface,
+      _tunAddress,
+    ], allowFailure: true);
+  }
+
+  Future<void> _addRemoteBypassRoute(_WindowsRoute route) async {
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'add',
+      'route',
+      '${route.ip}/32',
+      route.interfaceAlias,
+      route.nextHop,
+      'metric=1',
+    ], allowFailure: true);
+    _remoteRouteIp = route.ip;
+    _remoteRouteInterface = route.interfaceAlias;
+    _remoteRouteNextHop = route.nextHop;
+  }
+
+  Future<void> _deleteRemoteBypassRoute() async {
+    final ip = _remoteRouteIp;
+    final interfaceAlias = _remoteRouteInterface;
+    final nextHop = _remoteRouteNextHop;
+    _remoteRouteIp = null;
+    _remoteRouteInterface = null;
+    _remoteRouteNextHop = null;
+    if (ip == null || interfaceAlias == null || nextHop == null) {
+      return;
+    }
+    await _runNetsh([
+      'interface',
+      'ipv4',
+      'delete',
+      'route',
+      '$ip/32',
+      interfaceAlias,
+      nextHop,
+    ], allowFailure: true);
+  }
+
+  Future<void> _runNetsh(List<String> args, {bool allowFailure = false}) async {
+    final result = await Process.run('netsh.exe', args);
+    if (allowFailure || result.exitCode == 0) {
+      return;
+    }
+    throw PlatformException(
+      code: 'netsh_failed',
+      message:
+          'netsh ${args.join(' ')} failed: ${result.stderr}${result.stdout}',
+    );
+  }
+}
+
+class _WindowsWintunTools {
+  const _WindowsWintunTools({
+    required this.tun2socksPath,
+    required this.directory,
+  });
+
+  final String tun2socksPath;
+  final String directory;
+}
+
+class _WindowsRoute {
+  const _WindowsRoute({
+    required this.ip,
+    required this.interfaceAlias,
+    required this.nextHop,
+  });
+
+  final String ip;
+  final String interfaceAlias;
+  final String nextHop;
 }
 
 class WindowsNetworkInspector {
