@@ -94,11 +94,12 @@ class _SettingsPageState extends State<SettingsPage> {
         final socks5Error = _hasPortEdits
             ? _portError(_socks5PortController.text)
             : null;
+        final proxySettingsLocked = widget.portsLocked;
         final canSavePorts =
             _portsChanged &&
             httpError == null &&
             socks5Error == null &&
-            !widget.portsLocked &&
+            !proxySettingsLocked &&
             !_portsSaving;
         return PageSurface(
           children: [
@@ -130,29 +131,17 @@ class _SettingsPageState extends State<SettingsPage> {
                   if (isWindows || !widget.settings.rootRoutingEnabled) ...[
                     const SizedBox(height: 12),
                     for (final protocol in ProxyProtocol.values)
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        secondary: const Icon(Icons.route_outlined),
-                        title: Text(protocol.label),
-                        subtitle: Text(
-                          '${protocol.scheme}://host:${widget.settings.portFor(protocol)}',
-                        ),
-                        value: widget.settings.isProtocolEnabled(protocol),
-                        onChanged:
-                            widget.settings.enabledProtocols.length == 1 &&
-                                widget.settings.isProtocolEnabled(protocol)
-                            ? null
-                            : (value) => widget.settings.setProtocolEnabled(
-                                protocol,
-                                value ?? false,
-                              ),
+                      _ProtocolToggle(
+                        settings: widget.settings,
+                        protocol: protocol,
+                        enabled: !proxySettingsLocked,
                       ),
                     const SizedBox(height: 12),
                     _ProtocolPortField(
                       protocol: ProxyProtocol.http,
                       controller: _httpPortController,
                       errorText: httpError,
-                      enabled: !widget.portsLocked,
+                      enabled: !proxySettingsLocked,
                       onSubmitted: (_) => _savePorts(),
                     ),
                     const SizedBox(height: 12),
@@ -160,10 +149,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       protocol: ProxyProtocol.socks5,
                       controller: _socks5PortController,
                       errorText: socks5Error,
-                      enabled: !widget.portsLocked,
+                      enabled: !proxySettingsLocked,
                       onSubmitted: (_) => _savePorts(),
                     ),
-                    if (widget.portsLocked) ...[
+                    if (proxySettingsLocked) ...[
                       const SizedBox(height: 10),
                       const _LockedPortsNotice(),
                     ],
@@ -579,6 +568,35 @@ class _WindowsCloseBehaviorSelector extends StatelessWidget {
   }
 }
 
+class _ProtocolToggle extends StatelessWidget {
+  const _ProtocolToggle({
+    required this.settings,
+    required this.protocol,
+    required this.enabled,
+  });
+
+  final AppSettings settings;
+  final ProxyProtocol protocol;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final protocolEnabled = settings.isProtocolEnabled(protocol);
+    final isOnlyEnabledProtocol =
+        settings.enabledProtocols.length == 1 && protocolEnabled;
+    return CheckboxListTile(
+      contentPadding: EdgeInsets.zero,
+      secondary: const Icon(Icons.route_outlined),
+      title: Text(protocol.label),
+      subtitle: Text('${protocol.scheme}://host:${settings.portFor(protocol)}'),
+      value: protocolEnabled,
+      onChanged: enabled && !isOnlyEnabledProtocol
+          ? (value) => settings.setProtocolEnabled(protocol, value ?? false)
+          : null,
+    );
+  }
+}
+
 class _ProtocolPortField extends StatelessWidget {
   const _ProtocolPortField({
     required this.protocol,
@@ -633,7 +651,7 @@ class _LockedPortsNotice extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Stop sharing before changing ports.',
+                'Stop sharing before changing protocols or ports.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),

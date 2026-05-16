@@ -2,31 +2,59 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+class LocalistVisualStyle extends InheritedWidget {
+  const LocalistVisualStyle({
+    super.key,
+    required this.simple,
+    required super.child,
+  });
+
+  final bool simple;
+
+  static bool simpleOf(BuildContext context) {
+    return context
+            .dependOnInheritedWidgetOfExactType<LocalistVisualStyle>()
+            ?.simple ??
+        false;
+  }
+
+  @override
+  bool updateShouldNotify(LocalistVisualStyle oldWidget) {
+    return simple != oldWidget.simple;
+  }
+}
+
 class GlassBackground extends StatelessWidget {
-  const GlassBackground({super.key, required this.child});
+  const GlassBackground({super.key, required this.child, this.simple = false});
 
   final Widget child;
+  final bool simple;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 460),
-      curve: Curves.easeInOutCubic,
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            scheme.surface,
-            scheme.primaryContainer.withValues(alpha: .22),
-            scheme.tertiaryContainer.withValues(alpha: .18),
-            scheme.surface,
-          ],
-        ),
-      ),
-      child: child,
+    return LocalistVisualStyle(
+      simple: simple,
+      child: simple
+          ? ColoredBox(color: scheme.surface, child: child)
+          : AnimatedContainer(
+              duration: const Duration(milliseconds: 460),
+              curve: Curves.easeInOutCubic,
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    scheme.surface,
+                    scheme.primaryContainer.withValues(alpha: .22),
+                    scheme.tertiaryContainer.withValues(alpha: .18),
+                    scheme.surface,
+                  ],
+                ),
+              ),
+              child: child,
+            ),
     );
   }
 }
@@ -46,6 +74,20 @@ class GlassPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final simple = LocalistVisualStyle.simpleOf(context);
+    if (simple) {
+      return Padding(
+        padding: margin ?? EdgeInsets.zero,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainer,
+            border: Border.all(color: scheme.outlineVariant),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Padding(padding: padding, child: child),
+        ),
+      );
+    }
     final brightness = Theme.of(context).brightness;
     final fill = brightness == Brightness.dark ? Colors.black : Colors.white;
     return Padding(
@@ -85,6 +127,17 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (LocalistVisualStyle.simpleOf(context)) {
+      return AppBar(
+        title: title,
+        actions: actions,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: false,
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        surfaceTintColor: Colors.transparent,
+      );
+    }
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
@@ -109,24 +162,25 @@ class PageSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BackdropGroup(
-      child: ScrollConfiguration(
-        behavior: const _StableScrollBehavior(),
-        child: ListView(
-          key: key,
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
-          children: [
-            for (final child in children)
-              RepaintBoundary(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: child,
-                ),
+    final list = ScrollConfiguration(
+      behavior: const _StableScrollBehavior(),
+      child: ListView(
+        key: key,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
+        children: [
+          for (final child in children)
+            RepaintBoundary(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: child,
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
+    return LocalistVisualStyle.simpleOf(context)
+        ? list
+        : BackdropGroup(child: list);
   }
 }
 
@@ -161,41 +215,53 @@ class MetricTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
+    final simple = LocalistVisualStyle.simpleOf(context);
+    final decoration = BoxDecoration(
+      color: simple
+          ? scheme.surfaceContainerHighest
+          : scheme.surface.withValues(alpha: .34),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(
+        color: simple
+            ? scheme.outlineVariant
+            : scheme.outlineVariant.withValues(alpha: .26),
+      ),
+    );
+    final content = Padding(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Icon(icon, color: scheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: textTheme.labelMedium),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: textTheme.titleMedium,
+                  maxLines: wrapValue ? null : 1,
+                  overflow: wrapValue
+                      ? TextOverflow.visible
+                      : TextOverflow.ellipsis,
+                  softWrap: wrapValue,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (simple) {
+      return DecoratedBox(decoration: decoration, child: content);
+    }
     return AnimatedContainer(
       duration: const Duration(milliseconds: 320),
       curve: Curves.easeInOutCubic,
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: .34),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .26)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Icon(icon, color: scheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label, style: textTheme.labelMedium),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: textTheme.titleMedium,
-                    maxLines: wrapValue ? null : 1,
-                    overflow: wrapValue
-                        ? TextOverflow.visible
-                        : TextOverflow.ellipsis,
-                    softWrap: wrapValue,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      decoration: decoration,
+      child: content,
     );
   }
 }
@@ -220,7 +286,7 @@ class ServiceLockNotice extends StatelessWidget {
         border: Border.all(color: scheme.outlineVariant.withValues(alpha: .28)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Row(
           children: [
             Icon(icon, color: scheme.onSurfaceVariant),

@@ -204,17 +204,17 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          Bug fix release for Android and Windows.
+          Android and Windows release focused on safer service switching,
+          combined receiving modes, and smoother performance on older Android devices.
 
           ## Changes
 
-          - Keeps Sharing and Receiving pages navigable while disabling conflicting controls during an active service.
-          - Shows an in-page notice when Sharing or Receiving is unavailable because the other service is active.
-          - Makes Smart QR codes more scannable with a compact payload and consistent white quiet zone.
-          - Adds a Windows Sharing option to route shared proxy traffic through an internal v2rayN SOCKS proxy such as 127.0.0.1:10808.
-          - Fixes Windows taskbar tray icon resolution and safer close-to-tray / full-exit handling.
-          - Uses pubspec.yaml as the source for build versioning, Windows metadata, artifact names, and release notes.
-          - Removes note.txt from the repository.
+          - Locks Sharing protocol selection and port fields while the sharing service is active, on both Android and Windows.
+          - Starts the 127.0.0.1:3781 local proxy together with Start as VPN, while keeping the TUN forwarder on its internal port.
+          - Shows Receiving status and proxy app guidance for the combined VPN + local proxy mode.
+          - Uses a simple non-glass Flutter UI on Android devices below Android 13 / API 33 to reduce rendering lag.
+          - Keeps note.txt and local Android build caches out of the repository.
+          - Bumps the app version to v${APP_VERSION}.
 
           ## Assets
 

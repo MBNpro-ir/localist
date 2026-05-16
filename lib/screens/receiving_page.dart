@@ -91,6 +91,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
     final running =
         widget.snapshot.receivingRunning || widget.snapshot.localProxyRunning;
     final oppositeServiceActive = widget.controlsLocked && !running;
+    final vpnRunning = widget.snapshot.receivingRunning;
     final proxyRunning = widget.snapshot.localProxyRunning;
     final config = _currentConfig();
 
@@ -105,11 +106,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
               const SizedBox(height: 8),
               Text(
                 running
-                    ? proxyRunning
-                          ? 'Local proxy is active on 127.0.0.1:3781.'
-                          : Platform.isWindows
-                          ? 'Windows VPN mode is active through system proxy.'
-                          : 'prstun VPN receiving mode is active.'
+                    ? _runningStatusText(
+                        vpnRunning: vpnRunning,
+                        proxyRunning: proxyRunning,
+                      )
                     : 'Paste a Smart config or scan a localist QR, then load it into Proxy Config.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
@@ -258,8 +258,8 @@ class _ReceivingPageState extends State<ReceivingPage> {
                   icon: const Icon(Icons.vpn_key_outlined),
                   label: Text(
                     Platform.isWindows
-                        ? 'Start Windows VPN mode'
-                        : 'Start as VPN',
+                        ? 'Start Windows VPN + proxy'
+                        : 'Start as VPN + proxy',
                   ),
                 ),
               ),
@@ -292,7 +292,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
               Text('Proxy Apps', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               Text(
-                'Apps with their own proxy setting can use 127.0.0.1:3781 after Start as proxy.',
+                'Apps with their own proxy setting can use 127.0.0.1:3781 after Start as VPN or Start as proxy.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 12),
@@ -335,6 +335,23 @@ class _ReceivingPageState extends State<ReceivingPage> {
         );
       }
     }
+  }
+
+  String _runningStatusText({
+    required bool vpnRunning,
+    required bool proxyRunning,
+  }) {
+    if (vpnRunning && proxyRunning) {
+      return Platform.isWindows
+          ? 'Windows VPN mode and local proxy are active on 127.0.0.1:3781.'
+          : 'prstun VPN and local proxy are active on 127.0.0.1:3781.';
+    }
+    if (proxyRunning) {
+      return 'Local proxy is active on 127.0.0.1:3781.';
+    }
+    return Platform.isWindows
+        ? 'Windows VPN mode is active through system proxy.'
+        : 'prstun VPN receiving mode is active.';
   }
 
   Future<void> _startScanner() async {
@@ -491,11 +508,13 @@ class _ReceivingPageState extends State<ReceivingPage> {
       _applyConfig(config);
       _configController.text = config.url;
       _configTip =
-          'Proxy Config is ready. Use Start as VPN or Start as proxy when you are ready.';
+          'Proxy Config is ready. Use Start as VPN + proxy or Start as proxy when you are ready.';
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Config loaded. Choose Start as VPN or Start as proxy.'),
+        content: Text(
+          'Config loaded. Choose Start as VPN + proxy or Start as proxy.',
+        ),
       ),
     );
   }

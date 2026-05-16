@@ -80,7 +80,7 @@ class WindowsLocalistService {
     await _applyWindowsSystemProxy(_localProxyPort);
     _proxyRunning = false;
     _receivingRunning = true;
-    _localProxyRunning = false;
+    _localProxyRunning = true;
     _windowsProxyApplied = true;
     _remoteProxy = config;
     _protocols = {config.protocol};

@@ -19,6 +19,13 @@ class NativeBridgeService {
     return await _channel.invokeMethod<bool>('ensureVpnPermission') ?? false;
   }
 
+  Future<int?> getAndroidSdkInt() async {
+    if (!Platform.isAndroid) {
+      return null;
+    }
+    return _channel.invokeMethod<int>('getAndroidSdkInt');
+  }
+
   Future<bool> startProxyService({
     required Set<ProxyProtocol> protocols,
     required Map<ProxyProtocol, int> ports,

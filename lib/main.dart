@@ -24,14 +24,18 @@ import 'widgets/glass.dart';
 const _onboardingSeenKey = 'localist.onboarding.v2.seen';
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
 const _windowsAdminBootstrapArg = '--enable-admin';
+const _android13Sdk = 33;
 
 Future<void> main(List<String> args) async {
   final binding = WidgetsFlutterBinding.ensureInitialized();
   binding.deferFirstFrame();
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   try {
     await _bootstrapWindowsWindow();
     await _bootstrapWindowsSettings(args);
+    final useSimpleAndroidTheme = await _shouldUseSimpleAndroidTheme();
+    if (!useSimpleAndroidTheme) {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     final settings = await AppSettings.load();
     await runAppDynamic(
       title: 'Localist',
@@ -39,10 +43,25 @@ Future<void> main(List<String> args) async {
       debugShowCheckedModeBanner: false,
       themeAnimationDuration: Duration.zero,
       themeAnimationCurve: Curves.easeInOutCubic,
-      home: LocalistShell(settings: settings),
+      home: LocalistShell(
+        settings: settings,
+        useSimpleAndroidTheme: useSimpleAndroidTheme,
+      ),
     );
   } finally {
     binding.allowFirstFrame();
+  }
+}
+
+Future<bool> _shouldUseSimpleAndroidTheme() async {
+  if (!Platform.isAndroid) {
+    return false;
+  }
+  try {
+    final sdkInt = await NativeBridgeService.instance.getAndroidSdkInt();
+    return sdkInt != null && sdkInt < _android13Sdk;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -98,9 +117,14 @@ Future<void> _bootstrapWindowsSettings(List<String> args) async {
 }
 
 class LocalistShell extends StatefulWidget {
-  const LocalistShell({super.key, required this.settings});
+  const LocalistShell({
+    super.key,
+    required this.settings,
+    required this.useSimpleAndroidTheme,
+  });
 
   final AppSettings settings;
+  final bool useSimpleAndroidTheme;
 
   @override
   State<LocalistShell> createState() => _LocalistShellState();
@@ -801,17 +825,21 @@ class _LocalistShellState extends State<LocalistShell>
   Widget build(BuildContext context) {
     final themeSettings = context.watch<ThemeSettingsModel>();
     final statsAvailable = _statsAvailable;
+    final simpleVisuals = widget.useSimpleAndroidTheme;
+    final systemBarColor = simpleVisuals
+        ? Theme.of(context).colorScheme.surface
+        : Colors.transparent;
     final overlayStyle = SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      systemNavigationBarColor: Colors.transparent,
+      statusBarColor: systemBarColor,
+      systemNavigationBarColor: systemBarColor,
       statusBarIconBrightness: themeSettings.isDarkMode
           ? Brightness.light
           : Brightness.dark,
       systemNavigationBarIconBrightness: themeSettings.isDarkMode
           ? Brightness.light
           : Brightness.dark,
-      systemStatusBarContrastEnforced: false,
-      systemNavigationBarContrastEnforced: false,
+      systemStatusBarContrastEnforced: !simpleVisuals,
+      systemNavigationBarContrastEnforced: !simpleVisuals,
     );
     final pages = [
       SharingPage(
@@ -841,9 +869,12 @@ class _LocalistShellState extends State<LocalistShell>
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: GlassBackground(
+        simple: widget.useSimpleAndroidTheme,
         child: Scaffold(
-          extendBody: true,
-          backgroundColor: Colors.transparent,
+          extendBody: !simpleVisuals,
+          backgroundColor: simpleVisuals
+              ? Theme.of(context).colorScheme.surface
+              : Colors.transparent,
           appBar: GlassAppBar(
             title: Row(
               mainAxisSize: MainAxisSize.min,

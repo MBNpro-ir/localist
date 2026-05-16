@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
+                "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "startProxyService" -> startProxyService(call, result)
                 "startReceivingVpn" -> startReceivingVpn(call, result)
                 "startLocalProxy" -> startLocalProxy(call, result)
@@ -143,6 +144,14 @@ class MainActivity : FlutterActivity() {
         val port = call.argument<Int>("port") ?: LocalistVpnService.defaultPort(protocol)
         if (host.isBlank()) {
             result.error("missing_proxy_host", "Proxy host is required.", null)
+            return
+        }
+        if (!isLocalPortAvailable(LocalProxyForwarder.DEFAULT_LOCAL_PORT)) {
+            result.error(
+                "local_proxy_port_unavailable",
+                "Local port ${LocalProxyForwarder.DEFAULT_LOCAL_PORT} is busy.",
+                null,
+            )
             return
         }
         val prepareIntent = VpnService.prepare(this)

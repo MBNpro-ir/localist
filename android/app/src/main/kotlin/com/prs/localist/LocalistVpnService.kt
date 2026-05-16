@@ -23,12 +23,18 @@ class LocalistVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var proxyServer: LocalistProxyServer? = null
     private var localProxyForwarder: LocalProxyForwarder? = null
+    private var tunProxyForwarder: LocalProxyForwarder? = null
     private var prsTunEngine: PrsTunEngine? = null
     private var packetThread: Thread? = null
     private val notificationHandler = Handler(Looper.getMainLooper())
     private val notificationUpdater = object : Runnable {
         override fun run() {
-            if (State.proxyRunning || State.vpnConnected || State.receivingRunning) {
+            if (
+                State.proxyRunning ||
+                    State.vpnConnected ||
+                    State.receivingRunning ||
+                    State.localProxyRunning
+            ) {
                 val manager = getSystemService(NotificationManager::class.java)
                 manager.notify(NOTIFICATION_ID, buildNotification())
                 notificationHandler.postDelayed(this, NOTIFICATION_REFRESH_MS)
@@ -96,6 +102,10 @@ class LocalistVpnService : VpnService() {
         startForeground(NOTIFICATION_ID, buildNotification())
         runCatching { vpnInterface?.close() }
         vpnInterface = null
+        localProxyForwarder?.stop()
+        localProxyForwarder = null
+        tunProxyForwarder?.stop()
+        tunProxyForwarder = null
         startProxy(
             protocols = protocols,
             protocolPorts = protocolPorts,
@@ -119,16 +129,25 @@ class LocalistVpnService : VpnService() {
         State.ipAddress = HotspotController.localIpAddress()
         State.proxyRunning = false
         State.receivingRunning = true
-        State.localProxyRunning = false
+        State.localProxyRunning = true
+        State.localProxyPort = LocalProxyForwarder.DEFAULT_LOCAL_PORT
         State.sessionRxBytes = 0
         State.sessionTxBytes = 0
         proxyServer?.stop()
         proxyServer = null
         localProxyForwarder?.stop()
         localProxyForwarder = null
+        tunProxyForwarder?.stop()
+        tunProxyForwarder = null
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
+        startAppLocalForwarder(
+            protocol = State.remoteProtocol,
+            host = host,
+            port = port,
+            localPort = LocalProxyForwarder.DEFAULT_LOCAL_PORT,
+        )
         startVpnInterface(protocol = State.remoteProtocol, host = host, port = port)
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
@@ -159,9 +178,16 @@ class LocalistVpnService : VpnService() {
         State.sessionTxBytes = 0
         proxyServer?.stop()
         proxyServer = null
+        tunProxyForwarder?.stop()
+        tunProxyForwarder = null
         runCatching { vpnInterface?.close() }
         vpnInterface = null
-        startLocalForwarder(protocol = State.remoteProtocol, host = host, port = port, localPort = localPort)
+        startAppLocalForwarder(
+            protocol = State.remoteProtocol,
+            host = host,
+            port = port,
+            localPort = localPort,
+        )
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
@@ -172,7 +198,7 @@ class LocalistVpnService : VpnService() {
     private fun startVpnInterface(protocol: String, host: String, port: Int) {
         runCatching { vpnInterface?.close() }
         val tunProxyPort = PRSTUN_PROXY_PORT
-        startLocalForwarder(
+        startTunForwarder(
             protocol = protocol,
             host = host,
             port = port,
@@ -245,14 +271,43 @@ class LocalistVpnService : VpnService() {
         State.receivingRunning = false
     }
 
-    private fun startLocalForwarder(
+    private fun startAppLocalForwarder(
         protocol: String,
         host: String,
         port: Int,
         localPort: Int,
     ) {
         localProxyForwarder?.stop()
-        localProxyForwarder = LocalProxyForwarder(
+        localProxyForwarder = buildForwarder(
+            protocol = protocol,
+            host = host,
+            port = port,
+            localPort = localPort,
+        ).also { it.start() }
+    }
+
+    private fun startTunForwarder(
+        protocol: String,
+        host: String,
+        port: Int,
+        localPort: Int,
+    ) {
+        tunProxyForwarder?.stop()
+        tunProxyForwarder = buildForwarder(
+            protocol = protocol,
+            host = host,
+            port = port,
+            localPort = localPort,
+        ).also { it.start() }
+    }
+
+    private fun buildForwarder(
+        protocol: String,
+        host: String,
+        port: Int,
+        localPort: Int,
+    ): LocalProxyForwarder {
+        return LocalProxyForwarder(
             remoteProtocol = protocol,
             remoteHost = host,
             remotePort = port,
@@ -267,7 +322,7 @@ class LocalistVpnService : VpnService() {
                 }
             },
             socketProtector = { socket -> protect(socket) },
-        ).also { it.start() }
+        )
     }
 
     private fun stopLocalist(removeForeground: Boolean = true) {
@@ -278,6 +333,8 @@ class LocalistVpnService : VpnService() {
         proxyServer = null
         localProxyForwarder?.stop()
         localProxyForwarder = null
+        tunProxyForwarder?.stop()
+        tunProxyForwarder = null
         packetThread?.interrupt()
         packetThread = null
         runCatching { vpnInterface?.close() }
@@ -353,7 +410,7 @@ class LocalistVpnService : VpnService() {
         }
         val endpoint = when (State.mode) {
             MODE_RECEIVING ->
-                "${State.remoteProtocol.uppercase(Locale.US)} ${State.remoteHost}:${State.remotePort}"
+                "VPN via ${State.remoteProtocol.uppercase(Locale.US)} ${State.remoteHost}:${State.remotePort}; local proxy 127.0.0.1:${State.localProxyPort}"
             MODE_LOCAL_PROXY ->
                 "127.0.0.1:${State.localProxyPort} via ${State.remoteProtocol.uppercase(Locale.US)} ${State.remoteHost}:${State.remotePort}"
             else ->
