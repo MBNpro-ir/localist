@@ -210,7 +210,7 @@ jobs:
           ## Changes
 
           - Refreshes the Stats sheet every second while it is open so traffic counters update in realtime.
-          - Changes the fixed Windows desktop window size to 750x450.
+          - Changes the fixed Windows desktop window size to 450x750.
           - Bumps the app version to v${APP_VERSION}.
 
           ## Assets

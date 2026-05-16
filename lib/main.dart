@@ -223,7 +223,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _configureWindowsWindow() async {
-    const fixedSize = Size(750, 450);
+    const fixedSize = Size(450, 750);
     try {
       final iconPath = _windowsBundledAssetPath('ico/logo.ico');
       await windowManager.setTitle('Localist');
