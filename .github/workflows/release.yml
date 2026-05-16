@@ -204,16 +204,13 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          Android and Windows release focused on safer service switching,
-          combined receiving modes, and smoother performance on older Android devices.
+          Bug fix release for realtime stats, Windows desktop sizing,
+          and the 1.1.2 release package.
 
           ## Changes
 
-          - Locks Sharing protocol selection and port fields while the sharing service is active, on both Android and Windows.
-          - Starts the 127.0.0.1:3781 local proxy together with Start as VPN, while keeping the TUN forwarder on its internal port.
-          - Shows Receiving status and proxy app guidance for the combined VPN + local proxy mode.
-          - Uses a simple non-glass Flutter UI on Android devices below Android 13 / API 33 to reduce rendering lag.
-          - Keeps note.txt and local Android build caches out of the repository.
+          - Refreshes the Stats sheet every second while it is open so traffic counters update in realtime.
+          - Changes the fixed Windows desktop window size to 750x450.
           - Bumps the app version to v${APP_VERSION}.
 
           ## Assets

@@ -223,7 +223,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _configureWindowsWindow() async {
-    const fixedSize = Size(350, 720);
+    const fixedSize = Size(750, 450);
     try {
       final iconPath = _windowsBundledAssetPath('ico/logo.ico');
       await windowManager.setTitle('Localist');
@@ -479,11 +479,7 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<void> _refreshState({bool quiet = false}) async {
     try {
-      final snapshot = await _bridge.getServiceState(
-        fallbackProtocol: widget.settings.protocol,
-        fallbackPort: widget.settings.port,
-        fallbackPorts: widget.settings.protocolPorts,
-      );
+      final snapshot = await _loadServiceSnapshot();
       if (!mounted) {
         return;
       }
@@ -493,6 +489,14 @@ class _LocalistShellState extends State<LocalistShell>
         _logs.warning('Unable to refresh native state: $error');
       }
     }
+  }
+
+  Future<ServiceSnapshot> _loadServiceSnapshot() {
+    return _bridge.getServiceState(
+      fallbackProtocol: widget.settings.protocol,
+      fallbackPort: widget.settings.port,
+      fallbackPorts: widget.settings.protocolPorts,
+    );
   }
 
   Future<bool> _requestRuntimePermissions() async {
@@ -815,6 +819,7 @@ class _LocalistShellState extends State<LocalistShell>
         return StatsSheet(
           settings: widget.settings,
           snapshot: _snapshot,
+          loadSnapshot: _loadServiceSnapshot,
           onClose: () => Navigator.of(sheetContext).pop(),
         );
       },

@@ -1,36 +1,91 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import '../widgets/glass.dart';
 
-class StatsSheet extends StatelessWidget {
+class StatsSheet extends StatefulWidget {
   const StatsSheet({
     super.key,
     required this.settings,
     required this.snapshot,
+    required this.loadSnapshot,
     required this.onClose,
   });
 
   final AppSettings settings;
   final ServiceSnapshot snapshot;
+  final Future<ServiceSnapshot> Function() loadSnapshot;
   final VoidCallback onClose;
 
   @override
+  State<StatsSheet> createState() => _StatsSheetState();
+}
+
+class _StatsSheetState extends State<StatsSheet> {
+  late ServiceSnapshot _snapshot;
+  Timer? _refreshTimer;
+  bool _refreshing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _snapshot = widget.snapshot;
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _refreshSnapshot(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant StatsSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.snapshot != oldWidget.snapshot) {
+      _snapshot = widget.snapshot;
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshSnapshot() async {
+    if (_refreshing) {
+      return;
+    }
+    _refreshing = true;
+    try {
+      final snapshot = await widget.loadSnapshot();
+      if (mounted) {
+        setState(() => _snapshot = snapshot);
+      }
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final snapshot = _snapshot;
     final sharingActive = snapshot.proxyRunning || snapshot.root.active;
     final receivingActive =
         snapshot.receivingRunning || snapshot.localProxyRunning;
     final running = sharingActive || receivingActive || snapshot.vpnConnected;
-    final rootMode = settings.rootRoutingEnabled;
+    final rootMode = widget.settings.rootRoutingEnabled;
     final localIps = snapshot.localProxyIps.isNotEmpty
         ? snapshot.localProxyIps
         : snapshot.root.availableLocalIps;
-    final endpointIps = settings.shareAllRoutes
+    final endpointIps = widget.settings.shareAllRoutes
         ? localIps
-        : localIps.where(settings.isLocalIpSelected).toList(growable: false);
+        : localIps
+              .where(widget.settings.isLocalIpSelected)
+              .toList(growable: false);
     final activeProtocols = snapshot.protocols.isEmpty
-        ? settings.enabledProtocols
+        ? widget.settings.enabledProtocols
         : snapshot.protocols;
     final protocols = activeProtocols
         .map((protocol) => '${protocol.label}:${snapshot.portFor(protocol)}')
@@ -175,7 +230,7 @@ class StatsSheet extends StatelessWidget {
                         ),
                         IconButton(
                           tooltip: 'Close stats',
-                          onPressed: onClose,
+                          onPressed: widget.onClose,
                           icon: const Icon(Icons.close),
                         ),
                       ],
