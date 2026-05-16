@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -601,12 +600,11 @@ class WindowsWintunController {
       return null;
     }
     final script =
-        r"$route = Find-NetRoute -RemoteIPAddress '" +
-        ip +
-        r"' | Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1; "
-            r"if ($route) { "
-            r"$route.InterfaceAlias + '|' + $route.NextHop "
-            r"}";
+        "\$route = Find-NetRoute -RemoteIPAddress '$ip' | "
+        'Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1; '
+        r"if ($route) { "
+        r"$route.InterfaceAlias + '|' + $route.NextHop "
+        r"}";
     final result = await Process.run('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
