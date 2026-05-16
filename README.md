@@ -23,7 +23,7 @@ Localist is a Flutter app for moving proxy/VPN access between Android and Window
 - Android can share HTTP/SOCKS5 proxy endpoints and receive a remote endpoint as VPN or local proxy.
 - Windows can share proxy endpoints, show QR codes, scan proxy QR codes with a webcam, run with administrator privileges, minimize to the taskbar tray, and apply Windows VPN mode through the system proxy.
 - Settings are persisted in each platform's standard app-support storage so reinstalling the app keeps user preferences.
-- Windows uses the Android app icon, fixed `350x720` client size, no maximize button, no resize frame, and Windows accent colors.
+- Windows uses the Android app icon, fixed `450x720` client size, no maximize button, no resize frame, and Windows accent colors.
 
 ## Repository Layout
 
