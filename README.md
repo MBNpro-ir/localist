@@ -13,17 +13,17 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.1.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.5.0-blue"></a>
 </p>
 
 ## Overview
 
 Localist is a Flutter app for moving proxy/VPN access between Android and Windows:
 
-- Android can share HTTP/SOCKS5 proxy endpoints and receive a remote endpoint as VPN or local proxy.
+- Android can share HTTP/SOCKS5 proxy endpoints and receive a remote endpoint as VPN or local proxy, with first-run permission setup and background-transfer protection.
 - Windows can share proxy endpoints, show QR codes, scan proxy QR codes with a webcam, run with administrator privileges, minimize to the taskbar tray, and apply Windows VPN mode through the system proxy.
 - Settings are persisted in each platform's standard app-support storage so reinstalling the app keeps user preferences.
-- Windows uses the Android app icon, fixed `450x720` client size, no maximize button, no resize frame, and Windows accent colors.
+- Windows uses the Android app icon, starts at `440x680`, keeps width fixed at `440`, allows taller vertical resizing, has no maximize button, and follows Windows accent colors.
 
 ## Repository Layout
 
@@ -169,8 +169,8 @@ Sharing:
 
 Receiving:
 
-- Android: QR/manual config, local proxy mode, or Android `VpnService` receiving mode.
-- Windows: QR/manual config, local proxy mode, or Windows VPN mode through system proxy.
+- Android: QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Android `VpnService` receiving mode.
+- Windows: QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Windows VPN mode through system proxy.
 
 Settings:
 
@@ -179,6 +179,21 @@ Settings:
 - Windows close behavior can ask each time, move the window to the taskbar tray, or fully exit.
 - Proxy ports are locked while Sharing is active.
 - Theme follows Android dynamic colors or Windows accent colors.
+
+## Android Permissions and Background Transfer
+
+On first launch, Android opens a setup screen before the main UI. Localist asks for:
+
+- Notifications, so VPN/proxy services can remain foreground services.
+- Camera, so QR configs can be scanned.
+- VPN permission, so Receiving can start as a device VPN.
+- Battery optimization exemption, so long proxy/VPN transfers are not paused when the screen turns off.
+
+While Android sharing, receiving VPN, or local proxy modes are active, the foreground service also holds a partial CPU wake lock and a high-performance Wi-Fi lock. This keeps socket forwarding and TUN forwarding alive when the app is backgrounded or the display turns off.
+
+## Windows VPN and Wintun
+
+The current Windows VPN mode still uses a system-proxy route for reproducible GitHub Actions builds. Native Wintun support requires bundling `wintun.dll`, creating an adapter, starting a Wintun session, reading/writing packet rings, and routing packets through the same proxy engine. The repository now documents that boundary explicitly so the Windows release remains buildable while Wintun integration can be completed as a native packet-driver feature.
 
 ## Notes
 

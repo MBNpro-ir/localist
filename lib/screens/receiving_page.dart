@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_windows/webview_windows.dart';
 
 import '../models/app_settings.dart';
@@ -12,6 +13,11 @@ import '../models/service_state.dart';
 import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
 import '../widgets/glass.dart';
+
+const _receivingDraftConfigKey = 'receiving.draft.config';
+const _receivingDraftProtocolKey = 'receiving.draft.protocol';
+const _receivingDraftHostKey = 'receiving.draft.host';
+const _receivingDraftPortKey = 'receiving.draft.port';
 
 class ReceivingPage extends StatefulWidget {
   const ReceivingPage({
@@ -55,10 +61,15 @@ class _ReceivingPageState extends State<ReceivingPage> {
   String? _configTip;
   bool _scanning = false;
   bool _handledScan = false;
+  bool _restoringDraft = false;
 
   @override
   void initState() {
     super.initState();
+    _configController.addListener(_handleDraftChanged);
+    _hostController.addListener(_handleDraftChanged);
+    _portController.addListener(_handleDraftChanged);
+    unawaited(_restoreDraft());
     final remote = widget.snapshot.remoteProxy;
     if (remote != null) {
       _applyConfig(remote);
@@ -80,6 +91,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
   @override
   void dispose() {
     _scannerController.dispose();
+    _configController.removeListener(_handleDraftChanged);
+    _hostController.removeListener(_handleDraftChanged);
+    _portController.removeListener(_handleDraftChanged);
     _configController.dispose();
     _hostController.dispose();
     _portController.dispose();
@@ -93,6 +107,8 @@ class _ReceivingPageState extends State<ReceivingPage> {
     final oppositeServiceActive = widget.controlsLocked && !running;
     final vpnRunning = widget.snapshot.receivingRunning;
     final proxyRunning = widget.snapshot.localProxyRunning;
+    final hostError = _hostError(_hostController.text);
+    final portError = _portError(_portController.text);
     final config = _currentConfig();
 
     return PageSurface(
@@ -140,17 +156,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: widget.busy || oppositeServiceActive
+                  onPressed: widget.busy || running || oppositeServiceActive
                       ? null
-                      : running
-                      ? widget.onStopReceiving
                       : _startScanner,
-                  icon: Icon(
-                    running
-                        ? Icons.stop_circle_outlined
-                        : Icons.qr_code_scanner,
-                  ),
-                  label: Text(running ? 'Stop receiving' : 'Scan proxy QR'),
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('Scan proxy QR'),
                 ),
               ),
               if (oppositeServiceActive) ...[
@@ -208,10 +218,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 selected: {_protocol},
                 onSelectionChanged: running || oppositeServiceActive
                     ? null
-                    : (values) => setState(() {
-                        _protocol = values.single;
-                        _portController.text = _protocol.defaultPort.toString();
-                      }),
+                    : (values) => _setProtocol(values.single),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -220,16 +227,17 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 decoration: const InputDecoration(
                   labelText: 'Proxy host',
                   prefixIcon: Icon(Icons.dns_outlined),
-                ),
+                ).copyWith(errorText: hostError),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _portController,
                 enabled: !running && !oppositeServiceActive,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Proxy port',
-                  prefixIcon: Icon(Icons.numbers),
+                  prefixIcon: const Icon(Icons.numbers),
+                  errorText: portError,
                 ),
               ),
               AnimatedSwitcher(
@@ -250,14 +258,24 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 child: FilledButton.icon(
                   onPressed:
                       widget.busy ||
-                          running ||
+                          proxyRunning ||
                           oppositeServiceActive ||
-                          config == null
+                          (!vpnRunning && config == null)
                       ? null
-                      : () => widget.onStartReceiving(config),
-                  icon: const Icon(Icons.vpn_key_outlined),
+                      : vpnRunning
+                      ? widget.onStopReceiving
+                      : () => widget.onStartReceiving(config!),
+                  icon: Icon(
+                    vpnRunning
+                        ? Icons.stop_circle_outlined
+                        : Icons.vpn_key_outlined,
+                  ),
                   label: Text(
-                    Platform.isWindows
+                    vpnRunning
+                        ? Platform.isWindows
+                              ? 'Stop Windows VPN'
+                              : 'Stop VPN'
+                        : Platform.isWindows
                         ? 'Start Windows VPN + proxy'
                         : 'Start as VPN + proxy',
                   ),
@@ -269,13 +287,19 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 child: FilledButton.tonalIcon(
                   onPressed:
                       widget.busy ||
-                          running ||
+                          vpnRunning ||
                           oppositeServiceActive ||
-                          config == null
+                          (!proxyRunning && config == null)
                       ? null
-                      : () => widget.onStartLocalProxy(config),
-                  icon: const Icon(Icons.settings_ethernet),
-                  label: const Text('Start as proxy'),
+                      : proxyRunning
+                      ? widget.onStopReceiving
+                      : () => widget.onStartLocalProxy(config!),
+                  icon: Icon(
+                    proxyRunning
+                        ? Icons.stop_circle_outlined
+                        : Icons.settings_ethernet,
+                  ),
+                  label: Text(proxyRunning ? 'Stop proxy' : 'Start as proxy'),
                 ),
               ),
               if (config != null) ...[
@@ -302,7 +326,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
                   onPressed: proxyRunning && !oppositeServiceActive
                       ? _openTelegramProxy
                       : null,
-                  icon: const Icon(Icons.send_outlined),
+                  icon: const Icon(Icons.telegram),
                   label: Text(
                     Platform.isWindows
                         ? 'Open Telegram Desktop proxy'
@@ -337,6 +361,32 @@ class _ReceivingPageState extends State<ReceivingPage> {
     }
   }
 
+  Future<void> _showPermissionPopup({
+    required String title,
+    required String message,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+          FilledButton(
+            onPressed: () {
+              openAppSettings();
+              Navigator.of(context).pop();
+            },
+            child: const Text('Open settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _runningStatusText({
     required bool vpnRunning,
     required bool proxyRunning,
@@ -363,7 +413,16 @@ class _ReceivingPageState extends State<ReceivingPage> {
       return;
     }
     final permission = await Permission.camera.request();
-    if (!permission.isGranted || !mounted) {
+    if (!permission.isGranted) {
+      if (mounted) {
+        await _showPermissionPopup(
+          title: 'Camera permission required',
+          message: 'Localist needs camera access to scan proxy QR configs.',
+        );
+      }
+      return;
+    }
+    if (!mounted) {
       return;
     }
     setState(() {
@@ -491,10 +550,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
   RemoteProxyConfig? _currentConfig() {
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text.trim());
-    if (host.isEmpty || port == null || port < 1 || port > 65535) {
+    if (_hostError(host) != null || _portError(_portController.text) != null) {
       return null;
     }
-    return RemoteProxyConfig(protocol: _protocol, host: host, port: port);
+    return RemoteProxyConfig(protocol: _protocol, host: host, port: port!);
   }
 
   void _applyConfig(RemoteProxyConfig config) {
@@ -503,13 +562,14 @@ class _ReceivingPageState extends State<ReceivingPage> {
     _portController.text = config.port.toString();
   }
 
-  void _loadConfig(RemoteProxyConfig config) {
+  void _loadConfig(RemoteProxyConfig config, {String? configText}) {
     setState(() {
       _applyConfig(config);
-      _configController.text = config.url;
+      _configController.text = configText ?? config.url;
       _configTip =
           'Proxy Config is ready. Use Start as VPN + proxy or Start as proxy when you are ready.';
     });
+    unawaited(_persistDraft());
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
@@ -565,7 +625,96 @@ class _ReceivingPageState extends State<ReceivingPage> {
     if (selected == null || !mounted) {
       return;
     }
-    _loadConfig(selected.config);
+    _loadConfig(selected.config, configText: _configController.text.trim());
+  }
+
+  Future<void> _restoreDraft() async {
+    _restoringDraft = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final configText = prefs.getString(_receivingDraftConfigKey) ?? '';
+      final host = prefs.getString(_receivingDraftHostKey) ?? '';
+      final port =
+          prefs.getInt(_receivingDraftPortKey) ??
+          ProxyProtocol.socks5.defaultPort;
+      final protocol = ProxyProtocol.fromName(
+        prefs.getString(_receivingDraftProtocolKey),
+      );
+      if (!mounted || widget.snapshot.remoteProxy != null) {
+        return;
+      }
+      setState(() {
+        _protocol = protocol;
+        _configController.text = configText;
+        _hostController.text = host;
+        _portController.text = port.toString();
+      });
+    } finally {
+      _restoringDraft = false;
+    }
+  }
+
+  void _setProtocol(ProxyProtocol value) {
+    setState(() {
+      _protocol = value;
+      _portController.text = value.defaultPort.toString();
+    });
+    unawaited(_persistDraft());
+  }
+
+  void _handleDraftChanged() {
+    if (_restoringDraft || !mounted) {
+      return;
+    }
+    setState(() {});
+    unawaited(_persistDraft());
+  }
+
+  Future<void> _persistDraft() async {
+    if (_restoringDraft) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_receivingDraftConfigKey, _configController.text);
+    await prefs.setString(_receivingDraftProtocolKey, _protocol.name);
+    await prefs.setString(_receivingDraftHostKey, _hostController.text.trim());
+    final port = int.tryParse(_portController.text.trim());
+    if (port != null) {
+      await prefs.setInt(_receivingDraftPortKey, port);
+    }
+  }
+
+  String? _hostError(String value) {
+    final host = value.trim();
+    if (host.isEmpty) {
+      return 'Required';
+    }
+    if (host.contains(RegExp(r'\s'))) {
+      return 'No spaces';
+    }
+    if (host.contains('://')) {
+      return 'Host only';
+    }
+    final uri = Uri.tryParse('http://$host');
+    if (uri == null || uri.host.isEmpty || uri.host != host) {
+      return 'Invalid host';
+    }
+    return null;
+  }
+
+  String? _portError(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return 'Required';
+    }
+    final parsed = int.tryParse(trimmed);
+    if (parsed == null) {
+      return 'Numbers only';
+    }
+    if (parsed < 1 || parsed > 65535) {
+      return 'Use 1-65535';
+    }
+    return null;
   }
 
   List<SmartProxyEndpoint> _sortedEndpoints(

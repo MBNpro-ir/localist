@@ -19,11 +19,38 @@ class NativeBridgeService {
     return await _channel.invokeMethod<bool>('ensureVpnPermission') ?? false;
   }
 
+  Future<bool> hasVpnPermission() async {
+    if (Platform.isWindows) {
+      return true;
+    }
+    return await _channel.invokeMethod<bool>('hasVpnPermission') ?? false;
+  }
+
   Future<int?> getAndroidSdkInt() async {
     if (!Platform.isAndroid) {
       return null;
     }
     return _channel.invokeMethod<int>('getAndroidSdkInt');
+  }
+
+  Future<bool> isIgnoringBatteryOptimizations() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    return await _channel.invokeMethod<bool>(
+          'isIgnoringBatteryOptimizations',
+        ) ??
+        false;
+  }
+
+  Future<bool> requestIgnoreBatteryOptimizations() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    return await _channel.invokeMethod<bool>(
+          'requestIgnoreBatteryOptimizations',
+        ) ??
+        false;
   }
 
   Future<bool> startProxyService({

@@ -55,7 +55,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(350, 720);
+  Win32Window::Size size(440, 680);
   if (!window.Create(L"Localist", origin, size)) {
     if (single_instance_mutex != nullptr) {
       ::CloseHandle(single_instance_mutex);

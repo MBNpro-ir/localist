@@ -204,14 +204,21 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          Bug fix release for realtime stats, Windows desktop sizing,
-          and the 1.1.2 release package.
+          🚀 Feature and stability release for Android and Windows.
 
           ## Changes
 
-          - Refreshes the Stats sheet every second while it is open so traffic counters update in realtime.
-          - Changes the fixed Windows desktop window size to 450x750.
-          - Bumps the app version to v${APP_VERSION}.
+          - 📊 Refreshes the Stats sheet every second while it is open so traffic counters update in realtime.
+          - 🪟 Updates the Windows desktop window to fixed width 440 with a resizable height starting at 680.
+          - 🔐 Adds an Android first-run permission gate for notifications, camera, VPN, and background transfer.
+          - 🌙 Keeps Android VPN/proxy transfer alive when the screen turns off by using foreground-service runtime locks and battery optimization guidance.
+          - 📷 Keeps Receiving controls mode-aware so QR scanning and inactive start buttons stay disabled while a mode is running.
+          - 💾 Persists Receiving config, host, port, and protocol across page switches and app restarts.
+          - ✅ Improves manual proxy host/port validation before Start buttons can run.
+          - 🧭 Keeps page state alive when switching between Sharing, Receiving, and Settings.
+          - 🟢 Improves selected local IP chips and adds the Telegram icon to the proxy button.
+          - 🧪 Documents current Windows VPN/Wintun status and release workflow behavior.
+          - 🏷️ Bumps the app version to v${APP_VERSION}.
 
           ## Assets
 

@@ -17,8 +17,11 @@ namespace {
 #endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
-constexpr DWORD kFixedWindowStyle =
-    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+constexpr DWORD kWindowStyle =
+    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME;
+constexpr unsigned int kFixedClientWidth = 440;
+constexpr unsigned int kMinClientHeight = 680;
+constexpr unsigned int kMaxClientHeight = 8192;
 
 /// Registry key for app theme preference.
 ///
@@ -43,7 +46,7 @@ RECT GetAdjustedWindowBounds(const Win32Window::Size& size,
                              double scale_factor) {
   RECT frame = {0, 0, Scale(size.width, scale_factor),
                 Scale(size.height, scale_factor)};
-  AdjustWindowRect(&frame, kFixedWindowStyle, FALSE);
+  AdjustWindowRect(&frame, kWindowStyle, FALSE);
   return frame;
 }
 
@@ -146,7 +149,7 @@ bool Win32Window::Create(const std::wstring& title,
 
   RECT adjusted_bounds = GetAdjustedWindowBounds(size, scale_factor);
   HWND window = CreateWindow(
-      window_class, title.c_str(), kFixedWindowStyle,
+      window_class, title.c_str(), kWindowStyle,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       adjusted_bounds.right - adjusted_bounds.left,
       adjusted_bounds.bottom - adjusted_bounds.top, nullptr, nullptr,
@@ -207,6 +210,23 @@ Win32Window::MessageHandler(HWND hwnd,
       SetWindowPos(hwnd, nullptr, newRectSize->left, newRectSize->top, newWidth,
                    newHeight, SWP_NOZORDER | SWP_NOACTIVATE);
 
+      return 0;
+    }
+    case WM_GETMINMAXINFO: {
+      auto min_max_info = reinterpret_cast<MINMAXINFO*>(lparam);
+      HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+      double scale_factor = dpi / 96.0;
+      RECT minimum =
+          GetAdjustedWindowBounds(Size(kFixedClientWidth, kMinClientHeight),
+                                  scale_factor);
+      RECT maximum =
+          GetAdjustedWindowBounds(Size(kFixedClientWidth, kMaxClientHeight),
+                                  scale_factor);
+      min_max_info->ptMinTrackSize.x = minimum.right - minimum.left;
+      min_max_info->ptMinTrackSize.y = minimum.bottom - minimum.top;
+      min_max_info->ptMaxTrackSize.x = maximum.right - maximum.left;
+      min_max_info->ptMaxTrackSize.y = maximum.bottom - maximum.top;
       return 0;
     }
     case WM_SIZE: {

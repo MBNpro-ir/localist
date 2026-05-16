@@ -201,14 +201,12 @@ class _SharingControlPanel extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   for (final ip in localIps)
-                    FilterChip(
-                      avatar: const Icon(Icons.lan_outlined, size: 18),
-                      label: Text(ip),
+                    _LocalIpFilterChip(
+                      ip: ip,
                       selected: settings.isLocalIpSelected(ip),
-                      onSelected: busy || running || oppositeServiceActive
-                          ? null
-                          : (selected) =>
-                                settings.setLocalIpSelected(ip, selected),
+                      enabled: !busy && !running && !oppositeServiceActive,
+                      onSelected: (selected) =>
+                          settings.setLocalIpSelected(ip, selected),
                     ),
                 ],
               ),
@@ -520,6 +518,31 @@ class _LocalProxyIpsTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _LocalIpFilterChip extends StatelessWidget {
+  const _LocalIpFilterChip({
+    required this.ip,
+    required this.selected,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final String ip;
+  final bool selected;
+  final bool enabled;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      avatar: Icon(selected ? Icons.check : Icons.lan_outlined, size: 18),
+      label: Text(ip),
+      selected: selected,
+      showCheckmark: false,
+      onSelected: enabled ? onSelected : null,
     );
   }
 }

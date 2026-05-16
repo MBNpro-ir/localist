@@ -12,10 +12,12 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.ProxyInfo
 import android.net.VpnService
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import java.io.FileInputStream
 import java.util.Locale
 
@@ -26,6 +28,8 @@ class LocalistVpnService : VpnService() {
     private var tunProxyForwarder: LocalProxyForwarder? = null
     private var prsTunEngine: PrsTunEngine? = null
     private var packetThread: Thread? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private val notificationHandler = Handler(Looper.getMainLooper())
     private val notificationUpdater = object : Runnable {
         override fun run() {
@@ -100,6 +104,7 @@ class LocalistVpnService : VpnService() {
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
+        acquireRuntimeLocks()
         runCatching { vpnInterface?.close() }
         vpnInterface = null
         localProxyForwarder?.stop()
@@ -142,6 +147,7 @@ class LocalistVpnService : VpnService() {
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
+        acquireRuntimeLocks()
         startAppLocalForwarder(
             protocol = State.remoteProtocol,
             host = host,
@@ -191,6 +197,7 @@ class LocalistVpnService : VpnService() {
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
+        acquireRuntimeLocks()
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
     }
@@ -325,6 +332,44 @@ class LocalistVpnService : VpnService() {
         )
     }
 
+    private fun acquireRuntimeLocks() {
+        if (wakeLock?.isHeld != true) {
+            val powerManager = getSystemService(PowerManager::class.java)
+            wakeLock = powerManager?.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "$packageName:LocalistTransfer",
+            )?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }
+        if (wifiLock?.isHeld != true) {
+            val wifiManager = applicationContext.getSystemService(WifiManager::class.java)
+            wifiLock = wifiManager?.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "$packageName:LocalistWifi",
+            )?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }
+    }
+
+    private fun releaseRuntimeLocks() {
+        runCatching {
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
+            }
+        }
+        wifiLock = null
+        runCatching {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        }
+        wakeLock = null
+    }
+
     private fun stopLocalist(removeForeground: Boolean = true) {
         notificationHandler.removeCallbacks(notificationUpdater)
         prsTunEngine?.stop()
@@ -343,6 +388,7 @@ class LocalistVpnService : VpnService() {
         State.proxyRunning = false
         State.receivingRunning = false
         State.localProxyRunning = false
+        releaseRuntimeLocks()
         if (removeForeground) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()

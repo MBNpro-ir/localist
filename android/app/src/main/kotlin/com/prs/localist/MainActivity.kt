@@ -2,9 +2,11 @@ package com.prs.localist
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
@@ -23,7 +25,10 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
+                "hasVpnPermission" -> result.success(VpnService.prepare(this) == null)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
+                "isIgnoringBatteryOptimizations" -> result.success(isIgnoringBatteryOptimizations())
+                "requestIgnoreBatteryOptimizations" -> requestIgnoreBatteryOptimizations(result)
                 "startProxyService" -> startProxyService(call, result)
                 "startReceivingVpn" -> startReceivingVpn(call, result)
                 "startLocalProxy" -> startLocalProxy(call, result)
@@ -67,6 +72,34 @@ class MainActivity : FlutterActivity() {
         }
         pendingVpnResult = result
         startActivityForResult(intent, VPN_REQUEST_CODE)
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        val powerManager = getSystemService(PowerManager::class.java)
+        return powerManager?.isIgnoringBatteryOptimizations(packageName) == true
+    }
+
+    private fun requestIgnoreBatteryOptimizations(result: MethodChannel.Result) {
+        if (isIgnoringBatteryOptimizations()) {
+            result.success(true)
+            return
+        }
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        runCatching {
+            startActivity(intent)
+        }.onSuccess {
+            result.success(true)
+        }.onFailure {
+            runCatching {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }.onSuccess {
+                result.success(false)
+            }.onFailure { error ->
+                result.error("battery_settings_unavailable", error.message, null)
+            }
+        }
     }
 
     private fun startProxyService(call: MethodCall, result: MethodChannel.Result) {

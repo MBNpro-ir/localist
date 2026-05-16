@@ -12,6 +12,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'models/app_settings.dart';
 import 'models/service_state.dart';
+import 'screens/android_permission_gate.dart';
 import 'screens/logs_page.dart';
 import 'screens/receiving_page.dart';
 import 'screens/settings_page.dart';
@@ -43,9 +44,11 @@ Future<void> main(List<String> args) async {
       debugShowCheckedModeBanner: false,
       themeAnimationDuration: Duration.zero,
       themeAnimationCurve: Curves.easeInOutCubic,
-      home: LocalistShell(
-        settings: settings,
-        useSimpleAndroidTheme: useSimpleAndroidTheme,
+      home: AndroidPermissionGate(
+        child: LocalistShell(
+          settings: settings,
+          useSimpleAndroidTheme: useSimpleAndroidTheme,
+        ),
       ),
     );
   } finally {
@@ -223,14 +226,16 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _configureWindowsWindow() async {
-    const fixedSize = Size(450, 750);
+    const initialSize = Size(440, 680);
+    const minimumSize = Size(440, 680);
+    const maximumSize = Size(440, 8192);
     try {
       final iconPath = _windowsBundledAssetPath('ico/logo.ico');
       await windowManager.setTitle('Localist');
-      await windowManager.setSize(fixedSize);
-      await windowManager.setMinimumSize(fixedSize);
-      await windowManager.setMaximumSize(fixedSize);
-      await windowManager.setResizable(false);
+      await windowManager.setSize(initialSize);
+      await windowManager.setMinimumSize(minimumSize);
+      await windowManager.setMaximumSize(maximumSize);
+      await windowManager.setResizable(true);
       await windowManager.setMaximizable(false);
       await windowManager.setPreventClose(true);
       await windowManager.setIcon(iconPath);
@@ -506,6 +511,13 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.info('Runtime permissions granted');
     } else {
       _logs.warning('Runtime permissions are incomplete');
+      if (mounted) {
+        await _showPermissionDialog(
+          title: 'Notification permission required',
+          message:
+              'Localist needs notifications to keep the Android proxy service running in the foreground.',
+        );
+      }
     }
     return ok;
   }
@@ -673,6 +685,13 @@ class _LocalistShellState extends State<LocalistShell>
       final vpnReady = await _bridge.ensureVpnPermission();
       if (!vpnReady) {
         _logs.warning('VPN permission was not granted');
+        if (mounted) {
+          await _showPermissionDialog(
+            title: 'VPN permission required',
+            message:
+                'Localist needs Android VPN permission to start Receiving as VPN.',
+          );
+        }
         return;
       }
       final started = await _bridge.startReceivingVpn(config);
@@ -758,6 +777,25 @@ class _LocalistShellState extends State<LocalistShell>
     } catch (_) {
       return false;
     }
+  }
+
+  Future<void> _showPermissionDialog({
+    required String title,
+    required String message,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openHotspotSettings() async {
@@ -847,28 +885,38 @@ class _LocalistShellState extends State<LocalistShell>
       systemNavigationBarContrastEnforced: !simpleVisuals,
     );
     final pages = [
-      SharingPage(
-        settings: widget.settings,
-        snapshot: _snapshot,
-        busy: _busy,
-        controlsLocked: _receivingActive,
-        lockMessage:
-            'Receiving is active. Stop Receiving before using Sharing.',
-        onStartSharing: _startSharing,
-        onStopSharing: _stopSharing,
-        onOpenHotspotSettings: _openHotspotSettings,
-        onRefresh: _refreshState,
+      KeepAlivePage(
+        child: SharingPage(
+          settings: widget.settings,
+          snapshot: _snapshot,
+          busy: _busy,
+          controlsLocked: _receivingActive,
+          lockMessage:
+              'Receiving is active. Stop Receiving before using Sharing.',
+          onStartSharing: _startSharing,
+          onStopSharing: _stopSharing,
+          onOpenHotspotSettings: _openHotspotSettings,
+          onRefresh: _refreshState,
+        ),
       ),
-      ReceivingPage(
-        snapshot: _snapshot,
-        busy: _busy,
-        controlsLocked: _sharingActive,
-        lockMessage: 'Sharing is active. Stop Sharing before using Receiving.',
-        onStartReceiving: _startReceiving,
-        onStartLocalProxy: _startLocalProxy,
-        onStopReceiving: _stopReceiving,
+      KeepAlivePage(
+        child: ReceivingPage(
+          snapshot: _snapshot,
+          busy: _busy,
+          controlsLocked: _sharingActive,
+          lockMessage:
+              'Sharing is active. Stop Sharing before using Receiving.',
+          onStartReceiving: _startReceiving,
+          onStartLocalProxy: _startLocalProxy,
+          onStopReceiving: _stopReceiving,
+        ),
       ),
-      SettingsPage(settings: widget.settings, portsLocked: _sharingActive),
+      KeepAlivePage(
+        child: SettingsPage(
+          settings: widget.settings,
+          portsLocked: _sharingActive,
+        ),
+      ),
     ];
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -1099,6 +1147,27 @@ class _WindowsCloseDecision {
 
   final WindowsCloseBehavior behavior;
   final bool remember;
+}
+
+class KeepAlivePage extends StatefulWidget {
+  const KeepAlivePage({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<KeepAlivePage> createState() => _KeepAlivePageState();
+}
+
+class _KeepAlivePageState extends State<KeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
 }
 
 class _OnboardingGuideDialog extends StatelessWidget {
