@@ -509,6 +509,9 @@ class _LocalistShellState extends State<LocalistShell>
       await _discovery.start();
     } catch (error) {
       _logs.warning('Local discovery could not start: $error');
+      _showInAppNotice(
+        'Nearby device search could not start. Check firewall or network permissions.',
+      );
     }
   }
 
@@ -527,7 +530,72 @@ class _LocalistShellState extends State<LocalistShell>
       await _discovery.refresh();
     } catch (error) {
       _logs.warning('Local discovery refresh failed: $error');
+      _showInAppNotice('Nearby device search failed. Check the network.');
     }
+  }
+
+  void _showInAppNotice(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _describeError(Object error) {
+    if (error is PlatformException) {
+      final message = error.message;
+      if (message == null || message.isEmpty) {
+        return error.code;
+      }
+      return '${error.code}: $message';
+    }
+    return error.toString();
+  }
+
+  String _serviceErrorMessage(Object error, {required String fallback}) {
+    if (error is PlatformException) {
+      final message = error.message;
+      return switch (error.code) {
+        'port_unavailable' =>
+          message ?? 'Port is busy. Change the protocol port in Settings.',
+        'local_proxy_port_unavailable' =>
+          message ?? 'Local port 3781 is busy. Close the app using it first.',
+        'internal_vpn_proxy_unavailable' =>
+          message ??
+              'Internal VPN proxy is not reachable. Check v2rayN and the port.',
+        'vpn_permission_required' =>
+          'VPN permission is required before Receiving can start.',
+        'vpn_permission_pending' =>
+          'VPN permission is already open. Finish the Android permission prompt.',
+        'missing_proxy_host' => 'Proxy host is required.',
+        'wintun_start_failed' =>
+          message ?? 'Wintun could not start. Try running Localist as admin.',
+        'wintun_interface_missing' =>
+          'Wintun interface did not appear. Check wintun.dll and administrator access.',
+        'netsh_failed' =>
+          'Windows network route setup failed. Try running Localist as admin.',
+        'windows_proxy_failed' =>
+          'Windows system proxy could not be enabled for fallback mode.',
+        'proxy_service_start_failed' ||
+        'receiving_service_start_failed' ||
+        'local_proxy_start_failed' =>
+          message ?? 'Android could not start the Localist foreground service.',
+        _ => message ?? fallback,
+      };
+    }
+    final text = error.toString();
+    if (text.contains('port_unavailable')) {
+      return 'Port is busy. Change the protocol port in Settings.';
+    }
+    if (text.contains('internal_vpn_proxy_unavailable')) {
+      return 'Internal VPN proxy is not reachable. Check v2rayN and the port.';
+    }
+    if (text.contains('local_proxy_port_unavailable')) {
+      return 'Local port 3781 is busy. Close the app using it first.';
+    }
+    return fallback;
   }
 
   Future<ServiceSnapshot> _loadServiceSnapshot() {
@@ -586,11 +654,11 @@ class _LocalistShellState extends State<LocalistShell>
             'Root VPN sharing started on ${root.vpnInterface} for ${root.clientSubnets.join(', ')}',
           );
         } else {
-          _logs.error(
-            root.lastError.isEmpty
-                ? 'Root VPN sharing did not start'
-                : root.lastError,
-          );
+          final message = root.lastError.isEmpty
+              ? 'Root VPN sharing did not start'
+              : root.lastError;
+          _logs.error(message);
+          _showInAppNotice(message);
         }
         await _refreshState();
         return;
@@ -634,20 +702,10 @@ class _LocalistShellState extends State<LocalistShell>
       }
       await _refreshState();
     } catch (error) {
-      _logs.error('Failed to start sharing: $error');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '$error'.contains('port_unavailable')
-                  ? 'Port is busy. Change the protocol port in Settings.'
-                  : '$error'.contains('internal_vpn_proxy_unavailable')
-                  ? 'Internal VPN proxy is not reachable. Check v2rayN and the port.'
-                  : 'Failed to start proxy service.',
-            ),
-          ),
-        );
-      }
+      _logs.error('Failed to start sharing: ${_describeError(error)}');
+      _showInAppNotice(
+        _serviceErrorMessage(error, fallback: 'Failed to start proxy service.'),
+      );
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -668,7 +726,8 @@ class _LocalistShellState extends State<LocalistShell>
       }
       await _refreshState();
     } catch (error) {
-      _logs.error('Failed to stop sharing: $error');
+      _logs.error('Failed to stop sharing: ${_describeError(error)}');
+      _showInAppNotice('Failed to stop sharing. Check Logs for details.');
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -688,7 +747,8 @@ class _LocalistShellState extends State<LocalistShell>
       }
       await _refreshState();
     } catch (error) {
-      _logs.error('Failed to stop receiving: $error');
+      _logs.error('Failed to stop receiving: ${_describeError(error)}');
+      _showInAppNotice('Failed to stop receiving. Check Logs for details.');
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -734,7 +794,10 @@ class _LocalistShellState extends State<LocalistShell>
       }
       await _refreshState();
     } catch (error) {
-      _logs.error('Failed to start receiving VPN: $error');
+      _logs.error('Failed to start receiving VPN: ${_describeError(error)}');
+      _showInAppNotice(
+        _serviceErrorMessage(error, fallback: 'Failed to start receiving VPN.'),
+      );
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -768,18 +831,10 @@ class _LocalistShellState extends State<LocalistShell>
       }
       await _refreshState();
     } catch (error) {
-      _logs.error('Failed to start local proxy: $error');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '$error'.contains('local_proxy_port_unavailable')
-                  ? 'Local port 3781 is busy.'
-                  : 'Failed to start local proxy.',
-            ),
-          ),
-        );
-      }
+      _logs.error('Failed to start local proxy: ${_describeError(error)}');
+      _showInAppNotice(
+        _serviceErrorMessage(error, fallback: 'Failed to start local proxy.'),
+      );
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -859,9 +914,13 @@ class _LocalistShellState extends State<LocalistShell>
       final shared = await _bridge.shareApk();
       if (shared) {
         _logs.info('APK share sheet opened');
+      } else {
+        _logs.warning('APK share is unavailable on this platform.');
+        _showInAppNotice('APK sharing is unavailable on this platform.');
       }
     } catch (error) {
-      _logs.error('Failed to share APK: $error');
+      _logs.error('Failed to share APK: ${_describeError(error)}');
+      _showInAppNotice('Failed to share APK. Check Logs for details.');
     }
   }
 

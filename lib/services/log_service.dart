@@ -31,6 +31,7 @@ class LogService extends ChangeNotifier {
   LogService._();
 
   static final LogService instance = LogService._();
+  static const _maxEntries = 500;
 
   final List<LogEntry> _entries = [];
 
@@ -51,6 +52,9 @@ class LogService extends ChangeNotifier {
     _entries.add(
       LogEntry(timestamp: DateTime.now(), severity: severity, message: message),
     );
+    if (_entries.length > _maxEntries) {
+      _entries.removeRange(0, _entries.length - _maxEntries);
+    }
     notifyListeners();
   }
 }

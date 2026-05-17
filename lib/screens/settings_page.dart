@@ -540,6 +540,13 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (error) {
       _logs.error('Unable to change root routing: $error');
       await widget.settings.setRootRoutingEnabled(false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to change root routing. Check Logs.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _rootBusy = false);

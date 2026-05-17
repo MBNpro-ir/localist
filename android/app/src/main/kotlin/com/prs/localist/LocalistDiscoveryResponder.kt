@@ -7,6 +7,7 @@ import java.net.DatagramPacket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.MulticastSocket
+import java.net.NetworkInterface
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ExecutorService
@@ -27,6 +28,9 @@ class LocalistDiscoveryResponder(private val context: Context) {
     private var executor: ExecutorService? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var endpointsProvider: (() -> List<LocalistDiscoveryEndpoint>)? = null
+    private var cachedEndpoints: List<LocalistDiscoveryEndpoint> = emptyList()
+    private var cachedEndpointsAtMs: Long = 0L
+    private val lastResponseByPeer = mutableMapOf<String, Long>()
 
     fun start(endpointsProvider: () -> List<LocalistDiscoveryEndpoint>) {
         stop()
@@ -45,6 +49,9 @@ class LocalistDiscoveryResponder(private val context: Context) {
         executor?.shutdownNow()
         executor = null
         endpointsProvider = null
+        cachedEndpoints = emptyList()
+        cachedEndpointsAtMs = 0L
+        lastResponseByPeer.clear()
         releaseMulticastLock()
     }
 
@@ -58,6 +65,7 @@ class LocalistDiscoveryResponder(private val context: Context) {
                 socket = udpSocket
                 @Suppress("DEPRECATION")
                 runCatching { udpSocket.joinGroup(group) }
+                joinGroupOnInterfaces(udpSocket, group)
                 val buffer = ByteArray(MAX_PACKET_BYTES)
                 while (running) {
                     val packet = DatagramPacket(buffer, buffer.size)
@@ -82,7 +90,12 @@ class LocalistDiscoveryResponder(private val context: Context) {
         ) {
             return
         }
-        val endpoints = endpointsProvider?.invoke().orEmpty()
+        val now = System.currentTimeMillis()
+        val peerKey = "${packet.address.hostAddress}:${packet.port}"
+        if (isPeerRateLimited(peerKey, now)) {
+            return
+        }
+        val endpoints = currentEndpoints(now)
         if (endpoints.isEmpty()) {
             return
         }
@@ -107,6 +120,45 @@ class LocalistDiscoveryResponder(private val context: Context) {
             )
         val bytes = response.toString().toByteArray(Charsets.UTF_8)
         udpSocket.send(DatagramPacket(bytes, bytes.size, packet.address, packet.port))
+    }
+
+    private fun joinGroupOnInterfaces(udpSocket: MulticastSocket, group: InetAddress) {
+        runCatching {
+            NetworkInterface.getNetworkInterfaces().asSequence()
+                .filter { it.isUp && !it.isLoopback }
+                .forEach { network ->
+                    runCatching {
+                        udpSocket.joinGroup(InetSocketAddress(group, DISCOVERY_PORT), network)
+                    }
+                }
+        }
+    }
+
+    private fun currentEndpoints(now: Long): List<LocalistDiscoveryEndpoint> {
+        if (now - cachedEndpointsAtMs < ENDPOINT_CACHE_TTL_MS) {
+            return cachedEndpoints
+        }
+        val endpoints = runCatching {
+            endpointsProvider?.invoke().orEmpty()
+        }.getOrDefault(cachedEndpoints)
+        cachedEndpoints = endpoints
+        cachedEndpointsAtMs = now
+        return endpoints
+    }
+
+    private fun isPeerRateLimited(peerKey: String, now: Long): Boolean {
+        val iterator = lastResponseByPeer.iterator()
+        while (iterator.hasNext()) {
+            if (now - iterator.next().value > PEER_RESPONSE_MEMORY_MS) {
+                iterator.remove()
+            }
+        }
+        val last = lastResponseByPeer[peerKey]
+        if (last != null && now - last < PEER_RESPONSE_INTERVAL_MS) {
+            return true
+        }
+        lastResponseByPeer[peerKey] = now
+        return false
     }
 
     private fun acquireMulticastLock() {
@@ -159,6 +211,9 @@ class LocalistDiscoveryResponder(private val context: Context) {
         private const val MULTICAST_ADDRESS = "239.255.88.88"
         private const val DISCOVERY_PORT = 37888
         private const val MAX_PACKET_BYTES = 4096
+        private const val ENDPOINT_CACHE_TTL_MS = 2_000L
+        private const val PEER_RESPONSE_INTERVAL_MS = 750L
+        private const val PEER_RESPONSE_MEMORY_MS = 60_000L
         private const val PREFS_DISCOVERY = "localist_discovery"
         private const val KEY_DEVICE_ID = "device_id"
     }

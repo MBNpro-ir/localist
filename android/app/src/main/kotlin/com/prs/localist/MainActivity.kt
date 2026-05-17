@@ -146,12 +146,7 @@ class MainActivity : FlutterActivity() {
                 ArrayList(selectedLocalIps),
             )
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-        result.success(true)
+        startLocalistService(intent, result, "proxy_service_start_failed", "proxy service")
     }
 
     private fun startRootSharing(call: MethodCall, result: MethodChannel.Result) {
@@ -201,12 +196,7 @@ class MainActivity : FlutterActivity() {
             putExtra(LocalistVpnService.EXTRA_REMOTE_HOST, host)
             putExtra(LocalistVpnService.EXTRA_REMOTE_PORT, port)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-        result.success(true)
+        startLocalistService(intent, result, "receiving_service_start_failed", "receiving VPN")
     }
 
     private fun startLocalProxy(call: MethodCall, result: MethodChannel.Result) {
@@ -230,12 +220,7 @@ class MainActivity : FlutterActivity() {
             putExtra(LocalistVpnService.EXTRA_REMOTE_PORT, port)
             putExtra(LocalistVpnService.EXTRA_LOCAL_PROXY_PORT, localPort)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-        result.success(true)
+        startLocalistService(intent, result, "local_proxy_start_failed", "local proxy")
     }
 
     private fun setRootRoutingEnabled(call: MethodCall, result: MethodChannel.Result) {
@@ -256,6 +241,25 @@ class MainActivity : FlutterActivity() {
             startForegroundService(intent)
         } else {
             startService(intent)
+        }
+    }
+
+    private fun startLocalistService(
+        intent: Intent,
+        result: MethodChannel.Result,
+        errorCode: String,
+        serviceName: String,
+    ) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        }.onSuccess {
+            result.success(true)
+        }.onFailure { error ->
+            result.error(errorCode, "Could not start $serviceName: ${error.message}", null)
         }
     }
 
@@ -296,13 +300,18 @@ class MainActivity : FlutterActivity() {
             result.success(false)
             return
         }
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-            putExtra(Intent.EXTRA_SUBJECT, title)
+        runCatching {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, text)
+                putExtra(Intent.EXTRA_SUBJECT, title)
+            }
+            startActivity(Intent.createChooser(shareIntent, title))
+        }.onSuccess {
+            result.success(true)
+        }.onFailure { error ->
+            result.error("share_text_failed", error.message, null)
         }
-        startActivity(Intent.createChooser(shareIntent, title))
-        result.success(true)
     }
 
     private fun openUri(call: MethodCall, result: MethodChannel.Result) {

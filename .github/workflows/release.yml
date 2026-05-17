@@ -289,11 +289,16 @@ jobs:
               --title "Localist v${APP_VERSION}" \
               --notes-file RELEASE_NOTES.md \
               --repo "$GH_REPO"
-            gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "$GH_REPO"
           else
-            gh release create "$RELEASE_TAG" "${files[@]}" \
+            gh release create "$RELEASE_TAG" \
               --target "$GITHUB_SHA" \
+              --title "Localist v${APP_VERSION}" \
+              --notes-file RELEASE_NOTES.md \
+              --repo "$GH_REPO" || \
+            gh release edit "$RELEASE_TAG" \
               --title "Localist v${APP_VERSION}" \
               --notes-file RELEASE_NOTES.md \
               --repo "$GH_REPO"
           fi
+
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "$GH_REPO"

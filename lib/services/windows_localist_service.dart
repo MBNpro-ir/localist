@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
+import 'log_service.dart';
 import 'localist_discovery_protocol.dart';
 
 class WindowsLocalistService {
@@ -16,6 +17,7 @@ class WindowsLocalistService {
   static final WindowsLocalistService instance = WindowsLocalistService._();
   static const MethodChannel _channel = MethodChannel('com.prs.localist.vpn');
 
+  final LogService _logs = LogService.instance;
   WindowsProxyServer? _proxyServer;
   WindowsLocalProxyForwarder? _localForwarder;
   final WindowsWintunController _wintun = WindowsWintunController();
@@ -88,6 +90,9 @@ class WindowsLocalistService {
     try {
       wintunStarted = await _wintun.start(config);
       if (!wintunStarted) {
+        _logs.warning(
+          'Wintun tools were not found; using Windows system proxy fallback on 127.0.0.1:$_localProxyPort.',
+        );
         await _applyWindowsSystemProxy(_localProxyPort);
       }
     } catch (_) {
@@ -273,7 +278,14 @@ class WindowsLocalistService {
       localPort: localPort,
       onTraffic: _recordTraffic,
     );
-    await forwarder.start();
+    try {
+      await forwarder.start();
+    } catch (error) {
+      throw PlatformException(
+        code: 'local_proxy_port_unavailable',
+        message: 'Unable to bind local proxy on 127.0.0.1:$localPort: $error',
+      );
+    }
     _localForwarder = forwarder;
     _localProxyPort = localPort;
   }
@@ -318,12 +330,18 @@ class WindowsLocalistService {
         (current?['bypass'] as String?) ?? '',
       );
     }
-    await _channel.invokeMethod<bool>('setWindowsSystemProxy', {
+    final applied = await _channel.invokeMethod<bool>('setWindowsSystemProxy', {
       'enabled': true,
       'server':
           'http=127.0.0.1:$localPort;https=127.0.0.1:$localPort;socks=127.0.0.1:$localPort',
       'bypass': '<local>',
     });
+    if (applied != true) {
+      throw PlatformException(
+        code: 'windows_proxy_failed',
+        message: 'Windows system proxy could not be enabled.',
+      );
+    }
   }
 
   Future<void> _restoreWindowsSystemProxyIfNeeded() async {
@@ -511,6 +529,9 @@ class WindowsWintunController {
     await stop();
     final tools = await _findTools();
     if (tools == null) {
+      LogService.instance.warning(
+        'Wintun is unavailable: tun2socks.exe and wintun.dll must be beside Localist.exe or in windows\\runner\\resources.',
+      );
       return false;
     }
     final route = await _findRouteForHost(config.host);
@@ -931,6 +952,10 @@ class WindowsLocalistDiscoveryResponder {
   RawDatagramSocket? _socket;
   StreamSubscription<RawSocketEvent>? _subscription;
   Future<List<SmartProxyEndpoint>> Function()? _endpointsProvider;
+  Future<List<SmartProxyEndpoint>>? _endpointsLoader;
+  List<SmartProxyEndpoint> _cachedEndpoints = const [];
+  DateTime? _cachedEndpointsAt;
+  final Map<String, DateTime> _lastResponseByPeer = {};
   String? _deviceId;
   String? _deviceName;
 
@@ -960,6 +985,10 @@ class WindowsLocalistDiscoveryResponder {
     _socket?.close();
     _socket = null;
     _endpointsProvider = null;
+    _endpointsLoader = null;
+    _cachedEndpoints = const [];
+    _cachedEndpointsAt = null;
+    _lastResponseByPeer.clear();
   }
 
   Future<void> _joinMulticast(RawDatagramSocket socket) async {
@@ -996,6 +1025,11 @@ class WindowsLocalistDiscoveryResponder {
     if (map['deviceId'] == _deviceId) {
       return;
     }
+    final now = DateTime.now();
+    final peerKey = '${datagram.address.address}:${datagram.port}';
+    if (_isPeerRateLimited(peerKey, now)) {
+      return;
+    }
     final endpointsProvider = _endpointsProvider;
     final deviceId = _deviceId;
     final deviceName = _deviceName;
@@ -1006,7 +1040,7 @@ class WindowsLocalistDiscoveryResponder {
         socket == null) {
       return;
     }
-    final endpoints = await endpointsProvider();
+    final endpoints = await _loadEndpoints(endpointsProvider);
     if (endpoints.isEmpty) {
       return;
     }
@@ -1022,6 +1056,52 @@ class WindowsLocalistDiscoveryResponder {
       socket.send(response, datagram.address, datagram.port);
     } catch (_) {}
   }
+
+  Future<List<SmartProxyEndpoint>> _loadEndpoints(
+    Future<List<SmartProxyEndpoint>> Function() endpointsProvider,
+  ) {
+    final cachedAt = _cachedEndpointsAt;
+    if (cachedAt != null &&
+        DateTime.now().difference(cachedAt) < _endpointCacheTtl) {
+      return Future.value(_cachedEndpoints);
+    }
+    final activeLoader = _endpointsLoader;
+    if (activeLoader != null) {
+      return activeLoader;
+    }
+    final loader = endpointsProvider()
+        .timeout(_endpointLoadTimeout)
+        .then((endpoints) {
+          _cachedEndpoints = endpoints;
+          _cachedEndpointsAt = DateTime.now();
+          return endpoints;
+        })
+        .catchError((Object error) {
+          LogService.instance.warning(
+            'Local discovery responder could not build endpoints: $error',
+          );
+          return _cachedEndpoints;
+        });
+    _endpointsLoader = loader.whenComplete(() => _endpointsLoader = null);
+    return _endpointsLoader!;
+  }
+
+  bool _isPeerRateLimited(String peerKey, DateTime now) {
+    final last = _lastResponseByPeer[peerKey];
+    _lastResponseByPeer.removeWhere(
+      (_, value) => now.difference(value) > _peerResponseMemory,
+    );
+    if (last != null && now.difference(last) < _peerResponseInterval) {
+      return true;
+    }
+    _lastResponseByPeer[peerKey] = now;
+    return false;
+  }
+
+  static const _endpointCacheTtl = Duration(seconds: 2);
+  static const _endpointLoadTimeout = Duration(seconds: 2);
+  static const _peerResponseInterval = Duration(milliseconds: 750);
+  static const _peerResponseMemory = Duration(minutes: 1);
 }
 
 class WindowsProxyServer {

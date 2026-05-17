@@ -486,13 +486,25 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   Future<void> _startWindowsScanner() async {
-    final device = await _chooseWindowsCameraDevice();
+    final String? device;
+    try {
+      device = await _chooseWindowsCameraDevice();
+    } catch (error) {
+      _logs.error('Unable to start Windows QR scanner: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Scanner could not start.')),
+        );
+      }
+      return;
+    }
     if (device == null || !mounted) {
       return;
     }
+    final deviceName = device;
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute(
-        builder: (context) => _WindowsQrScannerPage(deviceName: device),
+        builder: (context) => _WindowsQrScannerPage(deviceName: deviceName),
       ),
     );
     final value = result?.trim();
