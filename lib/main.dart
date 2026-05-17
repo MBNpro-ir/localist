@@ -19,6 +19,7 @@ import 'screens/settings_page.dart';
 import 'screens/sharing_page.dart';
 import 'screens/stats_sheet.dart';
 import 'services/log_service.dart';
+import 'services/localist_discovery_service.dart';
 import 'services/native_bridge_service.dart';
 import 'widgets/glass.dart';
 
@@ -136,6 +137,7 @@ class LocalistShell extends StatefulWidget {
 class _LocalistShellState extends State<LocalistShell>
     with WindowListener, tray.TrayListener {
   final NativeBridgeService _bridge = NativeBridgeService.instance;
+  final LocalistDiscoveryService _discovery = LocalistDiscoveryService.instance;
   final LogService _logs = LogService.instance;
   late final PageController _pageController;
   Timer? _refreshTimer;
@@ -157,6 +159,8 @@ class _LocalistShellState extends State<LocalistShell>
   bool _trayDestroyed = false;
   bool _windowActionInProgress = false;
   bool _trayMenuInProgress = false;
+  List<LocalistDiscoveredDevice> _discoveredDevices = const [];
+  bool _discoveryScanning = false;
 
   @override
   void initState() {
@@ -168,6 +172,8 @@ class _LocalistShellState extends State<LocalistShell>
       unawaited(_configureWindowsWindow());
     }
     widget.settings.addListener(_handleSettingsChanged);
+    _discovery.addListener(_handleDiscoveryChanged);
+    unawaited(_startDiscovery());
     _refreshState();
     _refreshTimer = Timer.periodic(
       const Duration(seconds: 3),
@@ -185,6 +191,8 @@ class _LocalistShellState extends State<LocalistShell>
       tray.trayManager.removeListener(this);
     }
     widget.settings.removeListener(_handleSettingsChanged);
+    _discovery.removeListener(_handleDiscoveryChanged);
+    unawaited(_discovery.stop());
     _refreshTimer?.cancel();
     _pageController.dispose();
     super.dispose();
@@ -493,6 +501,32 @@ class _LocalistShellState extends State<LocalistShell>
       if (!quiet) {
         _logs.warning('Unable to refresh native state: $error');
       }
+    }
+  }
+
+  Future<void> _startDiscovery() async {
+    try {
+      await _discovery.start();
+    } catch (error) {
+      _logs.warning('Local discovery could not start: $error');
+    }
+  }
+
+  void _handleDiscoveryChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _discoveredDevices = _discovery.devices;
+      _discoveryScanning = _discovery.scanning;
+    });
+  }
+
+  Future<void> _refreshDiscovery() async {
+    try {
+      await _discovery.refresh();
+    } catch (error) {
+      _logs.warning('Local discovery refresh failed: $error');
     }
   }
 
@@ -902,6 +936,8 @@ class _LocalistShellState extends State<LocalistShell>
       KeepAlivePage(
         child: ReceivingPage(
           snapshot: _snapshot,
+          discoveredDevices: _discoveredDevices,
+          discoveryScanning: _discoveryScanning,
           busy: _busy,
           controlsLocked: _sharingActive,
           lockMessage:
@@ -909,6 +945,7 @@ class _LocalistShellState extends State<LocalistShell>
           onStartReceiving: _startReceiving,
           onStartLocalProxy: _startLocalProxy,
           onStopReceiving: _stopReceiving,
+          onRefreshDiscovery: _refreshDiscovery,
         ),
       ),
       KeepAlivePage(

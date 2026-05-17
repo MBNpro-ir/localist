@@ -257,16 +257,15 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          🚀 Stability and usability release for Android and Windows.
+          🚀 Major v2 release for Android and Windows.
 
           ## Changes
 
-          - ⚙️ Hides each proxy port field while its protocol is disabled in Settings.
-          - 🧩 Shows the matching port field again immediately when HTTP or SOCKS5 is enabled.
-          - 🛡️ Requests Android VPN permission only when the user taps Start as VPN + proxy.
-          - 🛑 Keeps the Android Receiving VPN stop button available while the bundled local proxy is also running.
-          - 🌐 Improves Android TUN DNS routing so device-wide VPN mode can carry app traffic instead of only the local proxy path.
-          - 🧯 Prevents Localist VPN service from restarting itself with stale config after Android stops the process.
+          - 🛠️ Fixes Windows Wintun startup by running tun2socks as a monitored process instead of a detached process.
+          - 📡 Adds automatic local-network discovery for Localist sharing devices.
+          - 🖥️ Shows named nearby Windows and Android source devices at the top of Receiving.
+          - 🧭 Lets users choose discovered HTTP/SOCKS5 endpoints from the same picker flow used by Smart QR.
+          - 🤖 Keeps Android sharing discoverable from the foreground VPN/proxy service with a multicast lock.
           - 🏷️ Bumps the app version to v${APP_VERSION}.
 
           ## Assets

@@ -25,6 +25,7 @@ class LocalistVpnService : VpnService() {
     private var proxyServer: LocalistProxyServer? = null
     private var localProxyForwarder: LocalProxyForwarder? = null
     private var tunProxyForwarder: LocalProxyForwarder? = null
+    private var discoveryResponder: LocalistDiscoveryResponder? = null
     private var prsTunEngine: PrsTunEngine? = null
     private var packetThread: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -118,6 +119,7 @@ class LocalistVpnService : VpnService() {
             protocolPorts = protocolPorts,
             bindAddresses = if (shareAllRoutes) emptyList() else selectedLocalIps,
         )
+        startDiscoveryResponder()
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
     }
@@ -140,6 +142,7 @@ class LocalistVpnService : VpnService() {
         State.localProxyPort = LocalProxyForwarder.DEFAULT_LOCAL_PORT
         State.sessionRxBytes = 0
         State.sessionTxBytes = 0
+        stopDiscoveryResponder()
         proxyServer?.stop()
         proxyServer = null
         localProxyForwarder?.stop()
@@ -184,6 +187,7 @@ class LocalistVpnService : VpnService() {
         State.vpnConnected = false
         State.sessionRxBytes = 0
         State.sessionTxBytes = 0
+        stopDiscoveryResponder()
         proxyServer?.stop()
         proxyServer = null
         tunProxyForwarder?.stop()
@@ -277,6 +281,49 @@ class LocalistVpnService : VpnService() {
         ).also { it.start() }
         State.proxyRunning = true
         State.receivingRunning = false
+    }
+
+    private fun startDiscoveryResponder() {
+        if (discoveryResponder == null) {
+            discoveryResponder = LocalistDiscoveryResponder(applicationContext)
+        }
+        discoveryResponder?.start { discoveryEndpoints() }
+    }
+
+    private fun stopDiscoveryResponder() {
+        discoveryResponder?.stop()
+        discoveryResponder = null
+    }
+
+    private fun discoveryEndpoints(): List<LocalistDiscoveryEndpoint> {
+        val state = synchronized(State) {
+            if (!State.proxyRunning) {
+                return emptyList()
+            }
+            DiscoveryState(
+                protocols = State.protocols,
+                ports = State.protocolPorts,
+                shareAllRoutes = State.shareAllRoutes,
+                selectedLocalIps = State.selectedLocalIps,
+                fallbackIp = State.ipAddress,
+            )
+        }
+        val hosts = if (state.shareAllRoutes) {
+            NetworkAddressInspector.localProxyIps().ifEmpty {
+                listOf(state.fallbackIp).filter { it.isNotBlank() }
+            }
+        } else {
+            state.selectedLocalIps
+        }
+        return state.protocols.flatMap { protocol ->
+            hosts.map { host ->
+                LocalistDiscoveryEndpoint(
+                    protocol = protocol,
+                    host = host,
+                    port = state.ports[protocol] ?: defaultPort(protocol),
+                )
+            }
+        }
     }
 
     private fun startAppLocalForwarder(
@@ -389,6 +436,7 @@ class LocalistVpnService : VpnService() {
         State.proxyRunning = false
         State.receivingRunning = false
         State.localProxyRunning = false
+        stopDiscoveryResponder()
         releaseRuntimeLocks()
         if (removeForeground) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -629,6 +677,14 @@ class LocalistVpnService : VpnService() {
             }
         }
     }
+
+    private data class DiscoveryState(
+        val protocols: List<String>,
+        val ports: Map<String, Int>,
+        val shareAllRoutes: Boolean,
+        val selectedLocalIps: List<String>,
+        val fallbackIp: String,
+    )
 
     private object State {
         var mode = MODE_SHARING

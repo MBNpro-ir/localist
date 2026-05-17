@@ -61,4 +61,26 @@ void main() {
     expect(decoded.endpoints.first.config.url, 'http://192.168.1.10:2060');
     expect(decoded.endpoints.last.config.url, 'socks5://192.168.1.10:3075');
   });
+
+  test('discovered device parses announced endpoints', () {
+    final device = LocalistDiscoveredDevice.fromAnnouncement(
+      {
+        'deviceId': 'source-1',
+        'deviceName': 'Office PC',
+        'platform': 'Windows',
+        'endpoints': [
+          {'protocol': 'http', 'host': '192.168.1.20', 'port': 2060},
+          {'protocol': 'socks5', 'host': '192.168.1.20', 'port': 3075},
+        ],
+      },
+      sourceAddress: '192.168.1.20',
+      lastSeen: DateTime(2026),
+    );
+
+    expect(device.id, 'source-1');
+    expect(device.name, 'Office PC');
+    expect(device.platform, 'Windows');
+    expect(device.endpoints, hasLength(2));
+    expect(device.payload.encode(), contains('192.168.1.20'));
+  });
 }

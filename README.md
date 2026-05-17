@@ -13,7 +13,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.6.4-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.0.0-blue"></a>
 </p>
 
 ## Overview
@@ -21,7 +21,7 @@
 Localist is a Flutter app for moving proxy/VPN access between Android and Windows:
 
 - Android can share HTTP/SOCKS5 proxy endpoints and receive a remote endpoint as VPN or local proxy, with first-run setup and background-transfer protection.
-- Windows can share proxy endpoints, show QR codes, scan proxy QR codes with a webcam, run with administrator privileges, minimize to the taskbar tray, and start Receiving VPN mode with bundled Wintun/tun2socks tools when they are available.
+- Windows can share proxy endpoints, advertise them for automatic local discovery, show QR codes, scan proxy QR codes with a webcam, run with administrator privileges, minimize to the taskbar tray, and start Receiving VPN mode with bundled Wintun/tun2socks tools when they are available.
 - Settings are persisted in each platform's standard app-support storage so reinstalling the app keeps user preferences.
 - Windows uses the Android app icon, starts at `440x680`, keeps width fixed at `440`, allows taller vertical resizing, has no maximize button, and follows Windows accent colors.
 
@@ -169,8 +169,8 @@ Sharing:
 
 Receiving:
 
-- Android: QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Android `VpnService` receiving mode.
-- Windows: QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Windows VPN mode through system proxy.
+- Android: automatic nearby-device discovery, QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Android `VpnService` receiving mode.
+- Windows: automatic nearby-device discovery, QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Windows VPN mode through Wintun when bundled tools are available.
 
 Settings:
 

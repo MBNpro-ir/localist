@@ -23,21 +23,27 @@ class ReceivingPage extends StatefulWidget {
   const ReceivingPage({
     super.key,
     required this.snapshot,
+    required this.discoveredDevices,
+    required this.discoveryScanning,
     required this.busy,
     required this.controlsLocked,
     required this.lockMessage,
     required this.onStartReceiving,
     required this.onStartLocalProxy,
     required this.onStopReceiving,
+    required this.onRefreshDiscovery,
   });
 
   final ServiceSnapshot snapshot;
+  final List<LocalistDiscoveredDevice> discoveredDevices;
+  final bool discoveryScanning;
   final bool busy;
   final bool controlsLocked;
   final String lockMessage;
   final ValueChanged<RemoteProxyConfig> onStartReceiving;
   final ValueChanged<RemoteProxyConfig> onStartLocalProxy;
   final VoidCallback onStopReceiving;
+  final Future<void> Function() onRefreshDiscovery;
 
   @override
   State<ReceivingPage> createState() => _ReceivingPageState();
@@ -131,6 +137,14 @@ class _ReceivingPageState extends State<ReceivingPage> {
                       )
                     : 'Paste a Smart config or scan a localist QR, then load it into Proxy Config.',
                 style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 14),
+              _NearbyDevicesView(
+                devices: widget.discoveredDevices,
+                scanning: widget.discoveryScanning,
+                enabled: configFieldEnabled,
+                onRefresh: widget.onRefreshDiscovery,
+                onTap: _showDiscoveredDevicePicker,
               ),
               const SizedBox(height: 14),
               TextField(
@@ -667,6 +681,66 @@ class _ReceivingPageState extends State<ReceivingPage> {
     _loadConfig(selected.config, configText: _configController.text.trim());
   }
 
+  Future<void> _showDiscoveredDevicePicker(
+    LocalistDiscoveredDevice device,
+  ) async {
+    if (widget.controlsLocked ||
+        widget.busy ||
+        widget.snapshot.receivingRunning ||
+        widget.snapshot.localProxyRunning) {
+      return;
+    }
+    final selected = await showModalBottomSheet<SmartProxyEndpoint>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  device.name,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${device.platform} - ${device.sourceAddress}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final endpoint in _sortedEndpoints(device.endpoints))
+                        ListTile(
+                          leading: const Icon(Icons.route_outlined),
+                          title: Text(endpoint.label),
+                          subtitle: Text(
+                            endpoint.protocol == ProxyProtocol.http
+                                ? '${endpoint.config.url} - VPN compatible'
+                                : '${endpoint.config.url} - manual proxy endpoint',
+                          ),
+                          onTap: () => Navigator.of(context).pop(endpoint),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (selected == null || !mounted) {
+      return;
+    }
+    _loadConfig(selected.config, configText: device.payload.encode());
+  }
+
   Future<void> _restoreDraft() async {
     _restoringDraft = true;
     try {
@@ -768,6 +842,190 @@ class _ReceivingPageState extends State<ReceivingPage> {
       }
       return first.host.compareTo(second.host);
     });
+  }
+}
+
+class _NearbyDevicesView extends StatelessWidget {
+  const _NearbyDevicesView({
+    required this.devices,
+    required this.scanning,
+    required this.enabled,
+    required this.onRefresh,
+    required this.onTap,
+  });
+
+  final List<LocalistDiscoveredDevice> devices;
+  final bool scanning;
+  final bool enabled;
+  final Future<void> Function() onRefresh;
+  final ValueChanged<LocalistDiscoveredDevice> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: .34),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .28)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.radar_outlined, color: scheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Nearby devices',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                if (scanning)
+                  const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  IconButton(
+                    tooltip: 'Search again',
+                    onPressed: enabled ? () => unawaited(onRefresh()) : null,
+                    icon: const Icon(Icons.refresh),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (devices.isEmpty)
+              _NearbyEmptyState(scanning: scanning)
+            else
+              Column(
+                children: [
+                  for (var index = 0; index < devices.length; index++) ...[
+                    if (index > 0) const SizedBox(height: 8),
+                    _NearbyDeviceTile(
+                      device: devices[index],
+                      enabled: enabled,
+                      onTap: () => onTap(devices[index]),
+                    ),
+                  ],
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NearbyEmptyState extends StatelessWidget {
+  const _NearbyEmptyState({required this.scanning});
+
+  final bool scanning;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Icon(Icons.devices_other_outlined, color: scheme.outline),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            scanning
+                ? 'Searching the local network'
+                : 'No sharing device found',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NearbyDeviceTile extends StatelessWidget {
+  const _NearbyDeviceTile({
+    required this.device,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final LocalistDiscoveredDevice device;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Opacity(
+      opacity: enabled ? 1 : .56,
+      child: Material(
+        color: scheme.surfaceContainerHighest.withValues(alpha: .44),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: enabled ? onTap : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            child: Row(
+              children: [
+                Icon(Icons.devices_outlined, color: scheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        device.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${device.platform} - ${device.endpointSummary}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${device.endpoints.length}',
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                    Text(
+                      _lastSeenLabel(device.lastSeen),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _lastSeenLabel(DateTime value) {
+    final seconds = DateTime.now().difference(value).inSeconds;
+    if (seconds < 5) {
+      return 'now';
+    }
+    if (seconds < 60) {
+      return '${seconds}s';
+    }
+    return '${DateTime.now().difference(value).inMinutes}m';
   }
 }
 

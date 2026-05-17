@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
+import 'localist_discovery_protocol.dart';
 
 class WindowsLocalistService {
   WindowsLocalistService._();
@@ -18,6 +19,8 @@ class WindowsLocalistService {
   WindowsProxyServer? _proxyServer;
   WindowsLocalProxyForwarder? _localForwarder;
   final WindowsWintunController _wintun = WindowsWintunController();
+  final WindowsLocalistDiscoveryResponder _discoveryResponder =
+      WindowsLocalistDiscoveryResponder();
   bool _proxyRunning = false;
   bool _receivingRunning = false;
   bool _localProxyRunning = false;
@@ -72,11 +75,13 @@ class WindowsLocalistService {
     _remoteProxy = null;
     _sessionRxBytes = 0;
     _sessionTxBytes = 0;
+    await _discoveryResponder.start(_buildDiscoveryEndpoints);
     return true;
   }
 
   Future<bool> startReceivingVpn(RemoteProxyConfig config) async {
     await _ensureTotalsLoaded();
+    await _discoveryResponder.stop();
     await _startLocalForwarder(config, localPort: _localProxyPort);
     await _restoreWindowsSystemProxyIfNeeded();
     late final bool wintunStarted;
@@ -111,6 +116,7 @@ class WindowsLocalistService {
     int localPort = 3781,
   }) async {
     await _ensureTotalsLoaded();
+    await _discoveryResponder.stop();
     if (!await _isLocalPortAvailable(localPort)) {
       throw PlatformException(
         code: 'local_proxy_port_unavailable',
@@ -177,6 +183,7 @@ class WindowsLocalistService {
   }
 
   Future<bool> stopProxyService() async {
+    await _discoveryResponder.stop();
     await _wintun.stop();
     await _proxyServer?.stop();
     _proxyServer = null;
@@ -269,6 +276,28 @@ class WindowsLocalistService {
     await forwarder.start();
     _localForwarder = forwarder;
     _localProxyPort = localPort;
+  }
+
+  Future<List<SmartProxyEndpoint>> _buildDiscoveryEndpoints() async {
+    if (!_proxyRunning) {
+      return const [];
+    }
+    final selectedAddresses = _proxyServer?.bindAddresses ?? const <String>{};
+    final hosts = selectedAddresses.isEmpty
+        ? await WindowsNetworkInspector.localProxyIps()
+        : selectedAddresses.toList(growable: false);
+    if (hosts.isEmpty) {
+      return const [];
+    }
+    return [
+      for (final protocol in _protocols)
+        for (final host in hosts)
+          SmartProxyEndpoint(
+            protocol: protocol,
+            host: host,
+            port: _protocolPorts[protocol] ?? protocol.defaultPort,
+          ),
+    ];
   }
 
   Future<void> _applyWindowsSystemProxy(int localPort) async {
@@ -498,16 +527,28 @@ class WindowsWintunController {
     }
 
     try {
-      _process = await Process.start(
+      final process = await Process.start(
         tools.tun2socksPath,
         args,
         workingDirectory: tools.directory,
-        mode: ProcessStartMode.detachedWithStdio,
+        mode: ProcessStartMode.normal,
       );
-      unawaited(_process!.stdout.drain<void>());
-      unawaited(_process!.stderr.drain<void>());
+      _process = process;
+      unawaited(process.stdout.drain<void>());
+      unawaited(process.stderr.drain<void>());
+      unawaited(
+        process.exitCode.then((_) async {
+          if (!identical(_process, process)) {
+            return;
+          }
+          _process = null;
+          _running = false;
+          await _deleteDefaultRoutes();
+          await _deleteRemoteBypassRoute();
+        }),
+      );
       final earlyExit = await Future.any<int?>([
-        _process!.exitCode,
+        process.exitCode,
         Future<int?>.delayed(const Duration(milliseconds: 850), () => null),
       ]);
       if (earlyExit != null) {
@@ -883,6 +924,103 @@ class WindowsNetworkInspector {
     } finally {
       await socket?.close();
     }
+  }
+}
+
+class WindowsLocalistDiscoveryResponder {
+  RawDatagramSocket? _socket;
+  StreamSubscription<RawSocketEvent>? _subscription;
+  Future<List<SmartProxyEndpoint>> Function()? _endpointsProvider;
+  String? _deviceId;
+  String? _deviceName;
+
+  Future<void> start(
+    Future<List<SmartProxyEndpoint>> Function() endpointsProvider,
+  ) async {
+    await stop();
+    _endpointsProvider = endpointsProvider;
+    _deviceId = await localistDiscoveryDeviceId();
+    _deviceName = await localistDiscoveryDeviceName();
+    final socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      localistDiscoveryPort,
+      reuseAddress: true,
+    );
+    _socket = socket;
+    socket
+      ..broadcastEnabled = true
+      ..multicastLoopback = false;
+    await _joinMulticast(socket);
+    _subscription = socket.listen(_handleSocketEvent, onError: (_) {});
+  }
+
+  Future<void> stop() async {
+    await _subscription?.cancel();
+    _subscription = null;
+    _socket?.close();
+    _socket = null;
+    _endpointsProvider = null;
+  }
+
+  Future<void> _joinMulticast(RawDatagramSocket socket) async {
+    final group = InternetAddress(localistDiscoveryMulticastAddress);
+    try {
+      socket.joinMulticast(group);
+    } catch (_) {}
+    final interfaces = await NetworkInterface.list(
+      includeLoopback: false,
+      type: InternetAddressType.IPv4,
+    );
+    for (final interface in interfaces) {
+      try {
+        socket.joinMulticast(group, interface);
+      } catch (_) {}
+    }
+  }
+
+  void _handleSocketEvent(RawSocketEvent event) {
+    if (event != RawSocketEvent.read) {
+      return;
+    }
+    Datagram? datagram;
+    while ((datagram = _socket?.receive()) != null) {
+      unawaited(_handleDatagram(datagram!));
+    }
+  }
+
+  Future<void> _handleDatagram(Datagram datagram) async {
+    final map = decodeLocalistDiscoveryPacket(datagram.data);
+    if (map == null || !isLocalistDiscoveryQuery(map)) {
+      return;
+    }
+    if (map['deviceId'] == _deviceId) {
+      return;
+    }
+    final endpointsProvider = _endpointsProvider;
+    final deviceId = _deviceId;
+    final deviceName = _deviceName;
+    final socket = _socket;
+    if (endpointsProvider == null ||
+        deviceId == null ||
+        deviceName == null ||
+        socket == null) {
+      return;
+    }
+    final endpoints = await endpointsProvider();
+    if (endpoints.isEmpty) {
+      return;
+    }
+    final response = utf8.encode(
+      encodeLocalistDiscoveryAnnouncement(
+        deviceId: deviceId,
+        deviceName: deviceName,
+        platform: localistDiscoveryPlatformName(),
+        endpoints: endpoints,
+      ),
+    );
+    try {
+      socket.send(response, datagram.address, datagram.port);
+    } catch (_) {}
   }
 }
 

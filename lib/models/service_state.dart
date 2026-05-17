@@ -258,6 +258,80 @@ class SmartProxyPayload {
   }
 }
 
+class LocalistDiscoveredDevice {
+  const LocalistDiscoveredDevice({
+    required this.id,
+    required this.name,
+    required this.platform,
+    required this.sourceAddress,
+    required this.endpoints,
+    required this.lastSeen,
+  });
+
+  final String id;
+  final String name;
+  final String platform;
+  final String sourceAddress;
+  final List<SmartProxyEndpoint> endpoints;
+  final DateTime lastSeen;
+
+  SmartProxyPayload get payload => SmartProxyPayload(
+    hotspotSsid: '',
+    hotspotPassword: '',
+    endpoints: endpoints,
+  );
+
+  String get endpointSummary {
+    final hosts = endpoints.map((endpoint) => endpoint.host).toSet();
+    final protocols = endpoints.map((endpoint) => endpoint.protocol.label);
+    return '${protocols.join(' / ')} on ${hosts.length} IP${hosts.length == 1 ? '' : 's'}';
+  }
+
+  LocalistDiscoveredDevice copyWith({
+    String? id,
+    String? name,
+    String? platform,
+    String? sourceAddress,
+    List<SmartProxyEndpoint>? endpoints,
+    DateTime? lastSeen,
+  }) {
+    return LocalistDiscoveredDevice(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      platform: platform ?? this.platform,
+      sourceAddress: sourceAddress ?? this.sourceAddress,
+      endpoints: endpoints ?? this.endpoints,
+      lastSeen: lastSeen ?? this.lastSeen,
+    );
+  }
+
+  factory LocalistDiscoveredDevice.fromAnnouncement(
+    Map<Object?, Object?> map, {
+    required String sourceAddress,
+    required DateTime lastSeen,
+  }) {
+    final endpoints =
+        (map['endpoints'] as List<Object?>?)
+            ?.whereType<Map<Object?, Object?>>()
+            .map(SmartProxyEndpoint.fromMap)
+            .where((endpoint) => endpoint.host.isNotEmpty)
+            .toList(growable: false) ??
+        const <SmartProxyEndpoint>[];
+    final rawId = _asString(map['deviceId']);
+    final fallbackId =
+        '$sourceAddress:${endpoints.map((e) => e.label).join('|')}';
+    final rawName = _asString(map['deviceName']);
+    return LocalistDiscoveredDevice(
+      id: rawId.isEmpty ? fallbackId : rawId,
+      name: rawName.isEmpty ? sourceAddress : rawName,
+      platform: _asString(map['platform'], fallback: 'Localist'),
+      sourceAddress: sourceAddress,
+      endpoints: endpoints,
+      lastSeen: lastSeen,
+    );
+  }
+}
+
 class ServiceSnapshot {
   const ServiceSnapshot({
     required this.vpnConnected,
@@ -489,6 +563,10 @@ int _asInt(Object? value, {int fallback = 0}) {
     return value.toInt();
   }
   return fallback;
+}
+
+String _asString(Object? value, {String fallback = ''}) {
+  return value is String ? value : fallback;
 }
 
 Map<ProxyProtocol, int> _parseProtocolPorts(
