@@ -43,16 +43,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
     if (_scanning) {
       return;
     }
-    _deviceId = await localistDiscoveryDeviceId();
-    _socket = await RawDatagramSocket.bind(
-      InternetAddress.anyIPv4,
-      0,
-      reuseAddress: true,
-    );
-    _socket!
-      ..broadcastEnabled = true
-      ..multicastLoopback = false
-      ..listen(_handleSocketEvent, onError: (_) {});
+    await _startSocket();
     _scanning = true;
     _notifySoon();
     await refresh();
@@ -64,6 +55,42 @@ class LocalistDiscoveryService extends ChangeNotifier {
       const Duration(seconds: 5),
       (_) => _pruneExpiredDevices(),
     );
+  }
+
+  Future<void> resume() async {
+    if (_scanning) {
+      return;
+    }
+    await start();
+  }
+
+  Future<void> suspend() async {
+    _queryTimer?.cancel();
+    _queryTimer = null;
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    _pendingNotify = false;
+    _socket?.close();
+    _socket = null;
+    if (_scanning) {
+      _scanning = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _startSocket() async {
+    _deviceId = await localistDiscoveryDeviceId();
+    _socket = await RawDatagramSocket.bind(
+      InternetAddress.anyIPv4,
+      0,
+      reuseAddress: true,
+    );
+    _socket!
+      ..broadcastEnabled = true
+      ..multicastLoopback = false
+      ..listen(_handleSocketEvent, onError: (_) {});
   }
 
   Future<void> refresh() async {
@@ -98,19 +125,11 @@ class LocalistDiscoveryService extends ChangeNotifier {
   }
 
   Future<void> stop() async {
-    _queryTimer?.cancel();
-    _queryTimer = null;
-    _pruneTimer?.cancel();
-    _pruneTimer = null;
-    _notifyTimer?.cancel();
-    _notifyTimer = null;
-    _pendingNotify = false;
-    _socket?.close();
-    _socket = null;
+    await suspend();
+    final hadDevices = _devices.isNotEmpty;
     _devices.clear();
     _lastTargetSignature = '';
-    if (_scanning) {
-      _scanning = false;
+    if (hadDevices) {
       notifyListeners();
     }
   }

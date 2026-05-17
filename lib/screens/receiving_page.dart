@@ -86,16 +86,25 @@ class _ReceivingPageState extends State<ReceivingPage> {
   void didUpdateWidget(covariant ReceivingPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     final remote = widget.snapshot.remoteProxy;
+    final running =
+        widget.snapshot.receivingRunning || widget.snapshot.localProxyRunning;
+    final wasRunning =
+        oldWidget.snapshot.receivingRunning ||
+        oldWidget.snapshot.localProxyRunning;
     if (remote != null && remote.url != oldWidget.snapshot.remoteProxy?.url) {
       _applyConfig(remote);
     }
-    if (widget.controlsLocked && _scanning && !oldWidget.controlsLocked) {
-      unawaited(_stopScanner());
+    if ((widget.controlsLocked && !oldWidget.controlsLocked) ||
+        (running && !wasRunning)) {
+      if (_scanning) {
+        unawaited(_stopScanner());
+      }
     }
   }
 
   @override
   void dispose() {
+    unawaited(_stopScanner());
     _scannerController.dispose();
     _configController.removeListener(_handleDraftChanged);
     _hostController.removeListener(_handleDraftChanged);
@@ -379,15 +388,19 @@ class _ReceivingPageState extends State<ReceivingPage> {
         'tg://socks?server=127.0.0.1&port=3781',
       );
       if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Telegram could not be opened.')),
+        showLocalistNotice(
+          context,
+          message: 'Telegram could not be opened.',
+          tone: InAppNoticeTone.warning,
         );
       }
     } catch (error) {
       _logs.error('Unable to open Telegram proxy link: $error');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Telegram could not be opened.')),
+        showLocalistNotice(
+          context,
+          message: 'Telegram could not be opened.',
+          tone: InAppNoticeTone.warning,
         );
       }
     }
@@ -492,8 +505,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
     } catch (error) {
       _logs.error('Unable to start Windows QR scanner: $error');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Scanner could not start.')),
+        showLocalistNotice(
+          context,
+          message: 'Scanner could not start.',
+          tone: InAppNoticeTone.warning,
         );
       }
       return;
@@ -607,9 +622,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
+    showLocalistNotice(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Config is not valid.')));
+      message: 'Config is not valid.',
+      tone: InAppNoticeTone.error,
+    );
   }
 
   RemoteProxyConfig? _currentConfig() {
@@ -635,12 +652,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
           'Proxy Config is ready. Use Start as VPN + proxy or Start as proxy when you are ready.';
     });
     unawaited(_persistDraft());
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Config loaded. Choose Start as VPN + proxy or Start as proxy.',
-        ),
-      ),
+    showLocalistNotice(
+      context,
+      message: 'Config loaded. Choose Start as VPN + proxy or Start as proxy.',
+      tone: InAppNoticeTone.success,
     );
   }
 

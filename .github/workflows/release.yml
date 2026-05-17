@@ -9,6 +9,7 @@ on:
         default: ""
   push:
     branches:
+      - "main"
       - "master"
     tags:
       - "v*"
@@ -257,15 +258,15 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          🚀 Major v2 release for Android and Windows.
+          ✨ Polished Android and Windows release with smarter discovery and cleaner in-app feedback.
 
           ## Changes
 
-          - 🛠️ Fixes Windows Wintun startup by running tun2socks as a monitored process instead of a detached process.
-          - 📡 Adds automatic local-network discovery for Localist sharing devices.
-          - 🖥️ Shows named nearby Windows and Android source devices at the top of Receiving.
-          - 🧭 Lets users choose discovered HTTP/SOCKS5 endpoints from the same picker flow used by Smart QR.
-          - 🤖 Keeps Android sharing discoverable from the foreground VPN/proxy service with a multicast lock.
+          - � Stops continuous nearby-device scanning unless the Receiving page is actually idle and ready to search.
+          - � Pauses scanner activity as soon as Sharing or Receiving starts, reducing unnecessary battery and network work.
+          - 🎨 Upgrades in-app notices to match the active app theme with glass styling on newer Android and desktop builds.
+          - 📱 Preserves the simpler default notification look on older Android versions for better compatibility.
+          - � Keeps the same scanner and notice behavior aligned across both Android and Windows.
           - 🏷️ Bumps the app version to v${APP_VERSION}.
 
           ## Assets

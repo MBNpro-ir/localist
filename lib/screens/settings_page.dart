@@ -443,8 +443,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _savePorts() async {
     if (widget.portsLocked) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Stop sharing before changing ports.')),
+      showLocalistNotice(
+        context,
+        message: 'Stop sharing before changing ports.',
+        tone: InAppNoticeTone.warning,
       );
       return;
     }
@@ -456,9 +458,11 @@ class _SettingsPageState extends State<SettingsPage> {
             httpPort == null) ||
         (widget.settings.isProtocolEnabled(ProxyProtocol.socks5) &&
             socks5Port == null)) {
-      ScaffoldMessenger.of(
+      showLocalistNotice(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Enter valid ports first.')));
+        message: 'Enter valid ports first.',
+        tone: InAppNoticeTone.warning,
+      );
       return;
     }
 
@@ -477,9 +481,11 @@ class _SettingsPageState extends State<SettingsPage> {
       }
       _logs.info('Proxy ports saved');
       if (mounted) {
-        ScaffoldMessenger.of(
+        showLocalistNotice(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Ports saved')));
+          message: 'Ports saved',
+          tone: InAppNoticeTone.success,
+        );
       }
     } finally {
       if (mounted) {
@@ -508,14 +514,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 : root.lastError,
           );
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  root.lastError.isEmpty
-                      ? 'Approve the Windows admin prompt to continue.'
-                      : root.lastError,
-                ),
-              ),
+            showLocalistNotice(
+              context,
+              message: root.lastError.isEmpty
+                  ? 'Approve the Windows admin prompt to continue.'
+                  : root.lastError,
+              tone: InAppNoticeTone.warning,
             );
           }
         }
@@ -528,8 +532,10 @@ class _SettingsPageState extends State<SettingsPage> {
               : root.lastError,
         );
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Root access was not granted')),
+          showLocalistNotice(
+            context,
+            message: 'Root access was not granted',
+            tone: InAppNoticeTone.warning,
           );
         }
         await widget.settings.setRootRoutingEnabled(false);
@@ -541,10 +547,10 @@ class _SettingsPageState extends State<SettingsPage> {
       _logs.error('Unable to change root routing: $error');
       await widget.settings.setRootRoutingEnabled(false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to change root routing. Check Logs.'),
-          ),
+        showLocalistNotice(
+          context,
+          message: 'Unable to change root routing. Check Logs.',
+          tone: InAppNoticeTone.error,
         );
       }
     } finally {

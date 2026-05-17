@@ -456,8 +456,10 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
   Future<void> _save() async {
     final port = int.tryParse(_portController.text.trim());
     if (_portError(_portController.text) != null || port == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid VPN proxy port first.')),
+      showLocalistNotice(
+        context,
+        message: 'Enter a valid VPN proxy port first.',
+        tone: InAppNoticeTone.warning,
       );
       return;
     }
@@ -468,9 +470,11 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
         port: port,
       );
       if (mounted) {
-        ScaffoldMessenger.of(
+        showLocalistNotice(
           context,
-        ).showSnackBar(const SnackBar(content: Text('VPN proxy saved')));
+          message: 'VPN proxy saved',
+          tone: InAppNoticeTone.success,
+        );
       }
     } finally {
       if (mounted) {
@@ -872,8 +876,10 @@ class _QrPreview extends StatelessWidget {
                           ClipboardData(text: endpoint.data),
                         );
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Config copied')),
+                          showLocalistNotice(
+                            context,
+                            message: 'Config copied',
+                            tone: InAppNoticeTone.success,
                           );
                         }
                       },

@@ -337,6 +337,189 @@ class AnimatedNavIcon extends StatelessWidget {
   }
 }
 
+enum InAppNoticeTone { info, success, warning, error }
+
+void showLocalistNotice(
+  BuildContext context, {
+  required String message,
+  InAppNoticeTone tone = InAppNoticeTone.info,
+  IconData? icon,
+  Duration duration = const Duration(seconds: 4),
+}) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      buildLocalistNoticeSnackBar(
+        context,
+        message: message,
+        tone: tone,
+        icon: icon,
+        duration: duration,
+      ),
+    );
+}
+
+SnackBar buildLocalistNoticeSnackBar(
+  BuildContext context, {
+  required String message,
+  InAppNoticeTone tone = InAppNoticeTone.info,
+  IconData? icon,
+  Duration duration = const Duration(seconds: 4),
+}) {
+  final scheme = Theme.of(context).colorScheme;
+  final simple = LocalistVisualStyle.simpleOf(context);
+  final resolvedIcon = icon ?? _noticeIconForTone(tone);
+  if (simple) {
+    return SnackBar(
+      duration: duration,
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      backgroundColor: _noticeFillColor(scheme, tone, simple: true),
+      content: Row(
+        children: [
+          Icon(resolvedIcon, color: _noticeForegroundColor(scheme, tone)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: _noticeForegroundColor(scheme, tone),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  return SnackBar(
+    duration: duration,
+    behavior: SnackBarBehavior.floating,
+    elevation: 0,
+    backgroundColor: Colors.transparent,
+    margin: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+    padding: EdgeInsets.zero,
+    content: _NoticeCard(message: message, tone: tone, icon: resolvedIcon),
+  );
+}
+
+class _NoticeCard extends StatelessWidget {
+  const _NoticeCard({
+    required this.message,
+    required this.tone,
+    required this.icon,
+  });
+
+  final String message;
+  final InAppNoticeTone tone;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: BackdropFilter.grouped(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: _noticeFillColor(scheme, tone, simple: false),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _noticeBorderColor(scheme, tone)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .16),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: _noticeAccentColor(
+                      scheme,
+                      tone,
+                    ).withValues(alpha: .16),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: _noticeAccentColor(scheme, tone)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: scheme.onSurface),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+IconData _noticeIconForTone(InAppNoticeTone tone) {
+  return switch (tone) {
+    InAppNoticeTone.info => Icons.info_outline,
+    InAppNoticeTone.success => Icons.check_circle_outline,
+    InAppNoticeTone.warning => Icons.warning_amber_outlined,
+    InAppNoticeTone.error => Icons.error_outline,
+  };
+}
+
+Color _noticeAccentColor(ColorScheme scheme, InAppNoticeTone tone) {
+  return switch (tone) {
+    InAppNoticeTone.info => scheme.primary,
+    InAppNoticeTone.success => const Color(0xFF2E7D32),
+    InAppNoticeTone.warning => const Color(0xFFB26A00),
+    InAppNoticeTone.error => scheme.error,
+  };
+}
+
+Color _noticeForegroundColor(ColorScheme scheme, InAppNoticeTone tone) {
+  return switch (tone) {
+    InAppNoticeTone.info => scheme.onPrimaryContainer,
+    InAppNoticeTone.success => const Color(0xFFF1FFF0),
+    InAppNoticeTone.warning => const Color(0xFFFFF8E6),
+    InAppNoticeTone.error => scheme.onErrorContainer,
+  };
+}
+
+Color _noticeFillColor(
+  ColorScheme scheme,
+  InAppNoticeTone tone, {
+  required bool simple,
+}) {
+  if (simple) {
+    return switch (tone) {
+      InAppNoticeTone.info => scheme.primaryContainer,
+      InAppNoticeTone.success => const Color(0xFF1F5F2B),
+      InAppNoticeTone.warning => const Color(0xFF7A4A00),
+      InAppNoticeTone.error => scheme.errorContainer,
+    };
+  }
+  return switch (tone) {
+    InAppNoticeTone.info => scheme.surface.withValues(alpha: .78),
+    InAppNoticeTone.success => scheme.surface.withValues(alpha: .78),
+    InAppNoticeTone.warning => scheme.surface.withValues(alpha: .82),
+    InAppNoticeTone.error => scheme.surface.withValues(alpha: .84),
+  };
+}
+
+Color _noticeBorderColor(ColorScheme scheme, InAppNoticeTone tone) {
+  return _noticeAccentColor(scheme, tone).withValues(alpha: .28);
+}
+
 String formatBytes(int bytes) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   var value = bytes.toDouble();

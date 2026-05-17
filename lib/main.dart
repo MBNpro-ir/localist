@@ -173,7 +173,6 @@ class _LocalistShellState extends State<LocalistShell>
     }
     widget.settings.addListener(_handleSettingsChanged);
     _discovery.addListener(_handleDiscoveryChanged);
-    unawaited(_startDiscovery());
     _refreshState();
     _refreshTimer = Timer.periodic(
       const Duration(seconds: 3),
@@ -407,13 +406,12 @@ class _LocalistShellState extends State<LocalistShell>
     if (!_trayReady || _trayDestroyed) {
       _logs.warning('Taskbar tray is not ready; keeping Localist open.');
       if (mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            const SnackBar(
-              content: Text('Taskbar tray is not ready. Localist stayed open.'),
-            ),
-          );
+        showLocalistNotice(
+          context,
+          message: 'Taskbar tray is not ready. Localist stayed open.',
+          tone: InAppNoticeTone.warning,
+          icon: Icons.desktop_access_disabled_outlined,
+        );
       }
       return;
     }
@@ -488,6 +486,7 @@ class _LocalistShellState extends State<LocalistShell>
         port: widget.settings.port,
       );
     });
+    unawaited(_syncDiscoveryLifecycle());
   }
 
   Future<void> _refreshState({bool quiet = false}) async {
@@ -497,21 +496,11 @@ class _LocalistShellState extends State<LocalistShell>
         return;
       }
       setState(() => _snapshot = snapshot);
+      unawaited(_syncDiscoveryLifecycle());
     } catch (error) {
       if (!quiet) {
         _logs.warning('Unable to refresh native state: $error');
       }
-    }
-  }
-
-  Future<void> _startDiscovery() async {
-    try {
-      await _discovery.start();
-    } catch (error) {
-      _logs.warning('Local discovery could not start: $error');
-      _showInAppNotice(
-        'Nearby device search could not start. Check firewall or network permissions.',
-      );
     }
   }
 
@@ -525,6 +514,28 @@ class _LocalistShellState extends State<LocalistShell>
     });
   }
 
+  bool get _shouldRunDiscovery {
+    return _index == 1 && !_busy && !_sharingActive && !_receivingActive;
+  }
+
+  Future<void> _syncDiscoveryLifecycle() async {
+    try {
+      if (_shouldRunDiscovery) {
+        await _discovery.resume();
+      } else {
+        await _discovery.suspend();
+      }
+    } catch (error) {
+      _logs.warning('Local discovery lifecycle update failed: $error');
+      if (_shouldRunDiscovery) {
+        _showInAppNotice(
+          'Nearby device search could not start. Check firewall or network permissions.',
+          tone: InAppNoticeTone.warning,
+        );
+      }
+    }
+  }
+
   Future<void> _refreshDiscovery() async {
     try {
       await _discovery.refresh();
@@ -534,13 +545,14 @@ class _LocalistShellState extends State<LocalistShell>
     }
   }
 
-  void _showInAppNotice(String message) {
+  void _showInAppNotice(
+    String message, {
+    InAppNoticeTone tone = InAppNoticeTone.info,
+  }) {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showLocalistNotice(context, message: message, tone: tone);
   }
 
   String _describeError(Object error) {
@@ -633,14 +645,17 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     setState(() => _busy = true);
+    unawaited(_syncDiscoveryLifecycle());
     try {
       if (!Platform.isWindows && widget.settings.rootRoutingEnabled) {
         if (!widget.settings.shareAllRoutes &&
             widget.settings.selectedLocalIps.isEmpty) {
           _logs.warning('No local IP was selected for root sharing');
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Select at least one local IP.')),
+            showLocalistNotice(
+              context,
+              message: 'Select at least one local IP.',
+              tone: InAppNoticeTone.warning,
             );
           }
           return;
@@ -658,7 +673,7 @@ class _LocalistShellState extends State<LocalistShell>
               ? 'Root VPN sharing did not start'
               : root.lastError;
           _logs.error(message);
-          _showInAppNotice(message);
+          _showInAppNotice(message, tone: InAppNoticeTone.error);
         }
         await _refreshState();
         return;
@@ -670,8 +685,10 @@ class _LocalistShellState extends State<LocalistShell>
           widget.settings.selectedLocalIps.isEmpty) {
         _logs.warning('No local IP was selected for proxy sharing');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Select at least one local IP.')),
+          showLocalistNotice(
+            context,
+            message: 'Select at least one local IP.',
+            tone: InAppNoticeTone.warning,
           );
         }
         return;
@@ -705,11 +722,13 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.error('Failed to start sharing: ${_describeError(error)}');
       _showInAppNotice(
         _serviceErrorMessage(error, fallback: 'Failed to start proxy service.'),
+        tone: InAppNoticeTone.error,
       );
     } finally {
       if (mounted) {
         setState(() => _busy = false);
       }
+      unawaited(_syncDiscoveryLifecycle());
     }
   }
 
@@ -718,6 +737,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     setState(() => _busy = true);
+    unawaited(_syncDiscoveryLifecycle());
     try {
       await _bridge.stopRootSharing();
       final stopped = await _bridge.stopProxyService();
@@ -727,11 +747,15 @@ class _LocalistShellState extends State<LocalistShell>
       await _refreshState();
     } catch (error) {
       _logs.error('Failed to stop sharing: ${_describeError(error)}');
-      _showInAppNotice('Failed to stop sharing. Check Logs for details.');
+      _showInAppNotice(
+        'Failed to stop sharing. Check Logs for details.',
+        tone: InAppNoticeTone.error,
+      );
     } finally {
       if (mounted) {
         setState(() => _busy = false);
       }
+      unawaited(_syncDiscoveryLifecycle());
     }
   }
 
@@ -740,6 +764,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     setState(() => _busy = true);
+    unawaited(_syncDiscoveryLifecycle());
     try {
       final stopped = await _bridge.stopProxyService();
       if (stopped) {
@@ -748,11 +773,15 @@ class _LocalistShellState extends State<LocalistShell>
       await _refreshState();
     } catch (error) {
       _logs.error('Failed to stop receiving: ${_describeError(error)}');
-      _showInAppNotice('Failed to stop receiving. Check Logs for details.');
+      _showInAppNotice(
+        'Failed to stop receiving. Check Logs for details.',
+        tone: InAppNoticeTone.error,
+      );
     } finally {
       if (mounted) {
         setState(() => _busy = false);
       }
+      unawaited(_syncDiscoveryLifecycle());
     }
   }
 
@@ -765,13 +794,16 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     setState(() => _busy = true);
+    unawaited(_syncDiscoveryLifecycle());
     try {
       final reachable = await _testProxyConnection(config);
       if (!reachable) {
         _logs.warning('Remote proxy is not reachable: ${config.url}');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Proxy is not reachable: ${config.host}')),
+          showLocalistNotice(
+            context,
+            message: 'Proxy is not reachable: ${config.host}',
+            tone: InAppNoticeTone.warning,
           );
         }
         return;
@@ -797,11 +829,13 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.error('Failed to start receiving VPN: ${_describeError(error)}');
       _showInAppNotice(
         _serviceErrorMessage(error, fallback: 'Failed to start receiving VPN.'),
+        tone: InAppNoticeTone.error,
       );
     } finally {
       if (mounted) {
         setState(() => _busy = false);
       }
+      unawaited(_syncDiscoveryLifecycle());
     }
   }
 
@@ -814,13 +848,16 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     setState(() => _busy = true);
+    unawaited(_syncDiscoveryLifecycle());
     try {
       final reachable = await _testProxyConnection(config);
       if (!reachable) {
         _logs.warning('Remote proxy is not reachable: ${config.url}');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Proxy is not reachable: ${config.host}')),
+          showLocalistNotice(
+            context,
+            message: 'Proxy is not reachable: ${config.host}',
+            tone: InAppNoticeTone.warning,
           );
         }
         return;
@@ -834,11 +871,13 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.error('Failed to start local proxy: ${_describeError(error)}');
       _showInAppNotice(
         _serviceErrorMessage(error, fallback: 'Failed to start local proxy.'),
+        tone: InAppNoticeTone.error,
       );
     } finally {
       if (mounted) {
         setState(() => _busy = false);
       }
+      unawaited(_syncDiscoveryLifecycle());
     }
   }
 
@@ -891,19 +930,19 @@ class _LocalistShellState extends State<LocalistShell>
     try {
       final opened = await _bridge.openHotspotSettings();
       if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Hotspot settings could not be opened.'),
-          ),
+        showLocalistNotice(
+          context,
+          message: 'Hotspot settings could not be opened.',
+          tone: InAppNoticeTone.warning,
         );
       }
     } catch (error) {
       _logs.error('Failed to open hotspot settings: $error');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Hotspot settings could not be opened.'),
-          ),
+        showLocalistNotice(
+          context,
+          message: 'Hotspot settings could not be opened.',
+          tone: InAppNoticeTone.warning,
         );
       }
     }
@@ -916,11 +955,17 @@ class _LocalistShellState extends State<LocalistShell>
         _logs.info('APK share sheet opened');
       } else {
         _logs.warning('APK share is unavailable on this platform.');
-        _showInAppNotice('APK sharing is unavailable on this platform.');
+        _showInAppNotice(
+          'APK sharing is unavailable on this platform.',
+          tone: InAppNoticeTone.warning,
+        );
       }
     } catch (error) {
       _logs.error('Failed to share APK: ${_describeError(error)}');
-      _showInAppNotice('Failed to share APK. Check Logs for details.');
+      _showInAppNotice(
+        'Failed to share APK. Check Logs for details.',
+        tone: InAppNoticeTone.error,
+      );
     }
   }
 
@@ -1147,6 +1192,7 @@ class _LocalistShellState extends State<LocalistShell>
 
   void _handlePageChanged(int value) {
     setState(() => _index = value);
+    unawaited(_syncDiscoveryLifecycle());
   }
 
   void _setPage(int value, {bool force = false}) {
@@ -1173,15 +1219,13 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            '$activeService is active. Stop it before starting $targetService.',
-          ),
-        ),
-      );
+    showLocalistNotice(
+      context,
+      message:
+          '$activeService is active. Stop it before starting $targetService.',
+      tone: InAppNoticeTone.warning,
+      icon: Icons.sync_problem_outlined,
+    );
   }
 
   void _toggleTheme(ThemeSettingsModel themeSettings) {
