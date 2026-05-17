@@ -8,6 +8,8 @@ on:
         required: false
         default: ""
   push:
+    branches:
+      - "master"
     tags:
       - "v*"
 
@@ -255,42 +257,17 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          🚀 Feature and stability release for Android and Windows.
+          🚀 Stability and usability release for Android and Windows.
 
           ## Changes
 
-          - 📊 Refreshes the Stats sheet every second while it is open so traffic counters update in realtime.
-          - 🪟 Updates the Windows desktop window to fixed width 440 with a resizable height starting at 680.
-          - 🔐 Adds an Android first-run permission gate for notifications, camera, VPN, and background transfer.
-          - 🌙 Keeps Android VPN/proxy transfer alive when the screen turns off by using foreground-service runtime locks and battery optimization guidance.
-          - 📷 Keeps Receiving controls mode-aware so QR scanning and inactive start buttons stay disabled while a mode is running.
-          - 💾 Persists Receiving config, host, port, and protocol across page switches and app restarts.
-          - ✅ Improves manual proxy host/port validation before Start buttons can run.
-          - 🧭 Keeps page state alive when switching between Sharing, Receiving, and Settings.
-          - 🟢 Improves selected local IP chips and adds the Telegram icon to the proxy button.
-          - 🧪 Documents current Windows VPN/Wintun status and release workflow behavior.
+          - ⚙️ Hides each proxy port field while its protocol is disabled in Settings.
+          - 🧩 Shows the matching port field again immediately when HTTP or SOCKS5 is enabled.
+          - 🛡️ Requests Android VPN permission only when the user taps Start as VPN + proxy.
+          - 🛑 Keeps the Android Receiving VPN stop button available while the bundled local proxy is also running.
+          - 🌐 Improves Android TUN DNS routing so device-wide VPN mode can carry app traffic instead of only the local proxy path.
+          - 🧯 Prevents Localist VPN service from restarting itself with stale config after Android stops the process.
           - 🏷️ Bumps the app version to v${APP_VERSION}.
-
-          ## Assets
-
-          - Android split APKs: armeabi-v7a, arm64-v8a, x86_64
-          - Android App Bundle: universal AAB
-          - Windows Desktop: x64 ZIP package
-          - Split debug symbols are uploaded as separate ZIP files for crash symbolication.
-          EOF
-          cat > RELEASE_NOTES.md <<EOF
-          # Localist v${APP_VERSION}
-
-          Feature release for Android and Windows.
-
-          ## Changes
-
-          - Adds clear buttons to Receiving config, host, and port fields.
-          - Highlights selectable Allowed proxy IPs with a black border and side bar.
-          - Adds a close button to the QR code preview.
-          - Starts Windows Receiving VPN with bundled tun2socks and Wintun when available, with the previous Windows system-proxy route as fallback.
-          - Downloads and bundles tun2socks.exe and wintun.dll in the Windows GitHub Actions package.
-          - Bumps the app version to v${APP_VERSION}.
 
           ## Assets
 

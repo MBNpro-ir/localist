@@ -19,13 +19,6 @@ class NativeBridgeService {
     return await _channel.invokeMethod<bool>('ensureVpnPermission') ?? false;
   }
 
-  Future<bool> hasVpnPermission() async {
-    if (Platform.isWindows) {
-      return true;
-    }
-    return await _channel.invokeMethod<bool>('hasVpnPermission') ?? false;
-  }
-
   Future<int?> getAndroidSdkInt() async {
     if (!Platform.isAndroid) {
       return null;

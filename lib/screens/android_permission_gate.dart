@@ -25,15 +25,11 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   bool _complete = !Platform.isAndroid;
   bool _notificationGranted = false;
   bool _cameraGranted = false;
-  bool _vpnGranted = false;
   bool _batteryGranted = false;
   bool _busy = false;
 
   bool get _allGranted {
-    return _notificationGranted &&
-        _cameraGranted &&
-        _vpnGranted &&
-        _batteryGranted;
+    return _notificationGranted && _cameraGranted && _batteryGranted;
   }
 
   @override
@@ -72,7 +68,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   Future<void> _refreshStatuses() async {
     final notification = await Permission.notification.status;
     final camera = await Permission.camera.status;
-    final vpn = await _bridge.hasVpnPermission();
     final battery = await _bridge.isIgnoringBatteryOptimizations();
     if (!mounted) {
       return;
@@ -80,7 +75,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
     setState(() {
       _notificationGranted = notification.isGranted;
       _cameraGranted = camera.isGranted;
-      _vpnGranted = vpn;
       _batteryGranted = battery;
     });
   }
@@ -126,13 +120,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
               onPressed: _busy ? null : _requestCamera,
             ),
             _PermissionTile(
-              granted: _vpnGranted,
-              icon: Icons.vpn_key_outlined,
-              title: 'VPN permission',
-              subtitle: 'Starts Receiving as device VPN.',
-              onPressed: _busy ? null : _requestVpn,
-            ),
-            _PermissionTile(
               granted: _batteryGranted,
               icon: Icons.battery_saver_outlined,
               title: 'Background transfer',
@@ -175,21 +162,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       body: 'Camera access is needed to scan Localist QR configs.',
       request: () async => (await Permission.camera.request()).isGranted,
       refresh: _refreshStatuses,
-    );
-  }
-
-  Future<void> _requestVpn() async {
-    await _runRequest(
-      title: 'VPN permission required',
-      body: 'VPN permission is needed for Start as VPN in Receiving.',
-      request: () async {
-        final granted = await _bridge.ensureVpnPermission();
-        if (mounted) {
-          setState(() => _vpnGranted = granted);
-        }
-        return granted;
-      },
-      refresh: () async {},
     );
   }
 

@@ -276,15 +276,13 @@ class _ReceivingPageState extends State<ReceivingPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed:
-                      widget.busy ||
-                          proxyRunning ||
-                          oppositeServiceActive ||
-                          (!vpnRunning && config == null)
+                  onPressed: widget.busy || oppositeServiceActive
                       ? null
                       : vpnRunning
                       ? widget.onStopReceiving
-                      : () => widget.onStartReceiving(config!),
+                      : proxyRunning || config == null
+                      ? null
+                      : () => widget.onStartReceiving(config),
                   icon: Icon(
                     vpnRunning
                         ? Icons.stop_circle_outlined

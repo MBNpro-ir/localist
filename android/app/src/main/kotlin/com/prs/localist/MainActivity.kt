@@ -25,7 +25,6 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
-                "hasVpnPermission" -> result.success(VpnService.prepare(this) == null)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "isIgnoringBatteryOptimizations" -> result.success(isIgnoringBatteryOptimizations())
                 "requestIgnoreBatteryOptimizations" -> requestIgnoreBatteryOptimizations(result)

@@ -88,17 +88,14 @@ class _SettingsPageState extends State<SettingsPage> {
     return AnimatedBuilder(
       animation: widget.settings,
       builder: (context, _) {
-        final httpError = _hasPortEdits
-            ? _portError(_httpPortController.text)
-            : null;
-        final socks5Error = _hasPortEdits
-            ? _portError(_socks5PortController.text)
-            : null;
+        final portErrors = {
+          for (final protocol in ProxyProtocol.values)
+            protocol: _enabledPortError(protocol),
+        };
         final proxySettingsLocked = widget.portsLocked;
         final canSavePorts =
             _portsChanged &&
-            httpError == null &&
-            socks5Error == null &&
+            portErrors.values.every((error) => error == null) &&
             !proxySettingsLocked &&
             !_portsSaving;
         return PageSurface(
@@ -136,22 +133,17 @@ class _SettingsPageState extends State<SettingsPage> {
                         protocol: protocol,
                         enabled: !proxySettingsLocked,
                       ),
-                    const SizedBox(height: 12),
-                    _ProtocolPortField(
-                      protocol: ProxyProtocol.http,
-                      controller: _httpPortController,
-                      errorText: httpError,
-                      enabled: !proxySettingsLocked,
-                      onSubmitted: (_) => _savePorts(),
-                    ),
-                    const SizedBox(height: 12),
-                    _ProtocolPortField(
-                      protocol: ProxyProtocol.socks5,
-                      controller: _socks5PortController,
-                      errorText: socks5Error,
-                      enabled: !proxySettingsLocked,
-                      onSubmitted: (_) => _savePorts(),
-                    ),
+                    for (final protocol in ProxyProtocol.values)
+                      if (widget.settings.isProtocolEnabled(protocol)) ...[
+                        const SizedBox(height: 12),
+                        _ProtocolPortField(
+                          protocol: protocol,
+                          controller: _portControllerFor(protocol),
+                          errorText: portErrors[protocol],
+                          enabled: !proxySettingsLocked,
+                          onSubmitted: (_) => _savePorts(),
+                        ),
+                      ],
                     if (proxySettingsLocked) ...[
                       const SizedBox(height: 10),
                       const _LockedPortsNotice(),
@@ -353,10 +345,13 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   bool get _portsChanged {
-    return _httpPortController.text.trim() !=
-            widget.settings.portFor(ProxyProtocol.http).toString() ||
-        _socks5PortController.text.trim() !=
-            widget.settings.portFor(ProxyProtocol.socks5).toString();
+    return ProxyProtocol.values.any((protocol) {
+      if (!widget.settings.isProtocolEnabled(protocol)) {
+        return false;
+      }
+      return _portControllerFor(protocol).text.trim() !=
+          widget.settings.portFor(protocol).toString();
+    });
   }
 
   Future<void> _loadAppVersion() async {
@@ -432,6 +427,20 @@ class _SettingsPageState extends State<SettingsPage> {
     return null;
   }
 
+  String? _enabledPortError(ProxyProtocol protocol) {
+    if (!_hasPortEdits || !widget.settings.isProtocolEnabled(protocol)) {
+      return null;
+    }
+    return _portError(_portControllerFor(protocol).text);
+  }
+
+  TextEditingController _portControllerFor(ProxyProtocol protocol) {
+    return switch (protocol) {
+      ProxyProtocol.http => _httpPortController,
+      ProxyProtocol.socks5 => _socks5PortController,
+    };
+  }
+
   Future<void> _savePorts() async {
     if (widget.portsLocked) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -441,10 +450,12 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     final httpPort = int.tryParse(_httpPortController.text.trim());
     final socks5Port = int.tryParse(_socks5PortController.text.trim());
-    if (_portError(_httpPortController.text) != null ||
-        _portError(_socks5PortController.text) != null ||
-        httpPort == null ||
-        socks5Port == null) {
+    if (_enabledPortError(ProxyProtocol.http) != null ||
+        _enabledPortError(ProxyProtocol.socks5) != null ||
+        (widget.settings.isProtocolEnabled(ProxyProtocol.http) &&
+            httpPort == null) ||
+        (widget.settings.isProtocolEnabled(ProxyProtocol.socks5) &&
+            socks5Port == null)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Enter valid ports first.')));
@@ -453,11 +464,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() => _portsSaving = true);
     try {
-      if (widget.settings.portFor(ProxyProtocol.http) != httpPort) {
-        await widget.settings.setProtocolPort(ProxyProtocol.http, httpPort);
+      if (widget.settings.isProtocolEnabled(ProxyProtocol.http) &&
+          widget.settings.portFor(ProxyProtocol.http) != httpPort) {
+        await widget.settings.setProtocolPort(ProxyProtocol.http, httpPort!);
       }
-      if (widget.settings.portFor(ProxyProtocol.socks5) != socks5Port) {
-        await widget.settings.setProtocolPort(ProxyProtocol.socks5, socks5Port);
+      if (widget.settings.isProtocolEnabled(ProxyProtocol.socks5) &&
+          widget.settings.portFor(ProxyProtocol.socks5) != socks5Port) {
+        await widget.settings.setProtocolPort(
+          ProxyProtocol.socks5,
+          socks5Port!,
+        );
       }
       _logs.info('Proxy ports saved');
       if (mounted) {

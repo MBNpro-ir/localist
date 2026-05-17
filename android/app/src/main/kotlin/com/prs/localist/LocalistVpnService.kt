@@ -10,7 +10,6 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.ProxyInfo
 import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -63,9 +62,12 @@ class LocalistVpnService : VpnService() {
                     startLocalist(restartIntent)
                 }
             }
-            else -> startLocalist(intentWithCurrentConfig())
+            else -> {
+                stopSelf(startId)
+                return Service.START_NOT_STICKY
+            }
         }
-        return Service.START_STICKY
+        return Service.START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -215,8 +217,7 @@ class LocalistVpnService : VpnService() {
             .setSession("localist")
             .addAddress("10.0.0.2", 24)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
+            .addDnsServer(PrsTunEngine.MAPPED_DNS_ADDRESS)
             .setMtu(1500)
         vpnInterface = builder.establish()
         State.vpnConnected = vpnInterface != null

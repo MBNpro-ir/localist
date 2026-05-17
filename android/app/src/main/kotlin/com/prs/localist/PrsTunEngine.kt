@@ -54,11 +54,24 @@ class PrsTunEngine(private val context: Context) {
               address: $socksHost
               udp: 'udp'
 
+            mapdns:
+              address: $MAPPED_DNS_ADDRESS
+              port: 53
+              network: $MAPPED_DNS_NETWORK
+              netmask: $MAPPED_DNS_NETMASK
+              cache-size: 10000
+
             misc:
               log-level: warn
               task-stack-size: 24576
             """.trimIndent(),
         )
         return file
+    }
+
+    companion object {
+        const val MAPPED_DNS_ADDRESS = "198.18.0.2"
+        private const val MAPPED_DNS_NETWORK = "240.0.0.0"
+        private const val MAPPED_DNS_NETMASK = "240.0.0.0"
     }
 }
