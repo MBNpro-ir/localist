@@ -47,11 +47,27 @@ android {
         }
     }
 
+    signingConfigs {
+        create("localistRelease") {
+            val releaseStoreFile =
+                providers.environmentVariable("LOCALIST_UPLOAD_STORE_FILE").orNull
+                    ?: "localist-upload.jks"
+            storeFile = file(releaseStoreFile)
+            storePassword =
+                providers.environmentVariable("LOCALIST_KEYSTORE_PASSWORD").orNull
+                    ?: "localist-update"
+            keyAlias =
+                providers.environmentVariable("LOCALIST_KEY_ALIAS").orNull
+                    ?: "localist"
+            keyPassword =
+                providers.environmentVariable("LOCALIST_KEY_PASSWORD").orNull
+                    ?: "localist-update"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("localistRelease")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

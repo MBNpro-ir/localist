@@ -6,7 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:material_you_dynamic_theme/material_you_dynamic_theme.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
+import '../services/app_update_service.dart';
 import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
 import '../widgets/glass.dart';
@@ -78,6 +80,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final themeSettings = context.watch<ThemeSettingsModel>();
     final dynamicColorsAvailable = context
         .watch<BrightnessGetColorScheme>()
@@ -192,6 +195,47 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
+            GlassPanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.languageSettingsTitle,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.languageSettingsSubtitle,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<AppLanguage>(
+                    segments: [
+                      ButtonSegment(
+                        value: AppLanguage.system,
+                        icon: const Icon(Icons.language),
+                        label: Text(l10n.languageSystem),
+                      ),
+                      ButtonSegment(
+                        value: AppLanguage.english,
+                        icon: const Icon(Icons.flag_outlined),
+                        label: Text(l10n.languageEnglish),
+                      ),
+                      ButtonSegment(
+                        value: AppLanguage.persian,
+                        icon: const Icon(Icons.flag_outlined),
+                        label: Text(l10n.languagePersian),
+                      ),
+                    ],
+                    selected: {widget.settings.language},
+                    onSelectionChanged: (values) {
+                      widget.settings.setLanguage(values.single);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const _UpdatePanel(),
             GlassPanel(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -594,6 +638,291 @@ class _WindowsCloseBehaviorSelector extends StatelessWidget {
         }
       },
     );
+  }
+}
+
+class _UpdatePanel extends StatefulWidget {
+  const _UpdatePanel();
+
+  @override
+  State<_UpdatePanel> createState() => _UpdatePanelState();
+}
+
+class _UpdatePanelState extends State<_UpdatePanel> {
+  final AppUpdateService _updates = AppUpdateService();
+  final NativeBridgeService _bridge = NativeBridgeService.instance;
+  AppUpdateCheck? _check;
+  File? _downloadedApk;
+  bool _checking = false;
+  bool _downloading = false;
+  bool _installing = false;
+  bool _needsInstallPermission = false;
+  double? _progress;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isAndroid) {
+      unawaited(_checkForUpdates(quiet: true));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final check = _check;
+    final latestVersion = check?.release.version.toString() ?? '-';
+    final currentVersion = check?.current.toString() ?? '-';
+    final hasInstallableUpdate =
+        check?.updateAvailable == true && check?.canInstallOnThisDevice == true;
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.updates, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            l10n.updateSubtitle,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: MetricTile(
+                  label: l10n.currentVersion,
+                  value: currentVersion,
+                  icon: Icons.phone_android_outlined,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: MetricTile(
+                  label: l10n.latestVersion,
+                  value: latestVersion,
+                  icon: Icons.cloud_download_outlined,
+                ),
+              ),
+            ],
+          ),
+          if (_message != null) ...[
+            const SizedBox(height: 12),
+            ServiceLockNotice(
+              message: _message!,
+              icon: _message == l10n.updaterUpToDate
+                  ? Icons.check_circle_outline
+                  : Icons.info_outline,
+            ),
+          ],
+          if (_progress != null) ...[
+            const SizedBox(height: 12),
+            LinearProgressIndicator(value: _progress),
+          ],
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: _checking ? null : () => _checkForUpdates(),
+                icon: _checking
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
+                label: Text(
+                  _checking ? l10n.checkingForUpdates : l10n.checkForUpdates,
+                ),
+              ),
+              if (Platform.isAndroid && hasInstallableUpdate)
+                FilledButton.icon(
+                  onPressed: _downloading || _installing
+                      ? null
+                      : _downloadAndInstall,
+                  icon: _downloading
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.system_update_alt_outlined),
+                  label: Text(
+                    _downloading
+                        ? l10n.downloadingUpdate
+                        : l10n.downloadAndInstall,
+                  ),
+                ),
+              if (Platform.isAndroid && _needsInstallPermission)
+                FilledButton.tonalIcon(
+                  onPressed: _bridge.openAndroidInstallPermissionSettings,
+                  icon: const Icon(Icons.security_outlined),
+                  label: Text(l10n.allowInstallPermission),
+                ),
+              if (Platform.isAndroid && _downloadedApk != null)
+                FilledButton.tonalIcon(
+                  onPressed: _installing ? null : _installDownloadedApk,
+                  icon: _installing
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.install_mobile_outlined),
+                  label: Text(l10n.installUpdate),
+                ),
+              if (!Platform.isAndroid)
+                FilledButton.tonalIcon(
+                  onPressed: () => _bridge.openUri(localistLatestReleaseUrl),
+                  icon: const Icon(Icons.open_in_new),
+                  label: Text(l10n.openGithubRelease),
+                ),
+            ],
+          ),
+          if (!Platform.isAndroid) ...[
+            const SizedBox(height: 12),
+            ServiceLockNotice(
+              message: l10n.updaterAndroidOnly,
+              icon: Icons.phone_android_outlined,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _checkForUpdates({bool quiet = false}) async {
+    setState(() {
+      _checking = true;
+      _needsInstallPermission = false;
+      _message = quiet ? _message : null;
+    });
+    try {
+      final result = await _updates.checkForUpdate();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _check = result;
+        _downloadedApk = null;
+        _progress = null;
+        _message = _messageForCheck(result);
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _message = context.l10n.updaterFailed);
+    } finally {
+      if (mounted) {
+        setState(() => _checking = false);
+      }
+    }
+  }
+
+  String _messageForCheck(AppUpdateCheck result) {
+    final l10n = context.l10n;
+    if (!result.updateAvailable) {
+      return l10n.updaterUpToDate;
+    }
+    if (!result.canInstallOnThisDevice) {
+      return l10n.updaterNoCompatibleApk;
+    }
+    return l10n.updaterAvailable(result.release.version.toString());
+  }
+
+  Future<void> _downloadAndInstall() async {
+    var check = _check;
+    if (check == null) {
+      await _checkForUpdates();
+      check = _check;
+    }
+    final asset = check?.androidAsset;
+    if (asset == null) {
+      setState(() => _message = context.l10n.updaterNoCompatibleApk);
+      return;
+    }
+    final canInstall = await _bridge.canInstallAndroidPackages();
+    if (!canInstall) {
+      await _bridge.openAndroidInstallPermissionSettings();
+      if (mounted) {
+        setState(() {
+          _needsInstallPermission = true;
+          _message = context.l10n.updaterInstallPermissionNeeded;
+        });
+      }
+      return;
+    }
+    setState(() {
+      _downloading = true;
+      _needsInstallPermission = false;
+      _progress = 0;
+      _message = null;
+    });
+    try {
+      final file = await _updates.downloadAndroidUpdate(
+        asset,
+        onProgress: (received, total) {
+          if (!mounted || total <= 0) {
+            return;
+          }
+          setState(() => _progress = received / total);
+        },
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _downloadedApk = file;
+        _progress = 1;
+        _message = context.l10n.updaterDownloaded;
+      });
+      await _installDownloadedApk();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _message = context.l10n.updaterFailed);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _downloading = false);
+      }
+    }
+  }
+
+  Future<void> _installDownloadedApk() async {
+    final apk = _downloadedApk;
+    if (apk == null) {
+      return;
+    }
+    final canInstall = await _bridge.canInstallAndroidPackages();
+    if (!canInstall) {
+      await _bridge.openAndroidInstallPermissionSettings();
+      if (mounted) {
+        setState(() {
+          _needsInstallPermission = true;
+          _message = context.l10n.updaterInstallPermissionNeeded;
+        });
+      }
+      return;
+    }
+    setState(() {
+      _installing = true;
+      _needsInstallPermission = false;
+    });
+    try {
+      final opened = await _bridge.installAndroidApk(apk.path);
+      if (mounted) {
+        setState(() {
+          _needsInstallPermission = !opened;
+          _message = opened
+              ? context.l10n.updaterInstallStarted
+              : context.l10n.updaterInstallPermissionNeeded;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _installing = false);
+      }
+    }
   }
 }
 

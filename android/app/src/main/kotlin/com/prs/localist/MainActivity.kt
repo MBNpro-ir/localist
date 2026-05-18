@@ -26,6 +26,10 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
+                "getAndroidSupportedAbis" -> result.success(Build.SUPPORTED_ABIS.toList())
+                "canInstallPackages" -> result.success(canInstallPackages())
+                "openInstallPermissionSettings" -> openInstallPermissionSettings(result)
+                "installApk" -> installApk(call, result)
                 "isIgnoringBatteryOptimizations" -> result.success(isIgnoringBatteryOptimizations())
                 "requestIgnoreBatteryOptimizations" -> requestIgnoreBatteryOptimizations(result)
                 "startProxyService" -> startProxyService(call, result)
@@ -98,6 +102,65 @@ class MainActivity : FlutterActivity() {
             }.onFailure { error ->
                 result.error("battery_settings_unavailable", error.message, null)
             }
+        }
+    }
+
+    private fun canInstallPackages(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            packageManager.canRequestPackageInstalls()
+    }
+
+    private fun openInstallPermissionSettings(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            result.success(true)
+            return
+        }
+        val intent = Intent(
+            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:$packageName"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching {
+            startActivity(intent)
+        }.onSuccess {
+            result.success(true)
+        }.onFailure { error ->
+            result.error("install_settings_unavailable", error.message, null)
+        }
+    }
+
+    private fun installApk(call: MethodCall, result: MethodChannel.Result) {
+        val path = call.argument<String>("path") ?: ""
+        if (path.isBlank()) {
+            result.error("missing_apk_path", "APK path is required.", null)
+            return
+        }
+        if (!canInstallPackages()) {
+            openInstallPermissionSettings(result)
+            return
+        }
+        val apk = File(path)
+        if (!apk.exists() || !apk.isFile) {
+            result.error("apk_not_found", "Downloaded APK was not found.", null)
+            return
+        }
+        runCatching {
+            val uri = FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                apk,
+            )
+            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME, packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(installIntent)
+        }.onSuccess {
+            result.success(true)
+        }.onFailure { error ->
+            result.error("install_apk_failed", error.message, null)
         }
     }
 

@@ -258,15 +258,17 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          ✨ Polished Android and Windows release with smarter discovery and cleaner in-app feedback.
+          ✨ Localist v${APP_VERSION} adds language-first onboarding, Persian support, and clearer discovery alerts.
 
           ## Changes
 
-          - � Stops continuous nearby-device scanning unless the Receiving page is actually idle and ready to search.
-          - � Pauses scanner activity as soon as Sharing or Receiving starts, reducing unnecessary battery and network work.
-          - 🎨 Upgrades in-app notices to match the active app theme with glass styling on newer Android and desktop builds.
-          - 📱 Preserves the simpler default notification look on older Android versions for better compatibility.
-          - � Keeps the same scanner and notice behavior aligned across both Android and Windows.
+          - 🌐 Adds English/Persian language selection before the Android permission flow.
+          - 🇮🇷 Follows the device language by default and keeps language switching ready for more languages later.
+          - 🔔 Unifies every in-app notice with the same Localist card design across Android and Windows.
+          - 📡 Shows a tappable in-app alert when a nearby sharing device is found from anywhere in the app.
+          - ⬇️ Adds a Settings updater that checks GitHub releases, downloads the matching Android APK, and opens the installer.
+          - 🔐 Uses stable Android release signing so future GitHub APKs can update installed builds.
+          - 💤 Shows a clear disabled state when nearby-device search is paused.
           - 🏷️ Bumps the app version to v${APP_VERSION}.
 
           ## Assets

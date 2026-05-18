@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:material_you_dynamic_theme/material_you_dynamic_theme.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tray_manager/tray_manager.dart' as tray;
 import 'package:window_manager/window_manager.dart';
 
+import 'l10n/app_localizations.dart';
 import 'models/app_settings.dart';
 import 'models/service_state.dart';
 import 'screens/android_permission_gate.dart';
@@ -18,6 +20,7 @@ import 'screens/receiving_page.dart';
 import 'screens/settings_page.dart';
 import 'screens/sharing_page.dart';
 import 'screens/stats_sheet.dart';
+import 'screens/startup_gate.dart';
 import 'services/log_service.dart';
 import 'services/localist_discovery_service.dart';
 import 'services/native_bridge_service.dart';
@@ -39,14 +42,20 @@ Future<void> main(List<String> args) async {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     final settings = await AppSettings.load();
-    await runAppDynamic(
-      title: 'Localist',
-      builder: _windowsCompactBuilder,
-      debugShowCheckedModeBanner: false,
-      themeAnimationDuration: Duration.zero,
-      themeAnimationCurve: Curves.easeInOutCubic,
-      home: AndroidPermissionGate(
-        child: LocalistShell(
+    final themeSettings = await getThemeSettings();
+    final colorScheme = await loadColorScheme(
+      fallbackSeedColor: themeSettings.seedColor,
+    );
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ThemeSettingsModel>.value(
+            value: themeSettings,
+          ),
+          Provider<BrightnessGetColorScheme>.value(value: colorScheme),
+          ChangeNotifierProvider<AppSettings>.value(value: settings),
+        ],
+        child: _LocalistApp(
           settings: settings,
           useSimpleAndroidTheme: useSimpleAndroidTheme,
         ),
@@ -54,6 +63,48 @@ Future<void> main(List<String> args) async {
     );
   } finally {
     binding.allowFirstFrame();
+  }
+}
+
+class _LocalistApp extends StatelessWidget {
+  const _LocalistApp({
+    required this.settings,
+    required this.useSimpleAndroidTheme,
+  });
+
+  final AppSettings settings;
+  final bool useSimpleAndroidTheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentSettings = context.watch<AppSettings>();
+    return AppDynamic(
+      title: 'Localist',
+      locale: currentSettings.locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localeResolutionCallback: AppLocalizations.resolve,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ],
+      builder: _windowsCompactBuilder,
+      debugShowCheckedModeBanner: false,
+      themeAnimationDuration: Duration.zero,
+      themeAnimationCurve: Curves.easeInOutCubic,
+      home: StartupGate(
+        settings: settings,
+        simple: useSimpleAndroidTheme,
+        child: AndroidPermissionGate(
+          simple: useSimpleAndroidTheme,
+          child: LocalistShell(
+            settings: settings,
+            useSimpleAndroidTheme: useSimpleAndroidTheme,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -141,11 +192,6 @@ class _LocalistShellState extends State<LocalistShell>
   final LogService _logs = LogService.instance;
   late final PageController _pageController;
   Timer? _refreshTimer;
-  final List<_NavItem> _items = const [
-    _NavItem('Sharing', Icons.share_outlined, Icons.share),
-    _NavItem('Receiving', Icons.qr_code_scanner, Icons.qr_code_2),
-    _NavItem('Settings', Icons.tune_outlined, Icons.tune),
-  ];
 
   int _index = 0;
   ServiceSnapshot _snapshot = ServiceSnapshot.initial(
@@ -161,6 +207,7 @@ class _LocalistShellState extends State<LocalistShell>
   bool _trayMenuInProgress = false;
   List<LocalistDiscoveredDevice> _discoveredDevices = const [];
   bool _discoveryScanning = false;
+  final Set<String> _announcedDeviceIds = {};
 
   @override
   void initState() {
@@ -320,6 +367,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<_WindowsCloseDecision?> _showWindowsCloseDialog() {
+    final l10n = context.l10n;
     var remember = false;
     return showDialog<_WindowsCloseDecision>(
       context: context,
@@ -328,7 +376,7 @@ class _LocalistShellState extends State<LocalistShell>
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Close Localist'),
+              title: Text(l10n.closeLocalist),
               actionsAlignment: MainAxisAlignment.center,
               actionsOverflowAlignment: OverflowBarAlignment.center,
               content: Column(
@@ -337,7 +385,7 @@ class _LocalistShellState extends State<LocalistShell>
                   CheckboxListTile(
                     contentPadding: EdgeInsets.zero,
                     value: remember,
-                    title: const Text('Remember my choice'),
+                    title: Text(l10n.rememberMyChoice),
                     controlAffinity: ListTileControlAffinity.leading,
                     onChanged: (value) {
                       setDialogState(() => remember = value ?? false);
@@ -348,7 +396,7 @@ class _LocalistShellState extends State<LocalistShell>
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
+                  child: Text(l10n.cancel),
                 ),
                 FilledButton.tonalIcon(
                   onPressed: () => Navigator.of(context).pop(
@@ -358,7 +406,7 @@ class _LocalistShellState extends State<LocalistShell>
                     ),
                   ),
                   icon: const Icon(Icons.system_update_alt_outlined),
-                  label: const Text('Taskbar tray'),
+                  label: Text(l10n.taskbarTray),
                 ),
                 FilledButton.icon(
                   onPressed: () => Navigator.of(context).pop(
@@ -368,7 +416,7 @@ class _LocalistShellState extends State<LocalistShell>
                     ),
                   ),
                   icon: const Icon(Icons.close),
-                  label: const Text('Exit'),
+                  label: Text(l10n.exit),
                 ),
               ],
             );
@@ -408,7 +456,7 @@ class _LocalistShellState extends State<LocalistShell>
       if (mounted) {
         showLocalistNotice(
           context,
-          message: 'Taskbar tray is not ready. Localist stayed open.',
+          message: context.l10n.taskbarTrayNotReady,
           tone: InAppNoticeTone.warning,
           icon: Icons.desktop_access_disabled_outlined,
         );
@@ -508,17 +556,37 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
+    final nextDevices = _discovery.devices;
+    LocalistDiscoveredDevice? newlyFound;
+    for (final device in nextDevices) {
+      if (!_announcedDeviceIds.contains(device.id)) {
+        newlyFound = device;
+        break;
+      }
+    }
+    if (nextDevices.isEmpty) {
+      _announcedDeviceIds.clear();
+    }
     setState(() {
-      _discoveredDevices = _discovery.devices;
+      _discoveredDevices = nextDevices;
       _discoveryScanning = _discovery.scanning;
     });
+    if (newlyFound != null) {
+      _announcedDeviceIds.add(newlyFound.id);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showDiscoveredDeviceNotice(newlyFound!);
+        }
+      });
+    }
   }
 
   bool get _shouldRunDiscovery {
-    return _index == 1 && !_busy && !_sharingActive && !_receivingActive;
+    return !_busy && !_sharingActive && !_receivingActive;
   }
 
   Future<void> _syncDiscoveryLifecycle() async {
+    final l10n = context.l10n;
     try {
       if (_shouldRunDiscovery) {
         await _discovery.resume();
@@ -529,7 +597,7 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.warning('Local discovery lifecycle update failed: $error');
       if (_shouldRunDiscovery) {
         _showInAppNotice(
-          'Nearby device search could not start. Check firewall or network permissions.',
+          l10n.nearbySearchCouldNotStart,
           tone: InAppNoticeTone.warning,
         );
       }
@@ -537,12 +605,27 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _refreshDiscovery() async {
+    final l10n = context.l10n;
     try {
       await _discovery.refresh();
     } catch (error) {
       _logs.warning('Local discovery refresh failed: $error');
-      _showInAppNotice('Nearby device search failed. Check the network.');
+      _showInAppNotice(l10n.nearbySearchFailed);
     }
+  }
+
+  void _showDiscoveredDeviceNotice(LocalistDiscoveredDevice device) {
+    final l10n = context.l10n;
+    showLocalistNotice(
+      context,
+      message: l10n.nearbyDeviceFound(device.name),
+      tone: InAppNoticeTone.success,
+      icon: Icons.devices_outlined,
+      duration: const Duration(seconds: 7),
+      actionLabel: l10n.openReceiving,
+      actionIcon: Icons.arrow_forward,
+      onTap: () => _setPage(1, force: true),
+    );
   }
 
   void _showInAppNotice(
@@ -627,9 +710,8 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.warning('Runtime permissions are incomplete');
       if (mounted) {
         await _showPermissionDialog(
-          title: 'Notification permission required',
-          message:
-              'Localist needs notifications to keep the Android proxy service running in the foreground.',
+          title: context.l10n.notificationPermissionRequired,
+          message: context.l10n.notificationPermissionRequiredBody,
         );
       }
     }
@@ -641,7 +723,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     if (_receivingActive) {
-      _showServiceConflictMessage('Receiving', 'Sharing');
+      _showServiceConflictMessage(context.l10n.receiving, context.l10n.sharing);
       return;
     }
     setState(() => _busy = true);
@@ -654,7 +736,7 @@ class _LocalistShellState extends State<LocalistShell>
           if (mounted) {
             showLocalistNotice(
               context,
-              message: 'Select at least one local IP.',
+              message: context.l10n.selectAtLeastOneLocalIp,
               tone: InAppNoticeTone.warning,
             );
           }
@@ -687,7 +769,7 @@ class _LocalistShellState extends State<LocalistShell>
         if (mounted) {
           showLocalistNotice(
             context,
-            message: 'Select at least one local IP.',
+            message: context.l10n.selectAtLeastOneLocalIp,
             tone: InAppNoticeTone.warning,
           );
         }
@@ -790,7 +872,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     if (_sharingActive) {
-      _showServiceConflictMessage('Sharing', 'Receiving');
+      _showServiceConflictMessage(context.l10n.sharing, context.l10n.receiving);
       return;
     }
     setState(() => _busy = true);
@@ -802,7 +884,7 @@ class _LocalistShellState extends State<LocalistShell>
         if (mounted) {
           showLocalistNotice(
             context,
-            message: 'Proxy is not reachable: ${config.host}',
+            message: context.l10n.proxyNotReachable(config.host),
             tone: InAppNoticeTone.warning,
           );
         }
@@ -813,9 +895,8 @@ class _LocalistShellState extends State<LocalistShell>
         _logs.warning('VPN permission was not granted');
         if (mounted) {
           await _showPermissionDialog(
-            title: 'VPN permission required',
-            message:
-                'Localist needs Android VPN permission to start Receiving as VPN.',
+            title: context.l10n.vpnPermissionRequired,
+            message: context.l10n.vpnPermissionRequiredBody,
           );
         }
         return;
@@ -844,7 +925,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     if (_sharingActive) {
-      _showServiceConflictMessage('Sharing', 'Receiving');
+      _showServiceConflictMessage(context.l10n.sharing, context.l10n.receiving);
       return;
     }
     setState(() => _busy = true);
@@ -856,7 +937,7 @@ class _LocalistShellState extends State<LocalistShell>
         if (mounted) {
           showLocalistNotice(
             context,
-            message: 'Proxy is not reachable: ${config.host}',
+            message: context.l10n.proxyNotReachable(config.host),
             tone: InAppNoticeTone.warning,
           );
         }
@@ -911,6 +992,7 @@ class _LocalistShellState extends State<LocalistShell>
     required String title,
     required String message,
   }) {
+    final l10n = context.l10n;
     return showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -919,7 +1001,7 @@ class _LocalistShellState extends State<LocalistShell>
         actions: [
           FilledButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
+            child: Text(l10n.ok),
           ),
         ],
       ),
@@ -927,12 +1009,13 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _openHotspotSettings() async {
+    final l10n = context.l10n;
     try {
       final opened = await _bridge.openHotspotSettings();
       if (!opened && mounted) {
         showLocalistNotice(
           context,
-          message: 'Hotspot settings could not be opened.',
+          message: l10n.hotspotSettingsCouldNotOpen,
           tone: InAppNoticeTone.warning,
         );
       }
@@ -941,7 +1024,7 @@ class _LocalistShellState extends State<LocalistShell>
       if (mounted) {
         showLocalistNotice(
           context,
-          message: 'Hotspot settings could not be opened.',
+          message: l10n.hotspotSettingsCouldNotOpen,
           tone: InAppNoticeTone.warning,
         );
       }
@@ -949,6 +1032,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _shareApk() async {
+    final l10n = context.l10n;
     try {
       final shared = await _bridge.shareApk();
       if (shared) {
@@ -956,16 +1040,13 @@ class _LocalistShellState extends State<LocalistShell>
       } else {
         _logs.warning('APK share is unavailable on this platform.');
         _showInAppNotice(
-          'APK sharing is unavailable on this platform.',
+          l10n.apkSharingUnavailable,
           tone: InAppNoticeTone.warning,
         );
       }
     } catch (error) {
       _logs.error('Failed to share APK: ${_describeError(error)}');
-      _showInAppNotice(
-        'Failed to share APK. Check Logs for details.',
-        tone: InAppNoticeTone.error,
-      );
+      _showInAppNotice(l10n.apkSharingFailed, tone: InAppNoticeTone.error);
     }
   }
 
@@ -1004,9 +1085,11 @@ class _LocalistShellState extends State<LocalistShell>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final themeSettings = context.watch<ThemeSettingsModel>();
     final statsAvailable = _statsAvailable;
     final simpleVisuals = widget.useSimpleAndroidTheme;
+    final navItems = _navItems(l10n);
     final systemBarColor = simpleVisuals
         ? Theme.of(context).colorScheme.surface
         : Colors.transparent;
@@ -1029,8 +1112,7 @@ class _LocalistShellState extends State<LocalistShell>
           snapshot: _snapshot,
           busy: _busy,
           controlsLocked: _receivingActive,
-          lockMessage:
-              'Receiving is active. Stop Receiving before using Sharing.',
+          lockMessage: l10n.receivingActiveLock,
           onStartSharing: _startSharing,
           onStopSharing: _stopSharing,
           onOpenHotspotSettings: _openHotspotSettings,
@@ -1044,8 +1126,7 @@ class _LocalistShellState extends State<LocalistShell>
           discoveryScanning: _discoveryScanning,
           busy: _busy,
           controlsLocked: _sharingActive,
-          lockMessage:
-              'Sharing is active. Stop Sharing before using Receiving.',
+          lockMessage: l10n.sharingActiveLock,
           onStartReceiving: _startReceiving,
           onStartLocalProxy: _startLocalProxy,
           onStopReceiving: _stopReceiving,
@@ -1076,7 +1157,7 @@ class _LocalistShellState extends State<LocalistShell>
                 const Text('Localist'),
                 const SizedBox(width: 6),
                 IconButton(
-                  tooltip: 'App guide',
+                  tooltip: l10n.appGuide,
                   onPressed: _showOnboardingGuide,
                   icon: const Icon(Icons.help_outline),
                 ),
@@ -1084,18 +1165,20 @@ class _LocalistShellState extends State<LocalistShell>
             ),
             actions: [
               IconButton(
-                tooltip: 'Logs',
+                tooltip: l10n.logs,
                 onPressed: _showLogsSheet,
                 icon: const Icon(Icons.subject_outlined),
               ),
               if (!Platform.isWindows)
                 IconButton(
-                  tooltip: 'Share APK',
+                  tooltip: l10n.shareApk,
                   onPressed: _shareApk,
                   icon: const Icon(Icons.ios_share),
                 ),
               IconButton(
-                tooltip: themeSettings.isDarkMode ? 'Light mode' : 'Dark mode',
+                tooltip: themeSettings.isDarkMode
+                    ? l10n.lightMode
+                    : l10n.darkMode,
                 onPressed: () => _toggleTheme(themeSettings),
                 icon: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 260),
@@ -1136,7 +1219,7 @@ class _LocalistShellState extends State<LocalistShell>
                   heroTag: 'stats-button',
                   onPressed: _showStatsSheet,
                   icon: const Icon(Icons.query_stats),
-                  label: const Text('Stats'),
+                  label: Text(l10n.stats),
                 )
               : null,
           floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
@@ -1152,17 +1235,17 @@ class _LocalistShellState extends State<LocalistShell>
                   context,
                 ).colorScheme.primary.withValues(alpha: .18),
                 destinations: [
-                  for (var i = 0; i < _items.length; i++)
+                  for (var i = 0; i < navItems.length; i++)
                     NavigationDestination(
                       icon: AnimatedNavIcon(
-                        icon: _items[i].icon,
+                        icon: navItems[i].icon,
                         selected: _index == i,
                       ),
                       selectedIcon: AnimatedNavIcon(
-                        icon: _items[i].selectedIcon,
+                        icon: navItems[i].selectedIcon,
                         selected: true,
                       ),
-                      label: _items[i].label,
+                      label: navItems[i].label,
                     ),
                 ],
               ),
@@ -1221,11 +1304,18 @@ class _LocalistShellState extends State<LocalistShell>
     }
     showLocalistNotice(
       context,
-      message:
-          '$activeService is active. Stop it before starting $targetService.',
+      message: context.l10n.serviceConflict(activeService, targetService),
       tone: InAppNoticeTone.warning,
       icon: Icons.sync_problem_outlined,
     );
+  }
+
+  List<_NavItem> _navItems(AppLocalizations l10n) {
+    return [
+      _NavItem(l10n.sharing, Icons.share_outlined, Icons.share),
+      _NavItem(l10n.receiving, Icons.qr_code_scanner, Icons.qr_code_2),
+      _NavItem(l10n.settings, Icons.tune_outlined, Icons.tune),
+    ];
   }
 
   void _toggleTheme(ThemeSettingsModel themeSettings) {

@@ -26,6 +26,37 @@ class NativeBridgeService {
     return _channel.invokeMethod<int>('getAndroidSdkInt');
   }
 
+  Future<List<String>> getAndroidSupportedAbis() async {
+    if (!Platform.isAndroid) {
+      return const [];
+    }
+    return await _channel.invokeListMethod<String>('getAndroidSupportedAbis') ??
+        const [];
+  }
+
+  Future<bool> canInstallAndroidPackages() async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return await _channel.invokeMethod<bool>('canInstallPackages') ?? false;
+  }
+
+  Future<bool> openAndroidInstallPermissionSettings() async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return await _channel.invokeMethod<bool>('openInstallPermissionSettings') ??
+        false;
+  }
+
+  Future<bool> installAndroidApk(String path) async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return await _channel.invokeMethod<bool>('installApk', {'path': path}) ??
+        false;
+  }
+
   Future<bool> isIgnoringBatteryOptimizations() async {
     if (!Platform.isAndroid) {
       return true;

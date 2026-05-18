@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_windows/webview_windows.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import '../services/log_service.dart';
@@ -117,6 +118,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final running =
         widget.snapshot.receivingRunning || widget.snapshot.localProxyRunning;
     final oppositeServiceActive = widget.controlsLocked && !running;
@@ -136,7 +138,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Receiving', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                l10n.receiving,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 8),
               Text(
                 running
@@ -890,6 +895,7 @@ class _NearbyDevicesView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: scheme.surface.withValues(alpha: .34),
@@ -907,7 +913,7 @@ class _NearbyDevicesView extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Nearby devices',
+                    l10n.nearbyDevices,
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                 ),
@@ -918,7 +924,7 @@ class _NearbyDevicesView extends StatelessWidget {
                   )
                 else
                   IconButton(
-                    tooltip: 'Search again',
+                    tooltip: l10n.searchAgain,
                     onPressed: enabled ? () => unawaited(onRefresh()) : null,
                     icon: const Icon(Icons.refresh),
                   ),
@@ -926,7 +932,7 @@ class _NearbyDevicesView extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             if (devices.isEmpty)
-              _NearbyEmptyState(scanning: scanning)
+              _NearbyEmptyState(enabled: enabled, scanning: scanning)
             else
               Column(
                 children: [
@@ -948,22 +954,26 @@ class _NearbyDevicesView extends StatelessWidget {
 }
 
 class _NearbyEmptyState extends StatelessWidget {
-  const _NearbyEmptyState({required this.scanning});
+  const _NearbyEmptyState({required this.enabled, required this.scanning});
 
+  final bool enabled;
   final bool scanning;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
     return Row(
       children: [
         Icon(Icons.devices_other_outlined, color: scheme.outline),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
-            scanning
-                ? 'Searching the local network'
-                : 'No sharing device found',
+            !enabled
+                ? l10n.nearbySearchDisabled
+                : scanning
+                ? l10n.searchingLocalNetwork
+                : l10n.noSharingDeviceFound,
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),

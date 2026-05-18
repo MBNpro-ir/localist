@@ -345,6 +345,9 @@ void showLocalistNotice(
   InAppNoticeTone tone = InAppNoticeTone.info,
   IconData? icon,
   Duration duration = const Duration(seconds: 4),
+  VoidCallback? onTap,
+  String? actionLabel,
+  IconData? actionIcon,
 }) {
   final messenger = ScaffoldMessenger.of(context);
   messenger
@@ -356,6 +359,9 @@ void showLocalistNotice(
         tone: tone,
         icon: icon,
         duration: duration,
+        onTap: onTap,
+        actionLabel: actionLabel,
+        actionIcon: actionIcon,
       ),
     );
 }
@@ -366,32 +372,12 @@ SnackBar buildLocalistNoticeSnackBar(
   InAppNoticeTone tone = InAppNoticeTone.info,
   IconData? icon,
   Duration duration = const Duration(seconds: 4),
+  VoidCallback? onTap,
+  String? actionLabel,
+  IconData? actionIcon,
 }) {
-  final scheme = Theme.of(context).colorScheme;
   final simple = LocalistVisualStyle.simpleOf(context);
   final resolvedIcon = icon ?? _noticeIconForTone(tone);
-  if (simple) {
-    return SnackBar(
-      duration: duration,
-      behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      backgroundColor: _noticeFillColor(scheme, tone, simple: true),
-      content: Row(
-        children: [
-          Icon(resolvedIcon, color: _noticeForegroundColor(scheme, tone)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              message,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: _noticeForegroundColor(scheme, tone),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
   return SnackBar(
     duration: duration,
     behavior: SnackBarBehavior.floating,
@@ -399,7 +385,15 @@ SnackBar buildLocalistNoticeSnackBar(
     backgroundColor: Colors.transparent,
     margin: const EdgeInsets.fromLTRB(12, 0, 12, 16),
     padding: EdgeInsets.zero,
-    content: _NoticeCard(message: message, tone: tone, icon: resolvedIcon),
+    content: _NoticeCard(
+      message: message,
+      tone: tone,
+      icon: resolvedIcon,
+      simple: simple,
+      onTap: onTap,
+      actionLabel: actionLabel,
+      actionIcon: actionIcon,
+    ),
   );
 }
 
@@ -408,48 +402,48 @@ class _NoticeCard extends StatelessWidget {
     required this.message,
     required this.tone,
     required this.icon,
+    required this.simple,
+    this.onTap,
+    this.actionLabel,
+    this.actionIcon,
   });
 
   final String message;
   final InAppNoticeTone tone;
   final IconData icon;
+  final bool simple;
+  final VoidCallback? onTap;
+  final String? actionLabel;
+  final IconData? actionIcon;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: BackdropFilter.grouped(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: _noticeFillColor(scheme, tone, simple: false),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _noticeBorderColor(scheme, tone)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: .16),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
+    final card = DecoratedBox(
+      decoration: BoxDecoration(
+        color: _noticeFillColor(scheme, tone, simple: simple),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _noticeBorderColor(scheme, tone)),
+        boxShadow: simple
+            ? const []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .16),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: Row(
               children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: _noticeAccentColor(
-                      scheme,
-                      tone,
-                    ).withValues(alpha: .16),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: _noticeAccentColor(scheme, tone)),
-                ),
+                _NoticeIconBox(icon: icon, tone: tone),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -459,9 +453,87 @@ class _NoticeCard extends StatelessWidget {
                     ).textTheme.bodyMedium?.copyWith(color: scheme.onSurface),
                   ),
                 ),
+                if (actionLabel != null || actionIcon != null) ...[
+                  const SizedBox(width: 10),
+                  _NoticeAction(
+                    label: actionLabel,
+                    icon: actionIcon ?? Icons.arrow_forward,
+                  ),
+                ],
               ],
             ),
           ),
+        ),
+      ),
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: simple
+          ? card
+          : BackdropFilter.grouped(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: card,
+            ),
+    );
+  }
+}
+
+class _NoticeIconBox extends StatelessWidget {
+  const _NoticeIconBox({required this.icon, required this.tone});
+
+  final IconData icon;
+  final InAppNoticeTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: _noticeAccentColor(scheme, tone).withValues(alpha: .16),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(icon, color: _noticeAccentColor(scheme, tone)),
+    );
+  }
+}
+
+class _NoticeAction extends StatelessWidget {
+  const _NoticeAction({required this.label, required this.icon});
+
+  final String? label;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: .60),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: EdgeInsetsDirectional.fromSTEB(
+          label == null ? 8 : 10,
+          7,
+          8,
+          7,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (label != null) ...[
+              Text(
+                label!,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: scheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Icon(icon, size: 16, color: scheme.onPrimaryContainer),
+          ],
         ),
       ),
     );
@@ -486,27 +558,13 @@ Color _noticeAccentColor(ColorScheme scheme, InAppNoticeTone tone) {
   };
 }
 
-Color _noticeForegroundColor(ColorScheme scheme, InAppNoticeTone tone) {
-  return switch (tone) {
-    InAppNoticeTone.info => scheme.onPrimaryContainer,
-    InAppNoticeTone.success => const Color(0xFFF1FFF0),
-    InAppNoticeTone.warning => const Color(0xFFFFF8E6),
-    InAppNoticeTone.error => scheme.onErrorContainer,
-  };
-}
-
 Color _noticeFillColor(
   ColorScheme scheme,
   InAppNoticeTone tone, {
   required bool simple,
 }) {
   if (simple) {
-    return switch (tone) {
-      InAppNoticeTone.info => scheme.primaryContainer,
-      InAppNoticeTone.success => const Color(0xFF1F5F2B),
-      InAppNoticeTone.warning => const Color(0xFF7A4A00),
-      InAppNoticeTone.error => scheme.errorContainer,
-    };
+    return scheme.surfaceContainerHighest;
   }
   return switch (tone) {
     InAppNoticeTone.info => scheme.surface.withValues(alpha: .78),

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/models/app_settings.dart';
 import 'package:localist/models/service_state.dart';
+import 'package:localist/services/app_update_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -20,6 +21,20 @@ void main() {
     expect(settings.windowsCloseBehavior, WindowsCloseBehavior.ask);
     expect(settings.windowsVpnProxyEnabled, isFalse);
     expect(settings.windowsVpnProxyPort, 10808);
+    expect(settings.language, AppLanguage.system);
+    expect(settings.languageSelected, isFalse);
+  });
+
+  test('saves app language selection', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = await AppSettings.load();
+
+    await settings.setLanguage(AppLanguage.persian);
+    final reloaded = await AppSettings.load();
+
+    expect(reloaded.language, AppLanguage.persian);
+    expect(reloaded.languageSelected, isTrue);
+    expect(reloaded.locale?.languageCode, 'fa');
   });
 
   test('saves Windows internal VPN proxy settings', () async {
@@ -82,5 +97,41 @@ void main() {
     expect(device.platform, 'Windows');
     expect(device.endpoints, hasLength(2));
     expect(device.payload.encode(), contains('192.168.1.20'));
+  });
+
+  test('update asset picker chooses apk for supported abi', () {
+    final release = AppRelease(
+      name: 'Localist v3.0.0',
+      tagName: 'v3.0.0',
+      htmlUrl: localistLatestReleaseUrl,
+      version: AppVersion.tryParse('v3.0.0')!,
+      assets: const [
+        UpdateAsset(
+          name: 'localist-v3.0.0-android-armeabi-v7a.apk',
+          downloadUrl: 'https://example.com/arm.apk',
+        ),
+        UpdateAsset(
+          name: 'localist-v3.0.0-android-arm64-v8a.apk',
+          downloadUrl: 'https://example.com/arm64.apk',
+        ),
+      ],
+    );
+
+    final asset = release.pickAndroidAsset(['arm64-v8a', 'armeabi-v7a']);
+
+    expect(asset?.name, contains('arm64-v8a'));
+  });
+
+  test('app versions compare semantic parts and build numbers', () {
+    final current = AppVersion.tryParse('2.1.0+21')!;
+    final next = AppVersion.tryParse('v3.0.0')!;
+
+    expect(next.compareTo(current), greaterThan(0));
+    expect(
+      AppVersion.tryParse(
+        '3.0.0+31',
+      )!.compareTo(AppVersion.tryParse('3.0.0+30')!),
+      greaterThan(0),
+    );
   });
 }

@@ -1,5 +1,23 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+enum AppLanguage {
+  system('system', null),
+  english('en', Locale('en')),
+  persian('fa', Locale('fa'));
+
+  const AppLanguage(this.storageValue, this.locale);
+
+  final String storageValue;
+  final Locale? locale;
+
+  static AppLanguage fromStorage(String? value) {
+    return AppLanguage.values.firstWhere(
+      (language) => language.storageValue == value,
+      orElse: () => AppLanguage.system,
+    );
+  }
+}
 
 enum ProxyProtocol {
   http('HTTP', 'http', 2060),
@@ -46,6 +64,8 @@ class AppSettings extends ChangeNotifier {
     required WindowsCloseBehavior windowsCloseBehavior,
     required bool windowsVpnProxyEnabled,
     required int windowsVpnProxyPort,
+    required AppLanguage language,
+    required bool languageSelected,
   }) : _enabledProtocols = _coerceProtocols(enabledProtocols),
        _protocolPorts = _coerceProtocolPorts(protocolPorts),
        _shareAllRoutes = shareAllRoutes,
@@ -56,7 +76,9 @@ class AppSettings extends ChangeNotifier {
        _windowsVpnProxyPort = _coercePort(
          windowsVpnProxyPort,
          fallback: _defaultWindowsVpnProxyPort,
-       );
+       ),
+       _language = language,
+       _languageSelected = languageSelected;
 
   static const _protocolKey = 'proxy.protocol';
   static const _protocolsKey = 'proxy.protocols';
@@ -70,6 +92,7 @@ class AppSettings extends ChangeNotifier {
   static const _windowsCloseBehaviorKey = 'windows.closeBehavior';
   static const _windowsVpnProxyEnabledKey = 'windows.vpnProxy.enabled';
   static const _windowsVpnProxyPortKey = 'windows.vpnProxy.port';
+  static const _languageKey = 'app.language';
 
   Set<ProxyProtocol> _enabledProtocols;
   Map<ProxyProtocol, int> _protocolPorts;
@@ -79,6 +102,8 @@ class AppSettings extends ChangeNotifier {
   WindowsCloseBehavior _windowsCloseBehavior;
   bool _windowsVpnProxyEnabled;
   int _windowsVpnProxyPort;
+  AppLanguage _language;
+  bool _languageSelected;
 
   Set<ProxyProtocol> get enabledProtocols =>
       Set.unmodifiable(_enabledProtocols);
@@ -91,6 +116,9 @@ class AppSettings extends ChangeNotifier {
   WindowsCloseBehavior get windowsCloseBehavior => _windowsCloseBehavior;
   bool get windowsVpnProxyEnabled => _windowsVpnProxyEnabled;
   int get windowsVpnProxyPort => _windowsVpnProxyPort;
+  AppLanguage get language => _language;
+  bool get languageSelected => _languageSelected;
+  Locale? get locale => _language.locale;
 
   int portFor(ProxyProtocol protocol) {
     return _protocolPorts[protocol] ?? protocol.defaultPort;
@@ -110,6 +138,7 @@ class AppSettings extends ChangeNotifier {
     final legacyProtocol = prefs.getString(_protocolKey);
     final legacyPort = prefs.getInt(_portKey);
     final storedSocks5Port = prefs.getInt(_socks5PortKey);
+    final storedLanguage = prefs.getString(_languageKey);
     return AppSettings(
       enabledProtocols: storedProtocols == null && legacyProtocol == null
           ? _defaultProtocols
@@ -141,6 +170,8 @@ class AppSettings extends ChangeNotifier {
           prefs.getBool(_windowsVpnProxyEnabledKey) ?? false,
       windowsVpnProxyPort:
           prefs.getInt(_windowsVpnProxyPortKey) ?? _defaultWindowsVpnProxyPort,
+      language: AppLanguage.fromStorage(storedLanguage),
+      languageSelected: storedLanguage != null,
     );
   }
 
@@ -252,6 +283,17 @@ class AppSettings extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_windowsVpnProxyEnabledKey, enabled);
     await prefs.setInt(_windowsVpnProxyPortKey, safePort);
+  }
+
+  Future<void> setLanguage(AppLanguage value) async {
+    if (_language == value && _languageSelected) {
+      return;
+    }
+    _language = value;
+    _languageSelected = true;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_languageKey, value.storageValue);
   }
 
   static const _defaultProtocols = {ProxyProtocol.socks5};

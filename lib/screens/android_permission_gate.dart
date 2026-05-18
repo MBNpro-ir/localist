@@ -4,14 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../l10n/app_localizations.dart';
 import '../services/native_bridge_service.dart';
+import '../widgets/onboarding_flow.dart';
 
 const _permissionsCompleteKey = 'localist.android.permissions.v1.complete';
 
 class AndroidPermissionGate extends StatefulWidget {
-  const AndroidPermissionGate({super.key, required this.child});
+  const AndroidPermissionGate({
+    super.key,
+    required this.child,
+    required this.simple,
+  });
 
   final Widget child;
+  final bool simple;
 
   @override
   State<AndroidPermissionGate> createState() => _AndroidPermissionGateState();
@@ -88,88 +95,85 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final l10n = context.l10n;
     final scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Localist permissions')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(18),
-          children: [
-            Text(
-              'Required Android access',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Localist needs these permissions before opening the app.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 18),
-            _PermissionTile(
-              granted: _notificationGranted,
-              icon: Icons.notifications_active_outlined,
-              title: 'Notifications',
-              subtitle: 'Shows the foreground VPN/proxy service status.',
-              onPressed: _busy ? null : _requestNotification,
-            ),
-            _PermissionTile(
-              granted: _cameraGranted,
-              icon: Icons.qr_code_scanner,
-              title: 'Camera',
-              subtitle: 'Scans Localist QR configs.',
-              onPressed: _busy ? null : _requestCamera,
-            ),
-            _PermissionTile(
-              granted: _batteryGranted,
-              icon: Icons.battery_saver_outlined,
-              title: 'Background transfer',
-              subtitle: 'Keeps proxy/VPN traffic alive when the screen is off.',
-              onPressed: _busy ? null : _requestBattery,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _allGranted && !_busy ? _enterApp : null,
-              icon: Icon(_allGranted ? Icons.check_circle : Icons.lock_outline),
-              label: const Text('Enter Localist'),
-            ),
-            if (!_allGranted) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Grant every item above to continue.',
-                style: TextStyle(color: scheme.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ],
+    return OnboardingFrame(
+      simple: widget.simple,
+      steps: [l10n.languageStep, l10n.permissionsStep, l10n.mainStep],
+      currentStep: 1,
+      icon: Icons.verified_user_outlined,
+      title: l10n.requiredAndroidAccess,
+      subtitle: l10n.permissionsIntro,
+      children: [
+        _PermissionTile(
+          granted: _notificationGranted,
+          icon: Icons.notifications_active_outlined,
+          title: l10n.notifications,
+          subtitle: l10n.notificationsSubtitle,
+          onPressed: _busy ? null : _requestNotification,
         ),
-      ),
+        const SizedBox(height: 10),
+        _PermissionTile(
+          granted: _cameraGranted,
+          icon: Icons.qr_code_scanner,
+          title: l10n.camera,
+          subtitle: l10n.cameraSubtitle,
+          onPressed: _busy ? null : _requestCamera,
+        ),
+        const SizedBox(height: 10),
+        _PermissionTile(
+          granted: _batteryGranted,
+          icon: Icons.battery_saver_outlined,
+          title: l10n.backgroundTransfer,
+          subtitle: l10n.backgroundTransferSubtitle,
+          onPressed: _busy ? null : _requestBattery,
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _allGranted && !_busy ? _enterApp : null,
+            icon: Icon(_allGranted ? Icons.check_circle : Icons.lock_outline),
+            label: Text(l10n.enterLocalist),
+          ),
+        ),
+        if (!_allGranted) ...[
+          const SizedBox(height: 12),
+          Text(
+            l10n.grantEveryItem,
+            style: TextStyle(color: scheme.onSurfaceVariant),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ],
     );
   }
 
   Future<void> _requestNotification() async {
+    final l10n = context.l10n;
     await _runRequest(
-      title: 'Notifications required',
-      body:
-          'Localist needs notifications to run VPN and proxy services as foreground services.',
+      title: l10n.notificationsRequired,
+      body: l10n.notificationsRequiredBody,
       request: () async => (await Permission.notification.request()).isGranted,
       refresh: _refreshStatuses,
     );
   }
 
   Future<void> _requestCamera() async {
+    final l10n = context.l10n;
     await _runRequest(
-      title: 'Camera required',
-      body: 'Camera access is needed to scan Localist QR configs.',
+      title: l10n.cameraRequired,
+      body: l10n.cameraRequiredBody,
       request: () async => (await Permission.camera.request()).isGranted,
       refresh: _refreshStatuses,
     );
   }
 
   Future<void> _requestBattery() async {
+    final l10n = context.l10n;
     await _runRequest(
-      title: 'Background transfer required',
-      body:
-          'Battery optimization can stop proxy/VPN traffic after the screen turns off.',
+      title: l10n.backgroundTransferRequired,
+      body: l10n.backgroundTransferRequiredBody,
       request: () => _bridge.requestIgnoreBatteryOptimizations(),
       refresh: _refreshStatuses,
     );
@@ -199,6 +203,7 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
     required String title,
     required String body,
   }) {
+    final l10n = context.l10n;
     return showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -207,14 +212,14 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.cancel),
           ),
           FilledButton(
             onPressed: () {
               openAppSettings();
               Navigator.of(context).pop();
             },
-            child: const Text('Open settings'),
+            child: Text(l10n.openSettings),
           ),
         ],
       ),
@@ -247,15 +252,29 @@ class _PermissionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        leading: Icon(granted ? Icons.check_circle : icon),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        trailing: FilledButton.tonal(
-          onPressed: granted ? null : onPressed,
-          child: Text(granted ? 'Granted' : 'Grant'),
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: scheme.surfaceContainerHighest.withValues(alpha: .42),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .38)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: ListTile(
+          leading: Icon(
+            granted ? Icons.check_circle : icon,
+            color: granted ? scheme.primary : scheme.onSurfaceVariant,
+          ),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: FilledButton.tonal(
+            onPressed: granted ? null : onPressed,
+            child: Text(granted ? l10n.granted : l10n.grant),
+          ),
         ),
       ),
     );
