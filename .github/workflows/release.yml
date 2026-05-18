@@ -253,6 +253,24 @@ jobs:
         with:
           path: dist
 
+      - name: Prepare compiled release files
+        shell: bash
+        run: |
+          rm -rf compiled
+          mkdir -p compiled
+
+          mapfile -t files < <(find dist -type f | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release files found."
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            cp "$file" compiled/
+          done
+
+          find compiled -type f | sort
+
       - name: Create release notes
         run: |
           cat > RELEASE_NOTES.md <<EOF
@@ -281,7 +299,7 @@ jobs:
 
       - name: Publish or update release
         run: |
-          mapfile -t files < <(find dist -type f | sort)
+          mapfile -t files < <(find compiled -type f | sort)
           if [ "${#files[@]}" -eq 0 ]; then
             echo "No release files found."
             exit 1
