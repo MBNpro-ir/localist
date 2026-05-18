@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.1.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.2.0-blue"></a>
 </p>
 
 ## Overview
@@ -46,8 +46,8 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
   FA: ویجت اندروید برای خاموش و روشن کردن Sending و Receiving اضافه شد.
 - 🧯 EN: Crash reporting module was added for Dart and Android native crashes.  
   FA: ماژول گزارش کرش برای Dart و کرش‌های native اندروید اضافه شد.
-- 🏷️ EN: App Info and Updater show only semantic versions such as `3.1.0`, without build numbers.  
-  FA: App Info و Updater فقط نسخه مثل `3.1.0` را نمایش می‌دهند و build number حذف شد.
+- 🏷️ EN: App Info and Updater show only semantic versions such as `3.2.0`, without build numbers.  
+  FA: App Info و Updater فقط نسخه مثل `3.2.0` را نمایش می‌دهند و build number حذف شد.
 
 ## Version History
 
@@ -62,7 +62,7 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 - 🔋 `v2.1.0` - QR scanner battery behavior and themed in-app notices.
 - 🌐 `v3.0.0` - Language onboarding and smart GitHub updater.
 - ✅ `v3.1.0` - Onboarding navigation, Persian localization, and version badge updates.
-- 🧩 Current `master` - Permission cleanup, updater repair, widgets, crash reporting, flags, color settings, and README refresh.
+- 🧩 `v3.2.0` - Permission cleanup, updater repair, widgets, crash reporting, flags, color settings, and README refresh.
 
 ## Repository Layout
 

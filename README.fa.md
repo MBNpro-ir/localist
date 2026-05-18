@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.1.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.2.0-blue"></a>
 </p>
 
 ## معرفی
@@ -46,8 +46,8 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
   EN: Android home widget was added for Sending and Receiving quick controls.
 - 🧯 FA: ماژول گزارش کرش برای Dart و کرش‌های native اندروید اضافه شد.  
   EN: Crash reporting module was added for Dart and Android native crashes.
-- 🏷️ FA: App Info و Updater فقط نسخه مثل `3.1.0` را نمایش می‌دهند و build number حذف شد.  
-  EN: App Info and Updater show only semantic versions such as `3.1.0`, without build numbers.
+- 🏷️ FA: App Info و Updater فقط نسخه مثل `3.2.0` را نمایش می‌دهند و build number حذف شد.  
+  EN: App Info and Updater show only semantic versions such as `3.2.0`, without build numbers.
 
 ## تاریخچه نسخه‌ها
 
@@ -62,7 +62,7 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 - 🔋 `v2.1.0` - بهبود مصرف باتری scanner و noticeهای theme شده.
 - 🌐 `v3.0.0` - onboarding زبان و updater هوشمند GitHub.
 - ✅ `v3.1.0` - اصلاح navigation onboarding، localization فارسی و badge نسخه.
-- 🧩 شاخه فعلی `master` - پاک‌سازی permissionها، تعمیر updater، ویجت، crash reporter، پرچم‌ها، رنگ‌ها و به‌روزرسانی README.
+- 🧩 `v3.2.0` - پاک‌سازی permissionها، تعمیر updater، ویجت، crash reporter، پرچم‌ها، رنگ‌ها و به‌روزرسانی README.
 
 ## ساختار پروژه
 
