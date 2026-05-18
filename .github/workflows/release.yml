@@ -276,17 +276,17 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          ✨ Localist v${APP_VERSION} adds language-first onboarding, Persian support, and clearer discovery alerts.
+          ✨ Localist v${APP_VERSION} improves iOS proxy handoff, Windows receiving modes, and Wintun startup reliability.
 
           ## Changes
 
-          - 🌐 Adds English/Persian language selection before the Android permission flow.
-          - 🇮🇷 Follows the device language by default and keeps language switching ready for more languages later.
-          - 🔔 Unifies every in-app notice with the same Localist card design across Android and Windows.
-          - 📡 Shows a tappable in-app alert when a nearby sharing device is found from anywhere in the app.
-          - ⬇️ Adds a Settings updater that checks GitHub releases, downloads the matching Android APK, and opens the installer.
-          - 🔐 Uses stable Android release signing so future GitHub APKs can update installed builds.
-          - 💤 Shows a clear disabled state when nearby-device search is paused.
+          - 📱 Adds an iOS QR tab with Xray and sing-box SOCKS configs for every active Sharing IP.
+          - 🧭 Keeps Proxy and iOS QR flows in separate tabs with click-to-open cards.
+          - 🪟 Adds Windows Start as system proxy and renames manual receiving to Start as local proxy.
+          - 🧹 Clears Windows system proxy settings automatically when system proxy mode stops.
+          - 🛠️ Fixes Wintun/tun2socks startup by checking administrator access and using the supported warn log level.
+          - 🔎 Captures useful tun2socks startup output when Wintun fails.
+          - 📦 Stages release assets in compiled before publishing.
           - 🏷️ Bumps the app version to v${APP_VERSION}.
 
           ## Assets

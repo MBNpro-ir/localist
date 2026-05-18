@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,6 +28,7 @@ class WindowsLocalistService {
   bool _receivingRunning = false;
   bool _localProxyRunning = false;
   bool _windowsProxyApplied = false;
+  bool _clearWindowsProxyOnStop = false;
   Set<ProxyProtocol> _protocols = const {ProxyProtocol.socks5};
   Map<ProxyProtocol, int> _protocolPorts = {
     ProxyProtocol.http: ProxyProtocol.http.defaultPort,
@@ -41,7 +43,22 @@ class WindowsLocalistService {
   int _totalTxBytes = 0;
   Future<void>? _totalsLoader;
 
-  Future<bool> ensureVpnPermission() async => true;
+  Future<bool> ensureVpnPermission() async {
+    final admin = await checkAdminAccess();
+    if (admin.available) {
+      return true;
+    }
+    final requested = await setRootRoutingEnabled(true);
+    if (requested.available) {
+      return true;
+    }
+    throw PlatformException(
+      code: 'windows_admin_required',
+      message: requested.lastError.isEmpty
+          ? 'Run Localist as administrator to start Windows VPN mode.'
+          : requested.lastError,
+    );
+  }
 
   Future<bool> startProxyService({
     required Set<ProxyProtocol> protocols,
@@ -93,6 +110,7 @@ class WindowsLocalistService {
         _logs.warning(
           'Wintun tools were not found; using Windows system proxy fallback on 127.0.0.1:$_localProxyPort.',
         );
+        _clearWindowsProxyOnStop = false;
         await _applyWindowsSystemProxy(_localProxyPort);
       }
     } catch (_) {
@@ -135,6 +153,47 @@ class WindowsLocalistService {
     _receivingRunning = false;
     _localProxyRunning = true;
     _windowsProxyApplied = false;
+    _remoteProxy = config;
+    _protocols = {config.protocol};
+    _protocolPorts = _coercePorts({
+      ProxyProtocol.http: ProxyProtocol.http.defaultPort,
+      ProxyProtocol.socks5: ProxyProtocol.socks5.defaultPort,
+      config.protocol: config.port,
+    });
+    _localProxyPort = localPort;
+    _sessionRxBytes = 0;
+    _sessionTxBytes = 0;
+    return true;
+  }
+
+  Future<bool> startSystemProxy(
+    RemoteProxyConfig config, {
+    int localPort = 3781,
+  }) async {
+    await _ensureTotalsLoaded();
+    await _discoveryResponder.stop();
+    if (!await _isLocalPortAvailable(localPort)) {
+      throw PlatformException(
+        code: 'local_proxy_port_unavailable',
+        message: 'Local port $localPort is busy.',
+      );
+    }
+    await _wintun.stop();
+    await _restoreWindowsSystemProxyIfNeeded();
+    await _startLocalForwarder(config, localPort: localPort);
+    try {
+      _clearWindowsProxyOnStop = true;
+      await _applyWindowsSystemProxy(localPort);
+    } catch (_) {
+      _clearWindowsProxyOnStop = false;
+      await _localForwarder?.stop();
+      _localForwarder = null;
+      rethrow;
+    }
+    _proxyRunning = false;
+    _receivingRunning = false;
+    _localProxyRunning = true;
+    _windowsProxyApplied = true;
     _remoteProxy = config;
     _protocols = {config.protocol};
     _protocolPorts = _coercePorts({
@@ -199,6 +258,7 @@ class WindowsLocalistService {
     _receivingRunning = false;
     _localProxyRunning = false;
     _windowsProxyApplied = false;
+    _clearWindowsProxyOnStop = false;
     _remoteProxy = null;
     return true;
   }
@@ -348,6 +408,16 @@ class WindowsLocalistService {
     if (!_windowsProxyApplied) {
       return;
     }
+    if (_clearWindowsProxyOnStop) {
+      await _channel.invokeMethod<bool>('setWindowsSystemProxy', {
+        'enabled': false,
+        'server': '',
+        'bypass': '',
+      });
+      await _clearStoredWindowsProxy();
+      _clearWindowsProxyOnStop = false;
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getBool(_restoreProxyStoredKey) ?? false;
     if (stored) {
@@ -367,6 +437,14 @@ class WindowsLocalistService {
         'bypass': '',
       });
     }
+  }
+
+  Future<void> _clearStoredWindowsProxy() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_restoreProxyStoredKey);
+    await prefs.remove(_restoreProxyEnabledKey);
+    await prefs.remove(_restoreProxyServerKey);
+    await prefs.remove(_restoreProxyBypassKey);
   }
 
   Future<void> _ensureTotalsLoaded() {
@@ -541,13 +619,15 @@ class WindowsWintunController {
       '-proxy',
       config.url,
       '-loglevel',
-      'warning',
+      'warn',
     ];
     if (route != null) {
       args.addAll(['-interface', route.interfaceAlias]);
     }
 
     try {
+      final stdoutBuffer = BytesBuilder(copy: false);
+      final stderrBuffer = BytesBuilder(copy: false);
       final process = await Process.start(
         tools.tun2socksPath,
         args,
@@ -555,8 +635,16 @@ class WindowsWintunController {
         mode: ProcessStartMode.normal,
       );
       _process = process;
-      unawaited(process.stdout.drain<void>());
-      unawaited(process.stderr.drain<void>());
+      unawaited(
+        process.stdout.listen((data) {
+          _appendProcessOutput(stdoutBuffer, data);
+        }).asFuture<void>(),
+      );
+      unawaited(
+        process.stderr.listen((data) {
+          _appendProcessOutput(stderrBuffer, data);
+        }).asFuture<void>(),
+      );
       unawaited(
         process.exitCode.then((_) async {
           if (!identical(_process, process)) {
@@ -573,9 +661,16 @@ class WindowsWintunController {
         Future<int?>.delayed(const Duration(milliseconds: 850), () => null),
       ]);
       if (earlyExit != null) {
+        final stdoutText = _decodeProcessOutput(stdoutBuffer);
+        final stderrText = _decodeProcessOutput(stderrBuffer);
+        final details = [
+          if (stderrText.isNotEmpty) 'stderr: $stderrText',
+          if (stdoutText.isNotEmpty) 'stdout: $stdoutText',
+        ].join(' | ');
         throw PlatformException(
           code: 'wintun_start_failed',
-          message: 'tun2socks exited with code $earlyExit.',
+          message:
+              'tun2socks exited with code $earlyExit.${details.isEmpty ? '' : ' $details'}',
         );
       }
       await _waitForInterface();
@@ -596,6 +691,20 @@ class WindowsWintunController {
         message: 'Unable to start Wintun VPN: $error',
       );
     }
+  }
+
+  void _appendProcessOutput(BytesBuilder buffer, List<int> data) {
+    const maxLogBytes = 16 * 1024;
+    buffer.add(data);
+    if (buffer.length <= maxLogBytes) {
+      return;
+    }
+    final bytes = buffer.takeBytes();
+    buffer.add(bytes.sublist(bytes.length - maxLogBytes));
+  }
+
+  String _decodeProcessOutput(BytesBuilder buffer) {
+    return utf8.decode(buffer.takeBytes(), allowMalformed: true).trim();
   }
 
   Future<void> stop() async {

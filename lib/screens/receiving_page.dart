@@ -30,6 +30,7 @@ class ReceivingPage extends StatefulWidget {
     required this.controlsLocked,
     required this.lockMessage,
     required this.onStartReceiving,
+    required this.onStartSystemProxy,
     required this.onStartLocalProxy,
     required this.onStopReceiving,
     required this.onRefreshDiscovery,
@@ -42,6 +43,7 @@ class ReceivingPage extends StatefulWidget {
   final bool controlsLocked;
   final String lockMessage;
   final ValueChanged<RemoteProxyConfig> onStartReceiving;
+  final ValueChanged<RemoteProxyConfig> onStartSystemProxy;
   final ValueChanged<RemoteProxyConfig> onStartLocalProxy;
   final VoidCallback onStopReceiving;
   final Future<void> Function() onRefreshDiscovery;
@@ -119,11 +121,16 @@ class _ReceivingPageState extends State<ReceivingPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final running =
-        widget.snapshot.receivingRunning || widget.snapshot.localProxyRunning;
-    final oppositeServiceActive = widget.controlsLocked && !running;
     final vpnRunning = widget.snapshot.receivingRunning;
-    final proxyRunning = widget.snapshot.localProxyRunning;
+    final systemProxyRunning =
+        Platform.isWindows &&
+        !vpnRunning &&
+        widget.snapshot.localProxyRunning &&
+        widget.snapshot.deviceVpnActive;
+    final localProxyRunning =
+        widget.snapshot.localProxyRunning && !systemProxyRunning;
+    final running = vpnRunning || systemProxyRunning || localProxyRunning;
+    final oppositeServiceActive = widget.controlsLocked && !running;
     final hostError = _hostError(_hostController.text);
     final portError = _portError(_portController.text);
     final config = _currentConfig();
@@ -148,7 +155,8 @@ class _ReceivingPageState extends State<ReceivingPage> {
                     ? _runningStatusText(
                         l10n: l10n,
                         vpnRunning: vpnRunning,
-                        proxyRunning: proxyRunning,
+                        systemProxyRunning: systemProxyRunning,
+                        localProxyRunning: localProxyRunning,
                       )
                     : l10n.receivingIntro,
                 style: Theme.of(context).textTheme.bodyMedium,
@@ -309,7 +317,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
                       ? null
                       : vpnRunning
                       ? widget.onStopReceiving
-                      : proxyRunning || config == null
+                      : systemProxyRunning ||
+                            localProxyRunning ||
+                            config == null
                       ? null
                       : () => widget.onStartReceiving(config),
                   icon: Icon(
@@ -329,24 +339,55 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 ),
               ),
               const SizedBox(height: 10),
+              if (Platform.isWindows) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed:
+                        widget.busy ||
+                            vpnRunning ||
+                            localProxyRunning ||
+                            oppositeServiceActive ||
+                            (!systemProxyRunning && config == null)
+                        ? null
+                        : systemProxyRunning
+                        ? widget.onStopReceiving
+                        : () => widget.onStartSystemProxy(config!),
+                    icon: Icon(
+                      systemProxyRunning
+                          ? Icons.stop_circle_outlined
+                          : Icons.settings_input_component_outlined,
+                    ),
+                    label: Text(
+                      systemProxyRunning
+                          ? l10n.stopSystemProxy
+                          : l10n.startSystemProxy,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.tonalIcon(
                   onPressed:
                       widget.busy ||
                           vpnRunning ||
+                          systemProxyRunning ||
                           oppositeServiceActive ||
-                          (!proxyRunning && config == null)
+                          (!localProxyRunning && config == null)
                       ? null
-                      : proxyRunning
+                      : localProxyRunning
                       ? widget.onStopReceiving
                       : () => widget.onStartLocalProxy(config!),
                   icon: Icon(
-                    proxyRunning
+                    localProxyRunning
                         ? Icons.stop_circle_outlined
                         : Icons.settings_ethernet,
                   ),
-                  label: Text(proxyRunning ? l10n.stopProxy : l10n.startProxy),
+                  label: Text(
+                    localProxyRunning ? l10n.stopProxy : l10n.startProxy,
+                  ),
                 ),
               ),
               if (config != null) ...[
@@ -373,7 +414,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.tonalIcon(
-                  onPressed: proxyRunning && !oppositeServiceActive
+                  onPressed: localProxyRunning && !oppositeServiceActive
                       ? _openTelegramProxy
                       : null,
                   icon: const Icon(Icons.telegram),
@@ -465,12 +506,16 @@ class _ReceivingPageState extends State<ReceivingPage> {
   String _runningStatusText({
     required AppLocalizations l10n,
     required bool vpnRunning,
-    required bool proxyRunning,
+    required bool systemProxyRunning,
+    required bool localProxyRunning,
   }) {
-    if (vpnRunning && proxyRunning) {
+    if (vpnRunning && (systemProxyRunning || localProxyRunning)) {
       return l10n.vpnProxyRunningStatus(windows: Platform.isWindows);
     }
-    if (proxyRunning) {
+    if (systemProxyRunning) {
+      return l10n.systemProxyRunningStatus;
+    }
+    if (localProxyRunning) {
       return l10n.localProxyRunningStatus;
     }
     return l10n.vpnRunningStatus(windows: Platform.isWindows);

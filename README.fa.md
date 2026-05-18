@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.2.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.3.0-blue"></a>
 </p>
 
 ## معرفی
@@ -32,22 +32,18 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 
 ## تغییرات جدید
 
-- 🔐 FA: دسترسی دوربین از ورود اولیه حذف شد و فقط هنگام اسکن QR درخواست می‌شود.  
-  EN: Camera permission was removed from first launch and is requested only for QR scanning.
-- 🪟 FA: در ویندوز مرحله permissions از ورود اولیه حذف شد.  
-  EN: Windows onboarding no longer shows the permissions step.
-- 🏳️ FA: نمایش پرچم‌ها پایدار و اصلاح شد.  
-  EN: Language flags now render with a stable custom painter.
-- ⬇️ FA: آپدیتر اندروید فایل APK را در مسیر درست ذخیره می‌کند و نصب‌کننده اندروید را درست باز می‌کند.  
-  EN: Android updater downloads APKs into an installable app cache path and opens the Android package installer correctly.
-- 🎨 FA: گزینه‌های تم تمام‌عرض شدند و رنگ‌های بیشتری به App color اضافه شد.  
-  EN: Theme controls are full-width like language controls, and the App color palette has more choices.
-- 🧩 FA: ویجت اندروید برای خاموش و روشن کردن Sending و Receiving اضافه شد.  
-  EN: Android home widget was added for Sending and Receiving quick controls.
-- 🧯 FA: ماژول گزارش کرش برای Dart و کرش‌های native اندروید اضافه شد.  
-  EN: Crash reporting module was added for Dart and Android native crashes.
-- 🏷️ FA: App Info و Updater فقط نسخه مثل `3.2.0` را نمایش می‌دهند و build number حذف شد.  
-  EN: App Info and Updater show only semantic versions such as `3.2.0`, without build numbers.
+- 📱 FA: تب iOS برای همه IPهای فعال Sharing کانفیگ SOCKS مخصوص Xray و sing-box می‌سازد.
+  EN: iOS QR tab now generates Xray and sing-box SOCKS configs for every active Sharing IP.
+- 🧭 FA: بخش Proxy QR codes حالا تب‌های جدا برای Proxy و iOS دارد و QRها فقط با کلیک روی کارت باز می‌شوند.
+  EN: Proxy QR codes now keep Proxy and iOS flows in separate tabs with click-to-open cards.
+- 🪟 FA: در Receiving ویندوز گزینه Start as system proxy اضافه شد و حالت دستی به Start as local proxy تغییر نام داد.
+  EN: Windows Receiving adds Start as system proxy and renames the manual mode to Start as local proxy.
+- 🧹 FA: با توقف system proxy، تنظیمات پروکسی ویندوز به صورت خودکار پاک می‌شود.
+  EN: Stopping Windows system proxy clears the Windows proxy settings automatically.
+- 🛠️ FA: راه‌اندازی Wintun/tun2socks دسترسی ادمین را چک می‌کند، سطح لاگ درست `warn` را می‌فرستد و خطاهای مفید را نگه می‌دارد.
+  EN: Wintun/tun2socks startup now checks administrator access, uses the correct `warn` log level, and preserves useful failure logs.
+- 🚀 FA: اکشن انتشار GitHub خروجی‌های کامپایل‌شده را قبل از انتشار داخل `compiled` آماده می‌کند.
+  EN: GitHub Actions release packaging keeps compiled assets staged in `compiled` before publishing.
 
 ## تاریخچه نسخه‌ها
 
@@ -63,6 +59,7 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 - 🌐 `v3.0.0` - onboarding زبان و updater هوشمند GitHub.
 - ✅ `v3.1.0` - اصلاح navigation onboarding، localization فارسی و badge نسخه.
 - 🧩 `v3.2.0` - پاک‌سازی permissionها، تعمیر updater، ویجت، crash reporter، پرچم‌ها، رنگ‌ها و به‌روزرسانی README.
+- 📱 `v3.3.0` - QR کانفیگ iOS برای Xray/sing-box، حالت system proxy ویندوز، اصلاح Wintun و آماده‌سازی بهتر release.
 
 ## ساختار پروژه
 

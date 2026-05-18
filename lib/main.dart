@@ -690,6 +690,7 @@ class _LocalistShellState extends State<LocalistShell>
         'internal_vpn_proxy_unavailable' => l10n.internalVpnProxyUnavailable,
         'vpn_permission_required' => l10n.vpnPermissionRequiredNotice,
         'vpn_permission_pending' => l10n.vpnPermissionPending,
+        'windows_admin_required' => l10n.approveWindowsAdminPrompt,
         'missing_proxy_host' => l10n.missingProxyHost,
         'wintun_start_failed' => l10n.wintunStartFailed,
         'wintun_interface_missing' => l10n.wintunInterfaceMissing,
@@ -982,6 +983,49 @@ class _LocalistShellState extends State<LocalistShell>
     }
   }
 
+  Future<void> _startSystemProxy(RemoteProxyConfig config) async {
+    if (_busy) {
+      return;
+    }
+    final l10n = context.l10n;
+    if (_sharingActive) {
+      _showServiceConflictMessage(l10n.sharing, l10n.receiving);
+      return;
+    }
+    setState(() => _busy = true);
+    unawaited(_syncDiscoveryLifecycle());
+    try {
+      final reachable = await _testProxyConnection(config);
+      if (!reachable) {
+        _logs.warning('Remote proxy is not reachable: ${config.url}');
+        if (mounted) {
+          showLocalistNotice(
+            context,
+            message: l10n.proxyNotReachable(config.host),
+            tone: InAppNoticeTone.warning,
+          );
+        }
+        return;
+      }
+      final started = await _bridge.startSystemProxy(config);
+      if (started) {
+        _logs.info('Windows system proxy started via ${config.url}');
+      }
+      await _refreshState();
+    } catch (error) {
+      _logs.error('Failed to start system proxy: ${_describeError(error)}');
+      _showInAppNotice(
+        _serviceErrorMessage(error, fallback: l10n.failedToStartLocalProxy),
+        tone: InAppNoticeTone.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+      unawaited(_syncDiscoveryLifecycle());
+    }
+  }
+
   Future<bool> _testProxyConnection(RemoteProxyConfig config) async {
     try {
       final socket = await Socket.connect(
@@ -1148,6 +1192,7 @@ class _LocalistShellState extends State<LocalistShell>
           controlsLocked: _sharingActive,
           lockMessage: l10n.sharingActiveLock,
           onStartReceiving: _startReceiving,
+          onStartSystemProxy: _startSystemProxy,
           onStartLocalProxy: _startLocalProxy,
           onStopReceiving: _stopReceiving,
           onRefreshDiscovery: _refreshDiscovery,

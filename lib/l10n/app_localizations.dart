@@ -339,7 +339,7 @@ class AppLocalizations {
   String get guideStartVpnTitle => _s('شروع VPN', 'Start VPN');
   String get guideStartVpnBody => _s(
     'بعد از پر شدن تنظیمات پروکسی، برای کل دستگاه VPN را شروع کنید یا برای برنامه‌های دارای پروکسی دستی از حالت پروکسی استفاده کنید.',
-    'After Proxy Config is filled, tap Start as VPN for the whole device or Start as proxy for apps with manual proxy settings.',
+    'After Proxy Config is filled, tap Start as VPN for the whole device, Start as system proxy for Windows, or Start as local proxy for apps with manual proxy settings.',
   );
   String get guideMenusTitle => _s('منوها', 'Menus');
   String get guideMenusBody => _s(
@@ -429,6 +429,9 @@ class AppLocalizations {
   String get smart => _s('هوشمند', 'Smart');
   String get allProxyEndpoints =>
       _s('همه نقطه‌های پایانی پروکسی', 'All proxy endpoints');
+  String get ios => _s('iOS', 'iOS');
+  String get xrayCore => _s('Xray', 'Xray');
+  String get singBoxCore => _s('sing-box', 'sing-box');
   String get closeQrCode => _s('بستن کد QR', 'Close QR code');
   String qrCodeSemantic(String title) => _s('کد QR $title', '$title QR code');
   String get configCopied => _s('تنظیمات کپی شد', 'Config copied');
@@ -461,11 +464,15 @@ class AppLocalizations {
   String get startVpnProxy =>
       _s('شروع به صورت VPN و پروکسی', 'Start as VPN + proxy');
   String get stopProxy => _s('توقف پروکسی', 'Stop proxy');
-  String get startProxy => _s('شروع به صورت پروکسی', 'Start as proxy');
+  String get stopSystemProxy => _s('توقف پروکسی سیستم', 'Stop system proxy');
+  String get startSystemProxy =>
+      _s('شروع به صورت پروکسی سیستم', 'Start as system proxy');
+  String get startProxy =>
+      _s('شروع به صورت پروکسی محلی', 'Start as local proxy');
   String get proxyApps => _s('برنامه‌های پروکسی', 'Proxy Apps');
   String get proxyAppsDescription => _s(
     'برنامه‌هایی که تنظیم پروکسی جداگانه دارند، بعد از شروع VPN یا پروکسی می‌توانند از 127.0.0.1:3781 استفاده کنند.',
-    'Apps with their own proxy setting can use 127.0.0.1:3781 after Start as VPN or Start as proxy.',
+    'Apps with their own proxy setting can use 127.0.0.1:3781 after Start as VPN or Start as local proxy.',
   );
   String get openTelegramDesktopProxy =>
       _s('باز کردن پروکسی Telegram Desktop', 'Open Telegram Desktop proxy');
@@ -484,11 +491,11 @@ class AppLocalizations {
   String get localistQr => _s('QR Localist', 'Localist QR');
   String get configReadyTip => _s(
     'تنظیمات پروکسی آماده است. هر زمان آماده بودید VPN و پروکسی یا فقط پروکسی را شروع کنید.',
-    'Proxy Config is ready. Use Start as VPN + proxy or Start as proxy when you are ready.',
+    'Proxy Config is ready. Use Start as VPN + proxy, Start as system proxy, or Start as local proxy when you are ready.',
   );
   String get configLoadedNotice => _s(
     'تنظیمات بارگذاری شد. شروع VPN و پروکسی یا شروع پروکسی را انتخاب کنید.',
-    'Config loaded. Choose Start as VPN + proxy or Start as proxy.',
+    'Config loaded. Choose Start as VPN + proxy, Start as system proxy, or Start as local proxy.',
   );
   String get invalidConfig => _s('تنظیمات معتبر نیست.', 'Config is not valid.');
   String get chooseProxyEndpoint =>
@@ -509,6 +516,10 @@ class AppLocalizations {
   String get localProxyRunningStatus => _s(
     'پروکسی محلی روی 127.0.0.1:3781 فعال است.',
     'Local proxy is active on 127.0.0.1:3781.',
+  );
+  String get systemProxyRunningStatus => _s(
+    'پروکسی سیستم ویندوز روی 127.0.0.1:3781 فعال است.',
+    'Windows system proxy is active on 127.0.0.1:3781.',
   );
   String vpnRunningStatus({required bool windows}) => windows
       ? _s('حالت VPN ویندوز فعال است.', 'Windows VPN mode is active.')

@@ -139,6 +139,19 @@ class NativeBridgeService {
         false;
   }
 
+  Future<bool> startSystemProxy(
+    RemoteProxyConfig config, {
+    int localPort = 3781,
+  }) async {
+    if (Platform.isWindows) {
+      return WindowsLocalistService.instance.startSystemProxy(
+        config,
+        localPort: localPort,
+      );
+    }
+    return false;
+  }
+
   Future<bool> checkRootAccess() async {
     if (Platform.isWindows) {
       final result = await WindowsLocalistService.instance.checkAdminAccess();

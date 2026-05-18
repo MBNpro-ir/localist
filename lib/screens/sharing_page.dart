@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ui' as ui;
 import 'dart:io';
 
@@ -671,17 +672,30 @@ class _ProxyQrSection extends StatefulWidget {
   State<_ProxyQrSection> createState() => _ProxyQrSectionState();
 }
 
+enum _ProxyQrMode { proxy, ios }
+
 class _ProxyQrSectionState extends State<_ProxyQrSection> {
   String? _selectedId;
+  String? _selectedIosId;
+  _ProxyQrMode _mode = _ProxyQrMode.proxy;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final endpoints = _buildEndpoints(l10n);
+    final endpoints = _buildProxyEndpoints(l10n);
+    final iosConfigs = _buildIosConfigs(l10n);
+    final mode = iosConfigs.isEmpty ? _ProxyQrMode.proxy : _mode;
     _QrEndpoint? selected;
     for (final endpoint in endpoints) {
       if (endpoint.id == _selectedId) {
         selected = endpoint;
+        break;
+      }
+    }
+    _QrConfig? selectedIosConfig;
+    for (final config in iosConfigs) {
+      if (config.id == _selectedIosId) {
+        selectedIosConfig = config;
         break;
       }
     }
@@ -702,31 +716,75 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
               icon: Icons.qr_code_2,
             )
           else ...[
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final endpoint in endpoints)
-                  _QrEndpointChip(
-                    endpoint: endpoint,
-                    selected: endpoint.id == _selectedId,
-                    onTap: () => setState(() => _selectedId = endpoint.id),
+            if (iosConfigs.isNotEmpty) ...[
+              SegmentedButton<_ProxyQrMode>(
+                segments: [
+                  ButtonSegment(
+                    value: _ProxyQrMode.proxy,
+                    label: Text(l10n.proxyQr),
+                    icon: const Icon(Icons.qr_code_2),
                   ),
-              ],
-            ),
+                  ButtonSegment(
+                    value: _ProxyQrMode.ios,
+                    label: Text(l10n.ios),
+                    icon: const Icon(Icons.phone_iphone_outlined),
+                  ),
+                ],
+                selected: {mode},
+                onSelectionChanged: (values) {
+                  setState(() => _mode = values.single);
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 160),
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeInCubic,
-              child: selected == null
-                  ? const SizedBox.shrink()
-                  : Padding(
-                      key: ValueKey(selected.id),
-                      padding: const EdgeInsets.only(top: 14),
-                      child: _QrPreview(
-                        endpoint: selected,
-                        onClose: () => setState(() => _selectedId = null),
-                      ),
+              child: mode == _ProxyQrMode.ios
+                  ? _IosQrPanel(
+                      key: const ValueKey('ios'),
+                      configs: iosConfigs,
+                      selected: selectedIosConfig,
+                      selectedId: _selectedIosId,
+                      onSelect: (config) =>
+                          setState(() => _selectedIosId = config.id),
+                      onClose: () => setState(() => _selectedIosId = null),
+                    )
+                  : Column(
+                      key: const ValueKey('proxy'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            for (final endpoint in endpoints)
+                              _QrEndpointChip(
+                                endpoint: endpoint,
+                                selected: endpoint.id == _selectedId,
+                                onTap: () =>
+                                    setState(() => _selectedId = endpoint.id),
+                              ),
+                          ],
+                        ),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 160),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          child: selected == null
+                              ? const SizedBox.shrink()
+                              : Padding(
+                                  key: ValueKey(selected.id),
+                                  padding: const EdgeInsets.only(top: 14),
+                                  child: _QrPreview(
+                                    endpoint: selected,
+                                    onClose: () =>
+                                        setState(() => _selectedId = null),
+                                  ),
+                                ),
+                        ),
+                      ],
                     ),
             ),
           ],
@@ -735,7 +793,7 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
     );
   }
 
-  List<_QrEndpoint> _buildEndpoints(AppLocalizations l10n) {
+  List<_QrEndpoint> _buildProxyEndpoints(AppLocalizations l10n) {
     final proxyEndpoints = [
       for (final protocol in widget.protocols)
         for (final ip in widget.endpointIps)
@@ -772,6 +830,97 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
           isSmart: false,
         ),
     ];
+  }
+
+  List<_QrConfig> _buildIosConfigs(AppLocalizations l10n) {
+    return [
+      for (final ip in widget.endpointIps)
+        ..._buildIosConfigsForEndpoint(
+          l10n,
+          SmartProxyEndpoint(
+            protocol: ProxyProtocol.socks5,
+            host: ip,
+            port: widget.portFor(ProxyProtocol.socks5),
+          ),
+        ),
+    ];
+  }
+
+  List<_QrConfig> _buildIosConfigsForEndpoint(
+    AppLocalizations l10n,
+    SmartProxyEndpoint endpoint,
+  ) {
+    if (!widget.protocols.contains(ProxyProtocol.socks5)) {
+      return const [];
+    }
+    final subtitle = '${endpoint.host}:${endpoint.port}';
+    return [
+      _QrConfig(
+        id: 'ios-xray-${endpoint.host}-${endpoint.port}',
+        title: l10n.xrayCore,
+        subtitle: subtitle,
+        data: _xraySocksConfig(endpoint),
+        icon: Icons.hub_outlined,
+      ),
+      _QrConfig(
+        id: 'ios-sing-box-${endpoint.host}-${endpoint.port}',
+        title: l10n.singBoxCore,
+        subtitle: subtitle,
+        data: _singBoxSocksConfig(endpoint),
+        icon: Icons.all_inclusive,
+      ),
+    ];
+  }
+
+  String _xraySocksConfig(SmartProxyEndpoint endpoint) {
+    const encoder = JsonEncoder.withIndent('  ');
+    return encoder.convert({
+      'log': {'loglevel': 'warning'},
+      'inbounds': [
+        {
+          'tag': 'local-socks',
+          'listen': '127.0.0.1',
+          'port': 10808,
+          'protocol': 'socks',
+          'settings': {'auth': 'noauth', 'udp': true, 'ip': '127.0.0.1'},
+        },
+      ],
+      'outbounds': [
+        {
+          'tag': 'localist-socks',
+          'protocol': 'socks',
+          'settings': {'address': endpoint.host, 'port': endpoint.port},
+        },
+        {'tag': 'direct', 'protocol': 'freedom'},
+      ],
+    });
+  }
+
+  String _singBoxSocksConfig(SmartProxyEndpoint endpoint) {
+    const encoder = JsonEncoder.withIndent('  ');
+    return encoder.convert({
+      'log': {'level': 'warn'},
+      'inbounds': [
+        {
+          'type': 'mixed',
+          'tag': 'mixed-in',
+          'listen': '127.0.0.1',
+          'listen_port': 2080,
+          'set_system_proxy': false,
+        },
+      ],
+      'outbounds': [
+        {
+          'type': 'socks',
+          'tag': 'localist-socks',
+          'server': endpoint.host,
+          'server_port': endpoint.port,
+          'version': '5',
+        },
+        {'type': 'direct', 'tag': 'direct'},
+      ],
+      'route': {'final': 'localist-socks'},
+    });
   }
 }
 
@@ -922,6 +1071,177 @@ class _QrPreview extends StatelessWidget {
   }
 }
 
+class _IosQrPanel extends StatelessWidget {
+  const _IosQrPanel({
+    super.key,
+    required this.configs,
+    required this.selected,
+    required this.selectedId,
+    required this.onSelect,
+    required this.onClose,
+  });
+
+  final List<_QrConfig> configs;
+  final _QrConfig? selected;
+  final String? selectedId;
+  final ValueChanged<_QrConfig> onSelect;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final config in configs)
+              _QrConfigChip(
+                config: config,
+                selected: config.id == selectedId,
+                onTap: () => onSelect(config),
+              ),
+          ],
+        ),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 160),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: selected == null
+              ? const SizedBox.shrink()
+              : Padding(
+                  key: ValueKey(selected!.id),
+                  padding: const EdgeInsets.only(top: 14),
+                  child: _QrConfigPreview(config: selected!, onClose: onClose),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QrConfigChip extends StatelessWidget {
+  const _QrConfigChip({
+    required this.config,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _QrConfig config;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: selected
+          ? scheme.primaryContainer.withValues(alpha: .72)
+          : scheme.surfaceContainerHighest.withValues(alpha: .44),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(config.icon, size: 18),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    config.title,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  Text(
+                    config.subtitle,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QrConfigPreview extends StatelessWidget {
+  const _QrConfigPreview({required this.config, required this.onClose});
+
+  final _QrConfig config;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: .54),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .28)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(config.icon, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${config.title} - ${config.subtitle}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                IconButton.filledTonal(
+                  tooltip: l10n.copyConfig,
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: config.data));
+                    if (context.mounted) {
+                      showLocalistNotice(
+                        context,
+                        message: l10n.configCopied,
+                        tone: InAppNoticeTone.success,
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.copy),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: l10n.closeQrCode,
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            RepaintBoundary(
+              child: Center(
+                child: _CachedQrImage(
+                  data: config.data,
+                  size: 232,
+                  semanticLabel: l10n.qrCodeSemantic(config.title),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _QrEndpoint {
   const _QrEndpoint({
     required this.id,
@@ -938,6 +1258,22 @@ class _QrEndpoint {
   final String data;
   final IconData icon;
   final bool isSmart;
+}
+
+class _QrConfig {
+  const _QrConfig({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.data,
+    required this.icon,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String data;
+  final IconData icon;
 }
 
 class _CachedQrImage extends StatelessWidget {
