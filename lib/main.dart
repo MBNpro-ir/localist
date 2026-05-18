@@ -21,6 +21,7 @@ import 'screens/settings_page.dart';
 import 'screens/sharing_page.dart';
 import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
+import 'services/crash_reporter_service.dart';
 import 'services/log_service.dart';
 import 'services/localist_discovery_service.dart';
 import 'services/native_bridge_service.dart';
@@ -32,38 +33,46 @@ const _windowsAdminBootstrapArg = '--enable-admin';
 const _android13Sdk = 33;
 
 Future<void> main(List<String> args) async {
-  final binding = WidgetsFlutterBinding.ensureInitialized();
-  binding.deferFirstFrame();
-  try {
-    await _bootstrapWindowsWindow();
-    await _bootstrapWindowsSettings(args);
-    final useSimpleAndroidTheme = await _shouldUseSimpleAndroidTheme();
-    if (!useSimpleAndroidTheme) {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
-    final settings = await AppSettings.load();
-    final themeSettings = await getThemeSettings();
-    final colorScheme = await loadColorScheme(
-      fallbackSeedColor: themeSettings.seedColor,
-    );
-    runApp(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider<ThemeSettingsModel>.value(
-            value: themeSettings,
+  await runZonedGuarded<Future<void>>(
+    () async {
+      final binding = WidgetsFlutterBinding.ensureInitialized();
+      binding.deferFirstFrame();
+      try {
+        await CrashReporterService.instance.initialize();
+        await _bootstrapWindowsWindow();
+        await _bootstrapWindowsSettings(args);
+        final useSimpleAndroidTheme = await _shouldUseSimpleAndroidTheme();
+        if (!useSimpleAndroidTheme) {
+          await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+        }
+        final settings = await AppSettings.load();
+        final themeSettings = await getThemeSettings();
+        final colorScheme = await loadColorScheme(
+          fallbackSeedColor: themeSettings.seedColor,
+        );
+        runApp(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<ThemeSettingsModel>.value(
+                value: themeSettings,
+              ),
+              Provider<BrightnessGetColorScheme>.value(value: colorScheme),
+              ChangeNotifierProvider<AppSettings>.value(value: settings),
+            ],
+            child: _LocalistApp(
+              settings: settings,
+              useSimpleAndroidTheme: useSimpleAndroidTheme,
+            ),
           ),
-          Provider<BrightnessGetColorScheme>.value(value: colorScheme),
-          ChangeNotifierProvider<AppSettings>.value(value: settings),
-        ],
-        child: _LocalistApp(
-          settings: settings,
-          useSimpleAndroidTheme: useSimpleAndroidTheme,
-        ),
-      ),
-    );
-  } finally {
-    binding.allowFirstFrame();
-  }
+        );
+      } finally {
+        binding.allowFirstFrame();
+      }
+    },
+    (error, stack) {
+      unawaited(CrashReporterService.instance.reportFatalError(error, stack));
+    },
+  );
 }
 
 class _LocalistApp extends StatelessWidget {

@@ -2,6 +2,7 @@ package com.prs.localist
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ClipData
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
@@ -20,6 +21,11 @@ import java.net.ServerSocket
 class MainActivity : FlutterActivity() {
     private var pendingVpnResult: MethodChannel.Result? = null
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        LocalistCrashReporter.install(this)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
@@ -27,6 +33,7 @@ class MainActivity : FlutterActivity() {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "getAndroidSupportedAbis" -> result.success(Build.SUPPORTED_ABIS.toList())
+                "getUpdateDirectory" -> result.success(updateDirectory().absolutePath)
                 "canInstallPackages" -> result.success(canInstallPackages())
                 "openInstallPermissionSettings" -> openInstallPermissionSettings(result)
                 "installApk" -> installApk(call, result)
@@ -149,10 +156,12 @@ class MainActivity : FlutterActivity() {
                 "$packageName.fileprovider",
                 apk,
             )
-            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
+                clipData = ClipData.newRawUri("Localist update", uri)
                 putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
                 putExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME, packageName)
+                putExtra(Intent.EXTRA_RETURN_RESULT, false)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -407,6 +416,10 @@ class MainActivity : FlutterActivity() {
             }
         }
         result.success(false)
+    }
+
+    private fun updateDirectory(): File {
+        return File(cacheDir, "updates").apply { mkdirs() }
     }
 
     private fun isLocalPortAvailable(port: Int): Boolean {

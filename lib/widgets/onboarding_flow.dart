@@ -169,113 +169,126 @@ class LanguageFlag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: SizedBox(
-        width: 48,
-        height: 34,
-        child: Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
-            border: Border.all(color: scheme.outlineVariant),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: switch (languageCode) {
-            'fa' => const Column(
-              children: [
-                Expanded(child: ColoredBox(color: Color(0xFF239F40))),
-                Expanded(child: ColoredBox(color: Colors.white)),
-                Expanded(child: ColoredBox(color: Color(0xFFDA0000))),
-              ],
-            ),
-            'en' => Stack(
-              children: [
-                Column(
-                  children: [
-                    for (var index = 0; index < 7; index++)
-                      Expanded(
-                        child: ColoredBox(
-                          color: index.isEven
-                              ? const Color(0xFFB22234)
-                              : Colors.white,
+    return SizedBox(
+      width: 48,
+      height: 34,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          border: Border.all(color: scheme.outlineVariant),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: CustomPaint(
+            painter: _LanguageFlagPainter(languageCode),
+            child: languageCode == 'system'
+                ? Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.surface.withValues(alpha: .94),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.language,
+                          color: scheme.primary,
+                          size: 16,
                         ),
                       ),
-                  ],
-                ),
-                const Align(
-                  alignment: Alignment.topLeft,
-                  child: SizedBox(
-                    width: 18,
-                    height: 16,
-                    child: ColoredBox(color: Color(0xFF3C3B6E)),
-                  ),
-                ),
-              ],
-            ),
-            _ => Stack(
-              fit: StackFit.expand,
-              children: [
-                Positioned.fill(
-                  child: Row(
-                    children: [
-                      Expanded(child: _FlagStripes.us()),
-                      Expanded(child: _FlagStripes.iran()),
-                    ],
-                  ),
-                ),
-                Center(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: scheme.surface.withValues(alpha: .92),
-                      shape: BoxShape.circle,
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.language,
-                        color: scheme.primary,
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          },
+                  )
+                : const SizedBox.expand(),
+          ),
         ),
       ),
     );
   }
 }
 
-class _FlagStripes extends StatelessWidget {
-  const _FlagStripes.iran() : mode = 'ir';
-  const _FlagStripes.us() : mode = 'us';
+class _LanguageFlagPainter extends CustomPainter {
+  const _LanguageFlagPainter(this.languageCode);
 
-  final String mode;
+  final String languageCode;
+
+  static const _iranGreen = Color(0xFF239F40);
+  static const _iranRed = Color(0xFFDA0000);
+  static const _usRed = Color(0xFFB22234);
+  static const _usBlue = Color(0xFF3C3B6E);
 
   @override
-  Widget build(BuildContext context) {
-    if (mode == 'ir') {
-      return const Column(
-        children: [
-          Expanded(child: ColoredBox(color: Color(0xFF239F40))),
-          Expanded(child: ColoredBox(color: Colors.white)),
-          Expanded(child: ColoredBox(color: Color(0xFFDA0000))),
-        ],
+  void paint(Canvas canvas, Size size) {
+    if (languageCode == 'fa') {
+      _paintIran(canvas, Offset.zero & size);
+      return;
+    }
+    if (languageCode == 'en') {
+      _paintUs(canvas, Offset.zero & size);
+      return;
+    }
+    _paintUs(canvas, Rect.fromLTWH(0, 0, size.width / 2, size.height));
+    _paintIran(
+      canvas,
+      Rect.fromLTWH(size.width / 2, 0, size.width / 2, size.height),
+    );
+  }
+
+  void _paintIran(Canvas canvas, Rect rect) {
+    final paint = Paint();
+    final stripeHeight = rect.height / 3;
+    paint.color = _iranGreen;
+    canvas.drawRect(
+      Rect.fromLTWH(rect.left, rect.top, rect.width, stripeHeight),
+      paint,
+    );
+    paint.color = Colors.white;
+    canvas.drawRect(
+      Rect.fromLTWH(
+        rect.left,
+        rect.top + stripeHeight,
+        rect.width,
+        stripeHeight,
+      ),
+      paint,
+    );
+    paint.color = _iranRed;
+    canvas.drawRect(
+      Rect.fromLTWH(
+        rect.left,
+        rect.top + stripeHeight * 2,
+        rect.width,
+        rect.height - stripeHeight * 2,
+      ),
+      paint,
+    );
+  }
+
+  void _paintUs(Canvas canvas, Rect rect) {
+    final paint = Paint();
+    final stripeHeight = rect.height / 7;
+    for (var index = 0; index < 7; index++) {
+      paint.color = index.isEven ? _usRed : Colors.white;
+      canvas.drawRect(
+        Rect.fromLTWH(
+          rect.left,
+          rect.top + stripeHeight * index,
+          rect.width,
+          stripeHeight,
+        ),
+        paint,
       );
     }
-    return Column(
-      children: [
-        for (var index = 0; index < 7; index++)
-          Expanded(
-            child: ColoredBox(
-              color: index.isEven ? const Color(0xFFB22234) : Colors.white,
-            ),
-          ),
-      ],
+    paint.color = _usBlue;
+    canvas.drawRect(
+      Rect.fromLTWH(rect.left, rect.top, rect.width * .42, rect.height * .48),
+      paint,
     );
+  }
+
+  @override
+  bool shouldRepaint(_LanguageFlagPainter oldDelegate) {
+    return oldDelegate.languageCode != languageCode;
   }
 }
 

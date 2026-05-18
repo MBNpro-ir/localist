@@ -212,28 +212,32 @@ class _SettingsPageState extends State<SettingsPage> {
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 12),
-                  SegmentedButton<AppLanguage>(
-                    segments: [
-                      ButtonSegment(
-                        value: AppLanguage.system,
-                        icon: const Icon(Icons.language),
-                        label: Text(l10n.languageSystem),
-                      ),
-                      ButtonSegment(
-                        value: AppLanguage.english,
-                        icon: const Icon(Icons.flag_outlined),
-                        label: Text(l10n.languageEnglish),
-                      ),
-                      ButtonSegment(
-                        value: AppLanguage.persian,
-                        icon: const Icon(Icons.flag_outlined),
-                        label: Text(l10n.languagePersian),
-                      ),
-                    ],
-                    selected: {widget.settings.language},
-                    onSelectionChanged: (values) {
-                      widget.settings.setLanguage(values.single);
-                    },
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<AppLanguage>(
+                      expandedInsets: EdgeInsets.zero,
+                      segments: [
+                        ButtonSegment(
+                          value: AppLanguage.system,
+                          icon: const Icon(Icons.language),
+                          label: Text(l10n.languageSystem),
+                        ),
+                        ButtonSegment(
+                          value: AppLanguage.english,
+                          icon: const Icon(Icons.flag_outlined),
+                          label: Text(l10n.languageEnglish),
+                        ),
+                        ButtonSegment(
+                          value: AppLanguage.persian,
+                          icon: const Icon(Icons.flag_outlined),
+                          label: Text(l10n.languagePersian),
+                        ),
+                      ],
+                      selected: {widget.settings.language},
+                      onSelectionChanged: (values) {
+                        widget.settings.setLanguage(values.single);
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -248,28 +252,32 @@ class _SettingsPageState extends State<SettingsPage> {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
-                  SegmentedButton<ThemeMode>(
-                    segments: [
-                      ButtonSegment(
-                        value: ThemeMode.system,
-                        icon: const Icon(Icons.brightness_auto),
-                        label: Text(l10n.themeSystem),
-                      ),
-                      ButtonSegment(
-                        value: ThemeMode.light,
-                        icon: const Icon(Icons.light_mode_outlined),
-                        label: Text(l10n.themeLight),
-                      ),
-                      ButtonSegment(
-                        value: ThemeMode.dark,
-                        icon: const Icon(Icons.dark_mode_outlined),
-                        label: Text(l10n.themeDark),
-                      ),
-                    ],
-                    selected: {themeSettings.themeMode},
-                    onSelectionChanged: (values) {
-                      themeSettings.setThemeMode(values.single);
-                    },
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<ThemeMode>(
+                      expandedInsets: EdgeInsets.zero,
+                      segments: [
+                        ButtonSegment(
+                          value: ThemeMode.system,
+                          icon: const Icon(Icons.brightness_auto),
+                          label: Text(l10n.themeSystem),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.light,
+                          icon: const Icon(Icons.light_mode_outlined),
+                          label: Text(l10n.themeLight),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.dark,
+                          icon: const Icon(Icons.dark_mode_outlined),
+                          label: Text(l10n.themeDark),
+                        ),
+                      ],
+                      selected: {themeSettings.themeMode},
+                      onSelectionChanged: (values) {
+                        themeSettings.setThemeMode(values.single);
+                      },
+                    ),
                   ),
                   const SizedBox(height: 12),
                   SwitchListTile(
@@ -420,10 +428,14 @@ class _SettingsPageState extends State<SettingsPage> {
     for (final line in pubspec.split('\n')) {
       final trimmed = line.trim();
       if (trimmed.startsWith('version:')) {
-        return trimmed.substring('version:'.length).trim();
+        return _versionNameOnly(trimmed.substring('version:'.length).trim());
       }
     }
     return context.l10n.development;
+  }
+
+  String _versionNameOnly(String value) {
+    return value.split('+').first.trim();
   }
 
   void _handlePortTextChanged() {
@@ -658,6 +670,7 @@ class _UpdatePanel extends StatefulWidget {
 class _UpdatePanelState extends State<_UpdatePanel> {
   final AppUpdateService _updates = AppUpdateService();
   final NativeBridgeService _bridge = NativeBridgeService.instance;
+  final LogService _logs = LogService.instance;
   AppUpdateCheck? _check;
   File? _downloadedApk;
   bool _checking = false;
@@ -925,6 +938,11 @@ class _UpdatePanelState extends State<_UpdatePanel> {
               : context.l10n.updaterInstallPermissionNeeded;
         });
       }
+    } catch (error) {
+      _logs.error('Unable to open Android update installer: $error');
+      if (mounted) {
+        setState(() => _message = context.l10n.updaterFailed);
+      }
     } finally {
       if (mounted) {
         setState(() => _installing = false);
@@ -1040,6 +1058,17 @@ class _SeedColorPicker extends StatelessWidget {
     Color(0xFF6A1B9A),
     Color(0xFFC2185B),
     Color(0xFFD84315),
+    Color(0xFFF9A825),
+    Color(0xFF00ACC1),
+    Color(0xFF039BE5),
+    Color(0xFF3949AB),
+    Color(0xFF8E24AA),
+    Color(0xFF5E35B1),
+    Color(0xFF00838F),
+    Color(0xFF43A047),
+    Color(0xFF7CB342),
+    Color(0xFFE53935),
+    Color(0xFF6D4C41),
     Color(0xFF546E7A),
     Color(0xFF795548),
   ];

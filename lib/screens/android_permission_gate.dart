@@ -33,12 +33,11 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   bool _loading = true;
   bool _complete = !Platform.isAndroid;
   bool _notificationGranted = false;
-  bool _cameraGranted = false;
   bool _batteryGranted = false;
   bool _busy = false;
 
   bool get _allGranted {
-    return _notificationGranted && _cameraGranted && _batteryGranted;
+    return _notificationGranted && _batteryGranted;
   }
 
   @override
@@ -76,14 +75,12 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
 
   Future<void> _refreshStatuses() async {
     final notification = await Permission.notification.status;
-    final camera = await Permission.camera.status;
     final battery = await _bridge.isIgnoringBatteryOptimizations();
     if (!mounted) {
       return;
     }
     setState(() {
       _notificationGranted = notification.isGranted;
-      _cameraGranted = camera.isGranted;
       _batteryGranted = battery;
     });
   }
@@ -114,14 +111,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
           title: l10n.notifications,
           subtitle: l10n.notificationsSubtitle,
           onPressed: _busy ? null : _requestNotification,
-        ),
-        const SizedBox(height: 10),
-        _PermissionTile(
-          granted: _cameraGranted,
-          icon: Icons.qr_code_scanner,
-          title: l10n.camera,
-          subtitle: l10n.cameraSubtitle,
-          onPressed: _busy ? null : _requestCamera,
         ),
         const SizedBox(height: 10),
         _PermissionTile(
@@ -167,16 +156,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       title: l10n.notificationsRequired,
       body: l10n.notificationsRequiredBody,
       request: () async => (await Permission.notification.request()).isGranted,
-      refresh: _refreshStatuses,
-    );
-  }
-
-  Future<void> _requestCamera() async {
-    final l10n = context.l10n;
-    await _runRequest(
-      title: l10n.cameraRequired,
-      body: l10n.cameraRequiredBody,
-      request: () async => (await Permission.camera.request()).isGranted,
       refresh: _refreshStatuses,
     );
   }

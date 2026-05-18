@@ -5,7 +5,11 @@
 <h1 align="center">Localist</h1>
 
 <p align="center">
-  Share a local proxy between Android and Windows with QR handoff, compact desktop UI, and release builds for GitHub.
+  Share a local proxy between Android and Windows with QR handoff, nearby discovery, updater support, crash reporting, and home-screen controls.
+</p>
+
+<p align="center">
+  <a href="README.fa.md">فارسی</a> | <strong>English</strong>
 </p>
 
 <p align="center">
@@ -18,18 +22,53 @@
 
 ## Overview
 
-Localist is a Flutter app for moving proxy/VPN access between Android and Windows:
+Localist is a Flutter app for sharing and receiving local proxy access across Android and Windows.
 
-- Android can share HTTP/SOCKS5 proxy endpoints and receive a remote endpoint as VPN or local proxy, with first-run setup and background-transfer protection.
-- Windows can share proxy endpoints, advertise them for automatic local discovery, show QR codes, scan proxy QR codes with a webcam, run with administrator privileges, minimize to the taskbar tray, and start Receiving VPN mode with bundled Wintun/tun2socks tools when they are available.
+- Android can share HTTP/SOCKS5 proxy endpoints, receive a remote endpoint as VPN or local proxy, scan QR codes, discover nearby Localist devices, install GitHub release updates, and expose a home-screen widget for Sending/Receiving controls.
+- Windows can share proxy endpoints, advertise them for local discovery, show and scan QR codes with a webcam, run compactly with tray behavior, follow Windows accent colors, and use bundled Wintun/tun2socks tools for Receiving VPN mode when available.
+- First-run setup now asks only for permissions needed at startup. Camera permission is requested only when the QR scanner is opened.
+- Crash reporting opens the user's email client with crash details, app logs, platform data, device information, and stack traces.
 - Settings are persisted in each platform's standard app-support storage so reinstalling the app keeps user preferences.
-- Windows uses the Android app icon, starts at `440x680`, keeps width fixed at `440`, allows taller vertical resizing, has no maximize button, and follows Windows accent colors.
+
+## What's New
+
+- 🔐 EN: Camera permission was removed from first launch and is requested only for QR scanning.  
+  FA: دسترسی دوربین از ورود اولیه حذف شد و فقط هنگام اسکن QR درخواست می‌شود.
+- 🪟 EN: Windows onboarding no longer shows the permissions step.  
+  FA: در ویندوز مرحله permissions از ورود اولیه حذف شد.
+- 🏳️ EN: Language flags now render with a stable custom painter.  
+  FA: نمایش پرچم‌ها پایدار و اصلاح شد.
+- ⬇️ EN: Android updater downloads APKs into an installable app cache path and opens the Android package installer correctly.  
+  FA: آپدیتر اندروید فایل APK را در مسیر درست ذخیره می‌کند و نصب‌کننده اندروید را درست باز می‌کند.
+- 🎨 EN: Theme controls are full-width like language controls, and the App color palette has more choices.  
+  FA: گزینه‌های تم تمام‌عرض شدند و رنگ‌های بیشتری به App color اضافه شد.
+- 🧩 EN: Android home widget was added for Sending and Receiving quick controls.  
+  FA: ویجت اندروید برای خاموش و روشن کردن Sending و Receiving اضافه شد.
+- 🧯 EN: Crash reporting module was added for Dart and Android native crashes.  
+  FA: ماژول گزارش کرش برای Dart و کرش‌های native اندروید اضافه شد.
+- 🏷️ EN: App Info and Updater show only semantic versions such as `3.1.0`, without build numbers.  
+  FA: App Info و Updater فقط نسخه مثل `3.1.0` را نمایش می‌دهند و build number حذف شد.
+
+## Version History
+
+- 🚀 `v1.0.0` - Initial release workflow and packaged Android/Windows builds.
+- 🧰 `v1.0.2` - `v1.0.5` - Release packaging fixes, README badges, and early build pipeline cleanup.
+- ⚡ `v1.1.0` - Performance improvements for older Android devices.
+- 🪟 `v1.1.2` - Windows portrait window sizing fixes.
+- 📦 `v1.5.0` - Broader Localist release packaging and app polish.
+- 🌉 `v1.6.0` - Windows Receiving VPN support through Wintun/tun2socks.
+- 🛠️ `v1.6.4` - Android VPN and settings port fixes.
+- 📡 `v2.0.0` - Nearby discovery, Wintun fixes, and release publishing improvements.
+- 🔋 `v2.1.0` - QR scanner battery behavior and themed in-app notices.
+- 🌐 `v3.0.0` - Language onboarding and smart GitHub updater.
+- ✅ `v3.1.0` - Onboarding navigation, Persian localization, and version badge updates.
+- 🧩 Current `master` - Permission cleanup, updater repair, widgets, crash reporting, flags, color settings, and README refresh.
 
 ## Repository Layout
 
 ```text
-lib/                       Flutter UI, settings, QR, proxy state, Windows Dart services
-android/                   Android Kotlin VPN/proxy bridge and Gradle project
+lib/                       Flutter UI, settings, QR, proxy state, crash reporting, Windows Dart services
+android/                   Android Kotlin VPN/proxy bridge, updater install bridge, widget, crash reporter, Gradle project
 windows/                   Windows runner, Win32 MethodChannel bridge, app icon/resource setup
 test/                      Flutter unit tests
 .github/workflows/         GitHub Actions release pipeline
@@ -63,7 +102,7 @@ flutter doctor --android-licenses
 
 ## Development Checks
 
-Run these before opening a pull request:
+Run these before publishing changes:
 
 ```powershell
 flutter pub get
@@ -108,8 +147,6 @@ build/app/outputs/flutter-apk/app-x86_64-release.apk
 build/app/outputs/bundle/release/app-release.aab
 ```
 
-The current Gradle release config enables code minification, resource shrinking, icon tree-shaking, and compressed native libraries. Replace the debug signing config with your production keystore before publishing to a store.
-
 ## Windows Build Commands
 
 Release build with Dart symbol splitting and icon tree-shaking:
@@ -137,8 +174,6 @@ New-Item -ItemType Directory -Force "release\v$version" | Out-Null
   .\build\windows\x64\runner\Release\*
 ```
 
-Flutter's Windows desktop build in this toolchain produces an x64 runner. Android release builds are split into `armeabi-v7a`, `arm64-v8a`, and `x86_64` APKs.
-
 ## GitHub Actions Release
 
 The release workflow reads `version:` from `pubspec.yaml`, then builds and uploads:
@@ -149,7 +184,7 @@ The release workflow reads `version:` from `pubspec.yaml`, then builds and uploa
 - `localist-v<version>-android-universal.aab`
 - `localist-v<version>-windows-x64.zip`
 
-Create a release from GitHub by pushing a tag that matches the `pubspec.yaml` version:
+Create a release by pushing a tag that matches the `pubspec.yaml` version:
 
 ```powershell
 $version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value -split '\+')[0]
@@ -178,19 +213,22 @@ Settings:
 - Windows starts with administrator privileges for VPN mode, so there is no admin toggle in Settings.
 - Windows close behavior can ask each time, move the window to the taskbar tray, or fully exit.
 - Proxy ports are locked while Sharing is active.
-- Theme follows Android dynamic colors or Windows accent colors.
+- Theme follows Android dynamic colors or Windows accent colors, with an expanded custom seed-color palette.
 
-## Android Permissions and Background Transfer
+## Android Permissions, Updater, Widget, and Crash Reports
 
-On first launch, Android opens a setup screen before the main UI. Localist asks for:
+On first launch, Android asks only for startup-critical permissions:
 
 - Notifications, so VPN/proxy services can remain foreground services.
-- Camera, so QR configs can be scanned.
 - Battery optimization exemption, so long proxy/VPN transfers are not paused when the screen turns off.
 
-VPN permission is requested only when the user taps `Start as VPN + proxy` in Receiving. Localist does not check or request Android VPN permission while opening the app, so an already running VPN is left alone until the user explicitly starts Localist VPN mode.
+Camera permission is requested only when the user opens QR scanning in Receiving. VPN permission is requested only when the user starts Android VPN Receiving mode.
 
-While Android sharing, receiving VPN, or local proxy modes are active, the foreground service also holds a partial CPU wake lock and a high-performance Wi-Fi lock. This keeps socket forwarding and TUN forwarding alive when the app is backgrounded or the display turns off.
+The Android updater checks GitHub releases, chooses the matching APK for the device ABI, downloads it to the app cache, validates the download length, and opens the Android package installer.
+
+The Android widget supports small and larger home-screen sizes. It shows service status and provides quick controls for Sending and Receiving. If Receiving has no saved remote proxy config, the widget opens the app.
+
+Crash reporting collects the crash type, time, semantic version, platform, Android SDK/ABIs, stack trace, and Localist app logs, then opens the user's email client with a ready-to-send support report.
 
 ## Windows VPN and Wintun
 

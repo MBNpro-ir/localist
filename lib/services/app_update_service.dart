@@ -47,7 +47,12 @@ class AppUpdateService {
           uri: Uri.parse(asset.downloadUrl),
         );
       }
-      final updatesDir = Directory('${Directory.systemTemp.path}/updates');
+      final nativeUpdatesPath = await _bridge.getAndroidUpdateDirectory();
+      final updatesDir = Directory(
+        nativeUpdatesPath == null || nativeUpdatesPath.isEmpty
+            ? '${Directory.systemTemp.path}/updates'
+            : nativeUpdatesPath,
+      );
       if (!updatesDir.existsSync()) {
         updatesDir.createSync(recursive: true);
       }
@@ -63,6 +68,10 @@ class AppUpdateService {
         }
       } finally {
         await sink.close();
+      }
+      final expectedLength = response.contentLength;
+      if (expectedLength > 0 && received != expectedLength) {
+        throw const FileSystemException('Downloaded APK size mismatch.');
       }
       return file;
     } finally {
@@ -235,7 +244,11 @@ class AppVersion implements Comparable<AppVersion> {
 
   @override
   String toString() {
+    return displayName;
+  }
+
+  String get displayName {
     final version = parts.join('.');
-    return build > 0 ? '$version+$build' : version;
+    return version;
   }
 }

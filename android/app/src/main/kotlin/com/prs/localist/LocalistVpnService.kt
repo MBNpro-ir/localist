@@ -122,6 +122,7 @@ class LocalistVpnService : VpnService() {
         startDiscoveryResponder()
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
+        LocalistWidgetProvider.updateAll(this)
     }
 
     private fun startReceiving(intent: Intent) {
@@ -162,6 +163,7 @@ class LocalistVpnService : VpnService() {
         startVpnInterface(protocol = State.remoteProtocol, host = host, port = port)
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
+        LocalistWidgetProvider.updateAll(this)
     }
 
     private fun startLocalProxy(intent: Intent) {
@@ -206,6 +208,7 @@ class LocalistVpnService : VpnService() {
         acquireRuntimeLocks()
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
+        LocalistWidgetProvider.updateAll(this)
     }
 
     private fun startVpnInterface(protocol: String, host: String, port: Int) {
@@ -442,6 +445,7 @@ class LocalistVpnService : VpnService() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
+        LocalistWidgetProvider.updateAll(this)
     }
 
     private fun intentWithCurrentConfig(): Intent {

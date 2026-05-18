@@ -34,6 +34,13 @@ class NativeBridgeService {
         const [];
   }
 
+  Future<String?> getAndroidUpdateDirectory() async {
+    if (!Platform.isAndroid) {
+      return null;
+    }
+    return _channel.invokeMethod<String>('getUpdateDirectory');
+  }
+
   Future<bool> canInstallAndroidPackages() async {
     if (!Platform.isAndroid) {
       return false;

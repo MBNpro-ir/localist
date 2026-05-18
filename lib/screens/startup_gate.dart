@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
@@ -47,6 +49,9 @@ class _StartupGateState extends State<StartupGate> {
       return widget.childBuilder(showLanguagePicker);
     }
     final l10n = context.l10n;
+    final steps = Platform.isWindows
+        ? [l10n.languageStep, l10n.mainStep]
+        : [l10n.languageStep, l10n.permissionsStep, l10n.mainStep];
     return AnimatedSwitcher(
       duration: widget.simple
           ? Duration.zero
@@ -56,7 +61,7 @@ class _StartupGateState extends State<StartupGate> {
       child: OnboardingFrame(
         key: const ValueKey('language-onboarding'),
         simple: widget.simple,
-        steps: [l10n.languageStep, l10n.permissionsStep, l10n.mainStep],
+        steps: steps,
         currentStep: 0,
         icon: Icons.translate,
         title: l10n.languageTitle,
