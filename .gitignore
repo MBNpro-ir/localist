@@ -35,6 +35,7 @@ migrate_working_dir/
 /coverage/
 /dist/
 /release/
+/compiled/
 /build_symbols/
 devtools_options.yaml
 *.tmp
