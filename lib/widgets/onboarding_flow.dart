@@ -12,6 +12,7 @@ class OnboardingFrame extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.children,
+    this.onBack,
   });
 
   final bool simple;
@@ -21,6 +22,7 @@ class OnboardingFrame extends StatelessWidget {
   final String title;
   final String subtitle;
   final List<Widget> children;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +58,16 @@ class OnboardingFrame extends StatelessWidget {
                         children: [
                           Row(
                             children: [
+                              if (onBack != null) ...[
+                                IconButton.filledTonal(
+                                  tooltip: MaterialLocalizations.of(
+                                    context,
+                                  ).backButtonTooltip,
+                                  onPressed: onBack,
+                                  icon: const Icon(Icons.arrow_back),
+                                ),
+                                const SizedBox(width: 10),
+                              ],
                               _OnboardingIcon(icon: icon),
                               const SizedBox(width: 12),
                               Expanded(
@@ -160,12 +172,14 @@ class LanguageFlag extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: SizedBox(
-        width: 42,
-        height: 30,
-        child: DecoratedBox(
+        width: 48,
+        height: 34,
+        child: Container(
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: scheme.surfaceContainerHighest,
             border: Border.all(color: scheme.outlineVariant),
+            borderRadius: BorderRadius.circular(10),
           ),
           child: switch (languageCode) {
             'fa' => const Column(
@@ -199,12 +213,68 @@ class LanguageFlag extends StatelessWidget {
                 ),
               ],
             ),
-            _ => Center(
-              child: Icon(Icons.language, color: scheme.primary, size: 20),
+            _ => Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned.fill(
+                  child: Row(
+                    children: [
+                      Expanded(child: _FlagStripes.us()),
+                      Expanded(child: _FlagStripes.iran()),
+                    ],
+                  ),
+                ),
+                Center(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(alpha: .92),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.language,
+                        color: scheme.primary,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           },
         ),
       ),
+    );
+  }
+}
+
+class _FlagStripes extends StatelessWidget {
+  const _FlagStripes.iran() : mode = 'ir';
+  const _FlagStripes.us() : mode = 'us';
+
+  final String mode;
+
+  @override
+  Widget build(BuildContext context) {
+    if (mode == 'ir') {
+      return const Column(
+        children: [
+          Expanded(child: ColoredBox(color: Color(0xFF239F40))),
+          Expanded(child: ColoredBox(color: Colors.white)),
+          Expanded(child: ColoredBox(color: Color(0xFFDA0000))),
+        ],
+      );
+    }
+    return Column(
+      children: [
+        for (var index = 0; index < 7; index++)
+          Expanded(
+            child: ColoredBox(
+              color: index.isEven ? const Color(0xFFB22234) : Colors.white,
+            ),
+          ),
+      ],
     );
   }
 }

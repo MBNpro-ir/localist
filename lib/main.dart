@@ -96,13 +96,16 @@ class _LocalistApp extends StatelessWidget {
       home: StartupGate(
         settings: settings,
         simple: useSimpleAndroidTheme,
-        child: AndroidPermissionGate(
-          simple: useSimpleAndroidTheme,
-          child: LocalistShell(
-            settings: settings,
-            useSimpleAndroidTheme: useSimpleAndroidTheme,
-          ),
-        ),
+        childBuilder: (onBackToLanguage) {
+          return AndroidPermissionGate(
+            simple: useSimpleAndroidTheme,
+            onBackToLanguage: onBackToLanguage,
+            child: LocalistShell(
+              settings: settings,
+              useSimpleAndroidTheme: useSimpleAndroidTheme,
+            ),
+          );
+        },
       ),
     );
   }
@@ -296,18 +299,34 @@ class _LocalistShellState extends State<LocalistShell>
 
       await tray.trayManager.setIcon(iconPath);
       await tray.trayManager.setToolTip('Localist');
-      final menu = tray.Menu(
-        items: [
-          tray.MenuItem(key: 'open', label: 'Open'),
-          tray.MenuItem.separator(),
-          tray.MenuItem(key: 'close', label: 'Close'),
-        ],
-      );
-      await tray.trayManager.setContextMenu(menu);
+      await _configureWindowsTrayMenu();
       _trayReady = true;
     } catch (error) {
       _logs.warning('Windows tray setup failed: $error');
     }
+  }
+
+  Future<void> _configureWindowsTrayMenu() async {
+    final menu = tray.Menu(
+      items: [
+        tray.MenuItem(
+          key: 'open',
+          label: _usePersianText ? 'باز کردن' : 'Open',
+        ),
+        tray.MenuItem.separator(),
+        tray.MenuItem(key: 'close', label: _usePersianText ? 'بستن' : 'Close'),
+      ],
+    );
+    await tray.trayManager.setContextMenu(menu);
+  }
+
+  bool get _usePersianText {
+    return switch (widget.settings.language) {
+      AppLanguage.persian => true,
+      AppLanguage.english => false,
+      AppLanguage.system =>
+        WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'fa',
+    };
   }
 
   String _windowsBundledAssetPath(String relativePath) {
@@ -534,6 +553,9 @@ class _LocalistShellState extends State<LocalistShell>
         port: widget.settings.port,
       );
     });
+    if (Platform.isWindows && _trayReady && !_trayDestroyed) {
+      unawaited(_configureWindowsTrayMenu());
+    }
     unawaited(_syncDiscoveryLifecycle());
   }
 
@@ -650,45 +672,35 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   String _serviceErrorMessage(Object error, {required String fallback}) {
+    final l10n = context.l10n;
     if (error is PlatformException) {
       final message = error.message;
       return switch (error.code) {
-        'port_unavailable' =>
-          message ?? 'Port is busy. Change the protocol port in Settings.',
-        'local_proxy_port_unavailable' =>
-          message ?? 'Local port 3781 is busy. Close the app using it first.',
-        'internal_vpn_proxy_unavailable' =>
-          message ??
-              'Internal VPN proxy is not reachable. Check v2rayN and the port.',
-        'vpn_permission_required' =>
-          'VPN permission is required before Receiving can start.',
-        'vpn_permission_pending' =>
-          'VPN permission is already open. Finish the Android permission prompt.',
-        'missing_proxy_host' => 'Proxy host is required.',
-        'wintun_start_failed' =>
-          message ?? 'Wintun could not start. Try running Localist as admin.',
-        'wintun_interface_missing' =>
-          'Wintun interface did not appear. Check wintun.dll and administrator access.',
-        'netsh_failed' =>
-          'Windows network route setup failed. Try running Localist as admin.',
-        'windows_proxy_failed' =>
-          'Windows system proxy could not be enabled for fallback mode.',
+        'port_unavailable' => l10n.portUnavailable,
+        'local_proxy_port_unavailable' => l10n.localProxyPortUnavailable,
+        'internal_vpn_proxy_unavailable' => l10n.internalVpnProxyUnavailable,
+        'vpn_permission_required' => l10n.vpnPermissionRequiredNotice,
+        'vpn_permission_pending' => l10n.vpnPermissionPending,
+        'missing_proxy_host' => l10n.missingProxyHost,
+        'wintun_start_failed' => l10n.wintunStartFailed,
+        'wintun_interface_missing' => l10n.wintunInterfaceMissing,
+        'netsh_failed' => l10n.netshFailed,
+        'windows_proxy_failed' => l10n.windowsProxyFailed,
         'proxy_service_start_failed' ||
         'receiving_service_start_failed' ||
-        'local_proxy_start_failed' =>
-          message ?? 'Android could not start the Localist foreground service.',
+        'local_proxy_start_failed' => l10n.androidServiceStartFailed,
         _ => message ?? fallback,
       };
     }
     final text = error.toString();
     if (text.contains('port_unavailable')) {
-      return 'Port is busy. Change the protocol port in Settings.';
+      return l10n.portUnavailable;
     }
     if (text.contains('internal_vpn_proxy_unavailable')) {
-      return 'Internal VPN proxy is not reachable. Check v2rayN and the port.';
+      return l10n.internalVpnProxyUnavailable;
     }
     if (text.contains('local_proxy_port_unavailable')) {
-      return 'Local port 3781 is busy. Close the app using it first.';
+      return l10n.localProxyPortUnavailable;
     }
     return fallback;
   }
@@ -722,8 +734,9 @@ class _LocalistShellState extends State<LocalistShell>
     if (_busy) {
       return;
     }
+    final l10n = context.l10n;
     if (_receivingActive) {
-      _showServiceConflictMessage(context.l10n.receiving, context.l10n.sharing);
+      _showServiceConflictMessage(l10n.receiving, l10n.sharing);
       return;
     }
     setState(() => _busy = true);
@@ -736,7 +749,7 @@ class _LocalistShellState extends State<LocalistShell>
           if (mounted) {
             showLocalistNotice(
               context,
-              message: context.l10n.selectAtLeastOneLocalIp,
+              message: l10n.selectAtLeastOneLocalIp,
               tone: InAppNoticeTone.warning,
             );
           }
@@ -752,7 +765,7 @@ class _LocalistShellState extends State<LocalistShell>
           );
         } else {
           final message = root.lastError.isEmpty
-              ? 'Root VPN sharing did not start'
+              ? l10n.rootVpnDidNotStart
               : root.lastError;
           _logs.error(message);
           _showInAppNotice(message, tone: InAppNoticeTone.error);
@@ -769,7 +782,7 @@ class _LocalistShellState extends State<LocalistShell>
         if (mounted) {
           showLocalistNotice(
             context,
-            message: context.l10n.selectAtLeastOneLocalIp,
+            message: l10n.selectAtLeastOneLocalIp,
             tone: InAppNoticeTone.warning,
           );
         }
@@ -803,7 +816,7 @@ class _LocalistShellState extends State<LocalistShell>
     } catch (error) {
       _logs.error('Failed to start sharing: ${_describeError(error)}');
       _showInAppNotice(
-        _serviceErrorMessage(error, fallback: 'Failed to start proxy service.'),
+        _serviceErrorMessage(error, fallback: l10n.failedToStartProxyService),
         tone: InAppNoticeTone.error,
       );
     } finally {
@@ -818,6 +831,7 @@ class _LocalistShellState extends State<LocalistShell>
     if (_busy) {
       return;
     }
+    final l10n = context.l10n;
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
@@ -829,10 +843,7 @@ class _LocalistShellState extends State<LocalistShell>
       await _refreshState();
     } catch (error) {
       _logs.error('Failed to stop sharing: ${_describeError(error)}');
-      _showInAppNotice(
-        'Failed to stop sharing. Check Logs for details.',
-        tone: InAppNoticeTone.error,
-      );
+      _showInAppNotice(l10n.failedToStopSharing, tone: InAppNoticeTone.error);
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -845,6 +856,7 @@ class _LocalistShellState extends State<LocalistShell>
     if (_busy) {
       return;
     }
+    final l10n = context.l10n;
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
@@ -855,10 +867,7 @@ class _LocalistShellState extends State<LocalistShell>
       await _refreshState();
     } catch (error) {
       _logs.error('Failed to stop receiving: ${_describeError(error)}');
-      _showInAppNotice(
-        'Failed to stop receiving. Check Logs for details.',
-        tone: InAppNoticeTone.error,
-      );
+      _showInAppNotice(l10n.failedToStopReceiving, tone: InAppNoticeTone.error);
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -871,8 +880,9 @@ class _LocalistShellState extends State<LocalistShell>
     if (_busy) {
       return;
     }
+    final l10n = context.l10n;
     if (_sharingActive) {
-      _showServiceConflictMessage(context.l10n.sharing, context.l10n.receiving);
+      _showServiceConflictMessage(l10n.sharing, l10n.receiving);
       return;
     }
     setState(() => _busy = true);
@@ -884,7 +894,7 @@ class _LocalistShellState extends State<LocalistShell>
         if (mounted) {
           showLocalistNotice(
             context,
-            message: context.l10n.proxyNotReachable(config.host),
+            message: l10n.proxyNotReachable(config.host),
             tone: InAppNoticeTone.warning,
           );
         }
@@ -895,8 +905,8 @@ class _LocalistShellState extends State<LocalistShell>
         _logs.warning('VPN permission was not granted');
         if (mounted) {
           await _showPermissionDialog(
-            title: context.l10n.vpnPermissionRequired,
-            message: context.l10n.vpnPermissionRequiredBody,
+            title: l10n.vpnPermissionRequired,
+            message: l10n.vpnPermissionRequiredBody,
           );
         }
         return;
@@ -909,7 +919,7 @@ class _LocalistShellState extends State<LocalistShell>
     } catch (error) {
       _logs.error('Failed to start receiving VPN: ${_describeError(error)}');
       _showInAppNotice(
-        _serviceErrorMessage(error, fallback: 'Failed to start receiving VPN.'),
+        _serviceErrorMessage(error, fallback: l10n.failedToStartReceivingVpn),
         tone: InAppNoticeTone.error,
       );
     } finally {
@@ -924,8 +934,9 @@ class _LocalistShellState extends State<LocalistShell>
     if (_busy) {
       return;
     }
+    final l10n = context.l10n;
     if (_sharingActive) {
-      _showServiceConflictMessage(context.l10n.sharing, context.l10n.receiving);
+      _showServiceConflictMessage(l10n.sharing, l10n.receiving);
       return;
     }
     setState(() => _busy = true);
@@ -937,7 +948,7 @@ class _LocalistShellState extends State<LocalistShell>
         if (mounted) {
           showLocalistNotice(
             context,
-            message: context.l10n.proxyNotReachable(config.host),
+            message: l10n.proxyNotReachable(config.host),
             tone: InAppNoticeTone.warning,
           );
         }
@@ -951,7 +962,7 @@ class _LocalistShellState extends State<LocalistShell>
     } catch (error) {
       _logs.error('Failed to start local proxy: ${_describeError(error)}');
       _showInAppNotice(
-        _serviceErrorMessage(error, fallback: 'Failed to start local proxy.'),
+        _serviceErrorMessage(error, fallback: l10n.failedToStartLocalProxy),
         tone: InAppNoticeTone.error,
       );
     } finally {
@@ -1405,6 +1416,7 @@ class _OnboardingGuideDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: ConstrainedBox(
@@ -1425,7 +1437,7 @@ class _OnboardingGuideDialog extends StatelessWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Welcome to localist',
+                        l10n.guideWelcome,
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
@@ -1434,41 +1446,37 @@ class _OnboardingGuideDialog extends StatelessWidget {
                 const SizedBox(height: 14),
                 _GuideStep(
                   emoji: '📤',
-                  title: 'Sharing',
+                  title: l10n.guideSharingTitle,
                   body: Platform.isWindows
-                      ? 'On the source computer, tap Start proxy service and scan the QR from your phone.'
-                      : 'On the source device, turn on Android Hotspot manually, then tap Start proxy service.',
+                      ? l10n.guideSharingWindows
+                      : l10n.guideSharingAndroid,
                 ),
-                const _GuideStep(
+                _GuideStep(
                   emoji: '📷',
-                  title: 'QR codes',
-                  body:
-                      'Open Smart QR to share every available proxy address with the destination device.',
+                  title: l10n.guideQrTitle,
+                  body: l10n.guideQrBody,
                 ),
-                const _GuideStep(
+                _GuideStep(
                   emoji: '📥',
-                  title: 'Receiving',
-                  body:
-                      'On the destination device, scan the QR or paste a config, then tap Load config.',
+                  title: l10n.guideReceivingTitle,
+                  body: l10n.guideReceivingBody,
                 ),
-                const _GuideStep(
+                _GuideStep(
                   emoji: '🛡️',
-                  title: 'Start VPN',
-                  body:
-                      'After Proxy Config is filled, tap Start as VPN for the whole device or Start as proxy for apps with manual proxy settings.',
+                  title: l10n.guideStartVpnTitle,
+                  body: l10n.guideStartVpnBody,
                 ),
-                const _GuideStep(
+                _GuideStep(
                   emoji: '🧭',
-                  title: 'Menus',
-                  body:
-                      'Use Sharing, Receiving, Logs, and Settings from the bottom menu to control, inspect, and tune the connection.',
+                  title: l10n.guideMenusTitle,
+                  body: l10n.guideMenusBody,
                 ),
                 const SizedBox(height: 4),
                 Align(
                   alignment: Alignment.centerRight,
                   child: FilledButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Got it'),
+                    child: Text(l10n.gotIt),
                   ),
                 ),
               ],

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import '../services/native_bridge_service.dart';
@@ -126,18 +127,19 @@ class _SharingControlPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final oppositeServiceActive = controlsLocked && !running;
     final actionLabel = busy
         ? running
-              ? 'Stopping sharing...'
+              ? l10n.stoppingSharing
               : rootMode
-              ? 'Starting root VPN...'
-              : 'Starting proxy service...'
+              ? l10n.startingRootVpn
+              : l10n.startingProxyService
         : running
-        ? 'Stop sharing'
+        ? l10n.stopSharing
         : rootMode
-        ? 'Start root VPN sharing'
-        : 'Start proxy service';
+        ? l10n.startRootVpnSharing
+        : l10n.startProxyService;
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -146,12 +148,12 @@ class _SharingControlPanel extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  'Sharing Control',
+                  l10n.sharingControl,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
               IconButton(
-                tooltip: 'Refresh',
+                tooltip: l10n.refresh,
                 onPressed: busy || oppositeServiceActive ? null : onRefresh,
                 icon: const Icon(Icons.sync),
               ),
@@ -160,11 +162,11 @@ class _SharingControlPanel extends StatelessWidget {
           const SizedBox(height: 12),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Share on all route IPs'),
+            title: Text(l10n.shareAllRouteIps),
             subtitle: Text(
               settings.shareAllRoutes
-                  ? 'All detected local IPs can serve proxy'
-                  : 'Choose the exact local IPs that should serve proxy',
+                  ? l10n.allDetectedLocalIpsCanServeProxy
+                  : l10n.chooseExactLocalIps,
             ),
             value: settings.shareAllRoutes,
             onChanged: busy || running || oppositeServiceActive
@@ -177,23 +179,23 @@ class _SharingControlPanel extends StatelessWidget {
               value: localIps.isEmpty
                   ? (fallbackIp.isEmpty
                         ? isWindows
-                              ? 'Connect this PC to a network, then refresh.'
-                              : 'Turn on Android Hotspot, then refresh.'
+                              ? l10n.connectPcThenRefresh
+                              : l10n.turnOnHotspotThenRefresh
                         : fallbackIp)
                   : localIps.join('\n'),
             ),
           ] else ...[
             const SizedBox(height: 8),
             Text(
-              'Allowed proxy IPs',
+              l10n.allowedProxyIps,
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
             _AllowedProxyIpsBox(
               child: localIps.isEmpty
-                  ? const MetricTile(
-                      label: 'Local IPs',
-                      value: 'No local IPs detected',
+                  ? MetricTile(
+                      label: l10n.localIps,
+                      value: l10n.noLocalIpsDetected,
                       icon: Icons.lan_outlined,
                     )
                   : Wrap(
@@ -233,8 +235,8 @@ class _SharingControlPanel extends StatelessWidget {
                   ),
                   label: Text(
                     snapshot.root.active
-                        ? 'Root via ${snapshot.root.vpnInterface}'
-                        : 'Root VPN sharing',
+                        ? l10n.rootVia(snapshot.root.vpnInterface)
+                        : l10n.rootVpnSharing,
                   ),
                 )
               else
@@ -253,7 +255,7 @@ class _SharingControlPanel extends StatelessWidget {
               if (isWindows && settings.windowsVpnProxyEnabled)
                 Chip(
                   avatar: const Icon(Icons.vpn_lock_outlined, size: 18),
-                  label: Text('VPN proxy :${settings.windowsVpnProxyPort}'),
+                  label: Text(l10n.vpnProxyPort(settings.windowsVpnProxyPort)),
                 ),
             ],
           ),
@@ -336,6 +338,7 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final errorText = _hasEdits ? _portError(_portController.text) : null;
     final canSave =
         widget.enabled && _hasEdits && errorText == null && !_saving;
@@ -347,14 +350,14 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
           enabled: widget.enabled,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
-            labelText: 'Internal VPN proxy',
+            labelText: l10n.internalVpnProxy,
             prefixIcon: const Icon(Icons.vpn_lock_outlined),
             suffixIconConstraints: const BoxConstraints(
               minWidth: 48,
               minHeight: 48,
             ),
             suffixIcon: Tooltip(
-              message: 'Use internal VPN proxy',
+              message: l10n.useInternalVpnProxy,
               child: Checkbox(
                 value: _enabledDraft,
                 onChanged: widget.enabled
@@ -366,9 +369,9 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
             ),
             helperText: widget.enabled
                 ? _enabledDraft
-                      ? 'Uses v2rayN SOCKS on 127.0.0.1'
-                      : 'Off; sharing uses the Windows route'
-                : 'Locked while sharing is active',
+                      ? l10n.usesV2raynSocks
+                      : l10n.sharingUsesWindowsRoute
+                : l10n.lockedWhileSharingActive,
             errorText: errorText,
           ),
           onSubmitted: (_) {
@@ -395,7 +398,7 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.save_outlined),
-                      label: const Text('Save VPN proxy'),
+                      label: Text(l10n.saveVpnProxy),
                     ),
                   ),
                 )
@@ -440,14 +443,14 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
   String? _portError(String value) {
     final parsed = int.tryParse(value.trim());
     if (parsed == null) {
-      return 'Numbers only';
+      return context.l10n.numbersOnly;
     }
     if (parsed < 1024 || parsed > 65535) {
-      return 'Use 1024-65535';
+      return context.l10n.portRange1024To65535;
     }
     for (final protocol in widget.settings.enabledProtocols) {
       if (widget.settings.portFor(protocol) == parsed) {
-        return 'Use a different port';
+        return context.l10n.useDifferentPort;
       }
     }
     return null;
@@ -458,7 +461,7 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
     if (_portError(_portController.text) != null || port == null) {
       showLocalistNotice(
         context,
-        message: 'Enter a valid VPN proxy port first.',
+        message: context.l10n.enterValidVpnProxyPortFirst,
         tone: InAppNoticeTone.warning,
       );
       return;
@@ -472,7 +475,7 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
       if (mounted) {
         showLocalistNotice(
           context,
-          message: 'VPN proxy saved',
+          message: context.l10n.vpnProxySaved,
           tone: InAppNoticeTone.success,
         );
       }
@@ -527,6 +530,7 @@ class _LocalProxyIpsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: scheme.surface.withValues(alpha: .34),
@@ -545,7 +549,7 @@ class _LocalProxyIpsTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Local proxy IPs',
+                    l10n.localProxyIps,
                     style: Theme.of(context).textTheme.labelMedium,
                   ),
                   const SizedBox(height: 4),
@@ -603,14 +607,15 @@ class _HotspotPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Hotspot', style: Theme.of(context).textTheme.titleLarge),
+          Text(l10n.hotspot, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-            'Turn on Android Hotspot manually, connect the receiving device to it, then refresh localist.',
+            l10n.hotspotInstructions,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 12),
@@ -620,12 +625,12 @@ class _HotspotPanel extends StatelessWidget {
                 child: FilledButton.tonalIcon(
                   onPressed: busy ? null : onOpenHotspotSettings,
                   icon: const Icon(Icons.settings_outlined),
-                  label: const Text('Open Android hotspot settings'),
+                  label: Text(l10n.openAndroidHotspotSettings),
                 ),
               ),
               const SizedBox(width: 8),
               IconButton.filledTonal(
-                tooltip: 'Refresh hotspot',
+                tooltip: l10n.refreshHotspot,
                 onPressed: busy ? null : onRefresh,
                 icon: const Icon(Icons.refresh),
               ),
@@ -633,16 +638,16 @@ class _HotspotPanel extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           MetricTile(
-            label: 'Android hotspot',
-            value: hotspot.active ? 'Detected' : 'Not detected',
+            label: l10n.androidHotspot,
+            value: hotspot.active ? l10n.detected : l10n.inactive,
             icon: Icons.wifi_tethering,
           ),
           const SizedBox(height: 10),
           MetricTile(
-            label: 'Proxy IP',
+            label: l10n.proxyIp,
             value: hotspot.active && hotspot.ipAddress.isNotEmpty
                 ? hotspot.ipAddress
-                : 'Available after hotspot is on',
+                : l10n.availableAfterHotspotOn,
             icon: Icons.lan_outlined,
           ),
         ],
@@ -671,7 +676,8 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
 
   @override
   Widget build(BuildContext context) {
-    final endpoints = _buildEndpoints();
+    final l10n = context.l10n;
+    final endpoints = _buildEndpoints(l10n);
     _QrEndpoint? selected;
     for (final endpoint in endpoints) {
       if (endpoint.id == _selectedId) {
@@ -684,12 +690,15 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Proxy QR codes', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            l10n.proxyQrCodes,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 12),
           if (endpoints.isEmpty)
-            const MetricTile(
-              label: 'Proxy QR',
-              value: 'No proxy endpoint is open',
+            MetricTile(
+              label: l10n.proxyQr,
+              value: l10n.noProxyEndpointOpen,
               icon: Icons.qr_code_2,
             )
           else ...[
@@ -726,7 +735,7 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
     );
   }
 
-  List<_QrEndpoint> _buildEndpoints() {
+  List<_QrEndpoint> _buildEndpoints(AppLocalizations l10n) {
     final proxyEndpoints = [
       for (final protocol in widget.protocols)
         for (final ip in widget.endpointIps)
@@ -747,8 +756,8 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
     return [
       _QrEndpoint(
         id: 'smart',
-        title: 'Smart',
-        subtitle: 'All proxy endpoints',
+        title: l10n.smart,
+        subtitle: l10n.allProxyEndpoints,
         data: smart.encode(),
         icon: Icons.auto_awesome_outlined,
         isSmart: true,
@@ -826,6 +835,7 @@ class _QrPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
     final qrSize = endpoint.isSmart ? 252.0 : 232.0;
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -849,7 +859,7 @@ class _QrPreview extends StatelessWidget {
                   ),
                 ),
                 IconButton.filledTonal(
-                  tooltip: 'Close QR code',
+                  tooltip: l10n.closeQrCode,
                   onPressed: onClose,
                   icon: const Icon(Icons.close),
                 ),
@@ -861,7 +871,7 @@ class _QrPreview extends StatelessWidget {
                 child: _CachedQrImage(
                   data: endpoint.data,
                   size: qrSize,
-                  semanticLabel: '${endpoint.title} QR code',
+                  semanticLabel: l10n.qrCodeSemantic(endpoint.title),
                 ),
               ),
             ),
@@ -878,22 +888,22 @@ class _QrPreview extends StatelessWidget {
                         if (context.mounted) {
                           showLocalistNotice(
                             context,
-                            message: 'Config copied',
+                            message: l10n.configCopied,
                             tone: InAppNoticeTone.success,
                           );
                         }
                       },
                       icon: const Icon(Icons.copy),
-                      label: const Text('Copy config'),
+                      label: Text(l10n.copyConfig),
                     ),
                   ),
                   if (!Platform.isWindows) ...[
                     const SizedBox(width: 8),
                     IconButton.filledTonal(
-                      tooltip: 'Share config',
+                      tooltip: l10n.shareConfig,
                       onPressed: () => NativeBridgeService.instance.shareText(
                         text: endpoint.data,
-                        title: 'localist Smart config',
+                        title: 'Localist ${l10n.smart}',
                       ),
                       icon: const Icon(Icons.ios_share),
                     ),

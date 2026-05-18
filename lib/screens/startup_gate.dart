@@ -9,12 +9,12 @@ class StartupGate extends StatefulWidget {
     super.key,
     required this.settings,
     required this.simple,
-    required this.child,
+    required this.childBuilder,
   });
 
   final AppSettings settings;
   final bool simple;
-  final Widget child;
+  final Widget Function(VoidCallback onBackToLanguage) childBuilder;
 
   @override
   State<StartupGate> createState() => _StartupGateState();
@@ -23,11 +23,13 @@ class StartupGate extends StatefulWidget {
 class _StartupGateState extends State<StartupGate> {
   late AppLanguage _selectedLanguage;
   bool _saving = false;
+  bool _showLanguagePicker = false;
 
   @override
   void initState() {
     super.initState();
     _selectedLanguage = widget.settings.language;
+    _showLanguagePicker = !widget.settings.languageSelected;
   }
 
   @override
@@ -35,13 +37,14 @@ class _StartupGateState extends State<StartupGate> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.settings != widget.settings) {
       _selectedLanguage = widget.settings.language;
+      _showLanguagePicker = !widget.settings.languageSelected;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.settings.languageSelected) {
-      return widget.child;
+    if (widget.settings.languageSelected && !_showLanguagePicker) {
+      return widget.childBuilder(showLanguagePicker);
     }
     final l10n = context.l10n;
     return AnimatedSwitcher(
@@ -107,11 +110,24 @@ class _StartupGateState extends State<StartupGate> {
     setState(() => _saving = true);
     try {
       await widget.settings.setLanguage(_selectedLanguage);
+      if (mounted) {
+        setState(() => _showLanguagePicker = false);
+      }
     } finally {
       if (mounted) {
         setState(() => _saving = false);
       }
     }
+  }
+
+  void showLanguagePicker() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _selectedLanguage = widget.settings.language;
+      _showLanguagePicker = true;
+    });
   }
 }
 

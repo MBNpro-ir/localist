@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/app_localizations.dart';
 import '../services/log_service.dart';
 import '../widgets/glass.dart';
 
@@ -21,6 +22,7 @@ class LogsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
     return DraggableScrollableSheet(
       initialChildSize: .76,
       minChildSize: .38,
@@ -42,12 +44,12 @@ class LogsSheet extends StatelessWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Logs',
+                            l10n.logs,
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                         ),
                         IconButton(
-                          tooltip: 'Close logs',
+                          tooltip: l10n.close,
                           onPressed: onClose,
                           icon: const Icon(Icons.close),
                         ),
@@ -130,31 +132,32 @@ class _LogControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final logs = LogService.instance;
+    final l10n = context.l10n;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         FilterChip(
-          label: const Text('All'),
+          label: Text(l10n.all),
           selected: filter == null,
           onSelected: (_) => onFilterChanged(null),
         ),
         for (final severity in LogSeverity.values)
           FilterChip(
-            label: Text(severity.label),
+            label: Text(_severityLabel(l10n, severity)),
             selected: filter == severity,
             onSelected: (_) => onFilterChanged(severity),
           ),
         IconButton.filledTonal(
-          tooltip: 'Copy logs',
+          tooltip: l10n.copyLogs,
           onPressed: logs.entries.isEmpty
               ? null
               : () => Clipboard.setData(ClipboardData(text: logs.dump())),
           icon: const Icon(Icons.copy_all_outlined),
         ),
         IconButton.filledTonal(
-          tooltip: 'Clear logs',
+          tooltip: l10n.clearLogs,
           onPressed: logs.entries.isEmpty ? null : logs.clear,
           icon: const Icon(Icons.delete_outline),
         ),
@@ -171,15 +174,23 @@ class _LogList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (entries.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 32),
-        child: Center(child: Text('No logs yet')),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: Text(context.l10n.noLogsYet)),
       );
     }
     return Column(
       children: [for (final entry in entries) _LogTile(entry: entry)],
     );
   }
+}
+
+String _severityLabel(AppLocalizations l10n, LogSeverity severity) {
+  return switch (severity) {
+    LogSeverity.info => l10n.logInfo,
+    LogSeverity.warning => l10n.logWarning,
+    LogSeverity.error => l10n.logError,
+  };
 }
 
 class _SheetFrame extends StatelessWidget {

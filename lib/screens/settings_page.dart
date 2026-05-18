@@ -107,7 +107,10 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Proxy', style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    l10n.proxy,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   if (!isWindows) ...[
                     const SizedBox(height: 12),
                     SwitchListTile(
@@ -118,11 +121,11 @@ class _SettingsPageState extends State<SettingsPage> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.admin_panel_settings_outlined),
-                      title: const Text('Root VPN sharing'),
+                      title: Text(l10n.rootVpnSharing),
                       subtitle: Text(
                         widget.settings.rootRoutingEnabled
-                            ? 'Proxy mode is disabled'
-                            : 'Use proxy mode without root',
+                            ? l10n.proxyModeDisabled
+                            : l10n.useProxyModeWithoutRoot,
                       ),
                       value: widget.settings.rootRoutingEnabled,
                       onChanged: _rootBusy ? null : _setRootRoutingEnabled,
@@ -171,7 +174,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                           ),
                                         )
                                       : const Icon(Icons.save_outlined),
-                                  label: const Text('Save ports'),
+                                  label: Text(l10n.savePorts),
                                 ),
                               ),
                             )
@@ -187,7 +190,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Window close',
+                      l10n.windowClose,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
@@ -240,24 +243,27 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Theme', style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    l10n.theme,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: 12),
                   SegmentedButton<ThemeMode>(
-                    segments: const [
+                    segments: [
                       ButtonSegment(
                         value: ThemeMode.system,
-                        icon: Icon(Icons.brightness_auto),
-                        label: Text('System'),
+                        icon: const Icon(Icons.brightness_auto),
+                        label: Text(l10n.themeSystem),
                       ),
                       ButtonSegment(
                         value: ThemeMode.light,
-                        icon: Icon(Icons.light_mode_outlined),
-                        label: Text('Light'),
+                        icon: const Icon(Icons.light_mode_outlined),
+                        label: Text(l10n.themeLight),
                       ),
                       ButtonSegment(
                         value: ThemeMode.dark,
-                        icon: Icon(Icons.dark_mode_outlined),
-                        label: Text('Dark'),
+                        icon: const Icon(Icons.dark_mode_outlined),
+                        label: Text(l10n.themeDark),
                       ),
                     ],
                     selected: {themeSettings.themeMode},
@@ -268,15 +274,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 12),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Use Material You colors'),
+                    title: Text(l10n.useMaterialYouColors),
                     subtitle: Text(
                       dynamicColorsAvailable
                           ? isWindows
-                                ? 'Uses Windows accent colors'
-                                : 'Uses Android wallpaper colors'
+                                ? l10n.usesWindowsAccentColors
+                                : l10n.usesAndroidWallpaperColors
                           : isWindows
-                          ? 'Unavailable on this Windows version'
-                          : 'Unavailable on this Android version',
+                          ? l10n.unavailableWindows
+                          : l10n.unavailableAndroid,
                     ),
                     value:
                         dynamicColorsAvailable &&
@@ -308,7 +314,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'App info',
+                    l10n.appInfo,
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
@@ -334,7 +340,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Developed by $_appDeveloper',
+                              l10n.developedBy(_appDeveloper),
                               style: Theme.of(context).textTheme.bodyMedium,
                             ),
                           ],
@@ -344,21 +350,21 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                   const SizedBox(height: 14),
                   MetricTile(
-                    label: 'Version',
-                    value: _appVersion ?? 'Loading',
+                    label: l10n.version,
+                    value: _appVersion ?? l10n.loading,
                     icon: Icons.tag_outlined,
                   ),
                   const SizedBox(height: 10),
                   MetricTile(
-                    label: isWindows ? 'Platform' : 'Package',
-                    value: isWindows ? 'Windows Desktop' : _appPackageName,
+                    label: isWindows ? l10n.platform : l10n.package,
+                    value: isWindows ? l10n.windowsDesktop : _appPackageName,
                     icon: isWindows
                         ? Icons.desktop_windows_outlined
                         : Icons.inventory_2_outlined,
                   ),
                   const SizedBox(height: 10),
                   MetricTile(
-                    label: isWindows ? 'App ID' : 'Developer',
+                    label: isWindows ? l10n.appId : l10n.developer,
                     value: isWindows ? _windowsAppId : _appDeveloper,
                     icon: isWindows
                         ? Icons.verified_outlined
@@ -367,7 +373,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   if (settingsPath != null) ...[
                     const SizedBox(height: 10),
                     MetricTile(
-                      label: 'Settings',
+                      label: l10n.settingsPath,
                       value: settingsPath,
                       icon: Icons.folder_outlined,
                       wrapValue: true,
@@ -417,7 +423,7 @@ class _SettingsPageState extends State<SettingsPage> {
         return trimmed.substring('version:'.length).trim();
       }
     }
-    return 'Development';
+    return context.l10n.development;
   }
 
   void _handlePortTextChanged() {
@@ -459,14 +465,14 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _portError(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) {
-      return 'Required';
+      return context.l10n.required;
     }
     final parsed = int.tryParse(trimmed);
     if (parsed == null) {
-      return 'Numbers only';
+      return context.l10n.numbersOnly;
     }
     if (parsed < 1024 || parsed > 65535) {
-      return 'Use 1024-65535';
+      return context.l10n.portRange1024To65535;
     }
     return null;
   }
@@ -489,7 +495,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (widget.portsLocked) {
       showLocalistNotice(
         context,
-        message: 'Stop sharing before changing ports.',
+        message: context.l10n.stopSharingBeforeChangingPorts,
         tone: InAppNoticeTone.warning,
       );
       return;
@@ -504,7 +510,7 @@ class _SettingsPageState extends State<SettingsPage> {
             socks5Port == null)) {
       showLocalistNotice(
         context,
-        message: 'Enter valid ports first.',
+        message: context.l10n.enterValidPortsFirst,
         tone: InAppNoticeTone.warning,
       );
       return;
@@ -527,7 +533,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         showLocalistNotice(
           context,
-          message: 'Ports saved',
+          message: context.l10n.portsSaved,
           tone: InAppNoticeTone.success,
         );
       }
@@ -561,7 +567,7 @@ class _SettingsPageState extends State<SettingsPage> {
             showLocalistNotice(
               context,
               message: root.lastError.isEmpty
-                  ? 'Approve the Windows admin prompt to continue.'
+                  ? context.l10n.approveWindowsAdminPrompt
                   : root.lastError,
               tone: InAppNoticeTone.warning,
             );
@@ -578,7 +584,7 @@ class _SettingsPageState extends State<SettingsPage> {
         if (mounted) {
           showLocalistNotice(
             context,
-            message: 'Root access was not granted',
+            message: context.l10n.rootAccessWasNotGranted,
             tone: InAppNoticeTone.warning,
           );
         }
@@ -593,7 +599,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         showLocalistNotice(
           context,
-          message: 'Unable to change root routing. Check Logs.',
+          message: context.l10n.unableToChangeRootRouting,
           tone: InAppNoticeTone.error,
         );
       }
@@ -612,24 +618,25 @@ class _WindowsCloseBehaviorSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return DropdownButtonFormField<WindowsCloseBehavior>(
       initialValue: settings.windowsCloseBehavior,
-      decoration: const InputDecoration(
-        labelText: 'Close button',
-        prefixIcon: Icon(Icons.close_fullscreen_outlined),
+      decoration: InputDecoration(
+        labelText: l10n.closeButton,
+        prefixIcon: const Icon(Icons.close_fullscreen_outlined),
       ),
-      items: const [
+      items: [
         DropdownMenuItem(
           value: WindowsCloseBehavior.ask,
-          child: Text('Ask every time'),
+          child: Text(l10n.askEveryTime),
         ),
         DropdownMenuItem(
           value: WindowsCloseBehavior.tray,
-          child: Text('Taskbar tray'),
+          child: Text(l10n.taskbarTray),
         ),
         DropdownMenuItem(
           value: WindowsCloseBehavior.exit,
-          child: Text('Exit Localist'),
+          child: Text(l10n.exitLocalist),
         ),
       ],
       onChanged: (value) {
@@ -972,16 +979,17 @@ class _ProtocolPortField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return TextField(
       controller: controller,
       enabled: enabled,
       keyboardType: TextInputType.number,
       decoration: InputDecoration(
-        labelText: '${protocol.label} port',
+        labelText: l10n.protocolPort(protocol.label),
         prefixIcon: const Icon(Icons.numbers),
         helperText: enabled
-            ? 'Default: ${protocol.defaultPort}'
-            : 'Locked while sharing is active',
+            ? l10n.defaultPort(protocol.defaultPort)
+            : l10n.lockedWhileSharingActive,
         errorText: errorText,
       ),
       onSubmitted: onSubmitted,
@@ -1009,7 +1017,7 @@ class _LockedPortsNotice extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Stop sharing before changing protocols or ports.',
+                context.l10n.lockedPortsNotice,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -1044,7 +1052,10 @@ class _SeedColorPicker extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 8),
-        Text('App color', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          context.l10n.appColor,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 10),
         Wrap(
           spacing: 10,

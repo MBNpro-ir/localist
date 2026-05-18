@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import '../widgets/glass.dart';
@@ -70,6 +71,7 @@ class _StatsSheetState extends State<StatsSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final snapshot = _snapshot;
     final sharingActive = snapshot.proxyRunning || snapshot.root.active;
     final receivingActive =
@@ -93,70 +95,70 @@ class _StatsSheetState extends State<StatsSheet> {
     final remoteProxy = snapshot.remoteProxy;
     final scheme = Theme.of(context).colorScheme;
     final title = receivingActive
-        ? 'Receiving active'
+        ? l10n.receivingActive
         : sharingActive
-        ? 'Sharing active'
-        : 'Live connection';
+        ? l10n.sharingActive
+        : l10n.liveConnection;
     final sections = <Widget>[
       if (sharingActive) ...[
-        _SectionLabel(label: 'Sharing'),
+        _SectionLabel(label: l10n.sharing),
         _StatsGrid(
           items: [
             if (snapshot.proxyRunning)
               _StatsItem(
-                label: 'Proxy',
-                value: protocols.isEmpty ? 'Active' : protocols,
+                label: l10n.proxy,
+                value: protocols.isEmpty ? l10n.active : protocols,
                 icon: Icons.hub_outlined,
               ),
             if (snapshot.root.active || rootMode)
               _StatsItem(
-                label: 'Root',
+                label: l10n.root,
                 value: snapshot.root.active
                     ? snapshot.root.vpnInterface
-                    : 'Ready',
+                    : l10n.ready,
                 icon: Icons.admin_panel_settings_outlined,
               ),
             _StatsItem(
-              label: 'Hotspot',
-              value: snapshot.hotspot.active ? 'Detected' : 'Inactive',
+              label: l10n.hotspot,
+              value: snapshot.hotspot.active ? l10n.detected : l10n.inactive,
               icon: Icons.wifi_tethering,
             ),
             if (endpointIps.isNotEmpty)
               _StatsItem(
-                label: 'Proxy IP',
+                label: l10n.proxyIp,
                 value: endpointIps.length == 1
                     ? endpointIps.first
-                    : '${endpointIps.length} IPs',
+                    : l10n.ipCount(endpointIps.length),
                 icon: Icons.lan_outlined,
               ),
           ],
         ),
       ],
       if (receivingActive) ...[
-        _SectionLabel(label: 'Receiving'),
+        _SectionLabel(label: l10n.receiving),
         _StatsGrid(
           items: [
             if (snapshot.receivingRunning)
-              const _StatsItem(
+              _StatsItem(
                 label: 'VPN',
-                value: 'Active',
+                value: l10n.active,
                 icon: Icons.vpn_lock_outlined,
               ),
             if (snapshot.localProxyRunning)
               _StatsItem(
-                label: 'Local proxy',
+                label: l10n.localProxy,
                 value: '127.0.0.1:${snapshot.localProxyPort}',
                 icon: Icons.settings_ethernet,
               ),
             if (remoteProxy != null)
               _StatsItem(
-                label: 'Remote',
+                label: l10n.remote,
                 value: '${remoteProxy.protocol.label}:${remoteProxy.port}',
                 icon: Icons.sync_alt,
               ),
             if (remoteProxy != null)
               _StatsItem(
-                label: 'Remote host',
+                label: l10n.remoteHost,
                 value: remoteProxy.host,
                 icon: Icons.dns_outlined,
               ),
@@ -165,26 +167,26 @@ class _StatsSheetState extends State<StatsSheet> {
       ],
       if (running) ...[
         const SizedBox(height: 12),
-        _SectionLabel(label: 'Traffic'),
+        _SectionLabel(label: l10n.traffic),
         _StatsGrid(
           items: [
             _StatsItem(
-              label: 'Session',
+              label: l10n.session,
               value: formatBytes(snapshot.usage.sessionTotalBytes),
               icon: Icons.query_stats,
             ),
             _StatsItem(
-              label: 'Total',
+              label: l10n.total,
               value: formatBytes(snapshot.usage.totalBytes),
               icon: Icons.storage_outlined,
             ),
             _StatsItem(
-              label: 'Upload',
+              label: l10n.upload,
               value: formatBytes(snapshot.usage.sessionTxBytes),
               icon: Icons.north_east,
             ),
             _StatsItem(
-              label: 'Download',
+              label: l10n.download,
               value: formatBytes(snapshot.usage.sessionRxBytes),
               icon: Icons.south_west,
             ),
@@ -217,19 +219,19 @@ class _StatsSheetState extends State<StatsSheet> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Stats',
+                                l10n.stats,
                                 style: Theme.of(context).textTheme.titleLarge,
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                running ? title : 'Idle',
+                                running ? title : l10n.idle,
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ],
                           ),
                         ),
                         IconButton(
-                          tooltip: 'Close stats',
+                          tooltip: l10n.closeStats,
                           onPressed: widget.onClose,
                           icon: const Icon(Icons.close),
                         ),

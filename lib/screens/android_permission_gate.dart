@@ -15,10 +15,12 @@ class AndroidPermissionGate extends StatefulWidget {
     super.key,
     required this.child,
     required this.simple,
+    this.onBackToLanguage,
   });
 
   final Widget child;
   final bool simple;
+  final VoidCallback? onBackToLanguage;
 
   @override
   State<AndroidPermissionGate> createState() => _AndroidPermissionGateState();
@@ -97,13 +99,14 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
 
     final l10n = context.l10n;
     final scheme = Theme.of(context).colorScheme;
-    return OnboardingFrame(
+    final frame = OnboardingFrame(
       simple: widget.simple,
       steps: [l10n.languageStep, l10n.permissionsStep, l10n.mainStep],
       currentStep: 1,
       icon: Icons.verified_user_outlined,
       title: l10n.requiredAndroidAccess,
       subtitle: l10n.permissionsIntro,
+      onBack: widget.onBackToLanguage,
       children: [
         _PermissionTile(
           granted: _notificationGranted,
@@ -146,6 +149,15 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
           ),
         ],
       ],
+    );
+    return PopScope(
+      canPop: widget.onBackToLanguage == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          widget.onBackToLanguage?.call();
+        }
+      },
+      child: frame,
     );
   }
 

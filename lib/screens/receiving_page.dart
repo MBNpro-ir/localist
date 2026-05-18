@@ -146,10 +146,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
               Text(
                 running
                     ? _runningStatusText(
+                        l10n: l10n,
                         vpnRunning: vpnRunning,
                         proxyRunning: proxyRunning,
                       )
-                    : 'Paste a Smart config or scan a localist QR, then load it into Proxy Config.',
+                    : l10n.receivingIntro,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 14),
@@ -167,13 +168,13 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 minLines: 2,
                 maxLines: 4,
                 decoration: InputDecoration(
-                  labelText: 'Smart/manual config',
-                  hintText: 'localist://smart?... or http://host:2060',
+                  labelText: l10n.smartManualConfig,
+                  hintText: l10n.configHint,
                   prefixIcon: const Icon(Icons.data_object_outlined),
                   suffixIcon: _clearTextButton(
                     controller: _configController,
                     enabled: configFieldEnabled,
-                    tooltip: 'Clear config',
+                    tooltip: l10n.clearConfig,
                     afterClear: () => _configTip = null,
                   ),
                 ),
@@ -186,7 +187,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
                       ? null
                       : () => _handleConfigValue(_configController.text),
                   icon: const Icon(Icons.download_done_outlined),
-                  label: const Text('Load config'),
+                  label: Text(l10n.loadConfig),
                 ),
               ),
               const SizedBox(height: 10),
@@ -197,7 +198,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
                       ? null
                       : _startScanner,
                   icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Scan proxy QR'),
+                  label: Text(l10n.scanProxyQr),
                 ),
               ),
               if (oppositeServiceActive) ...[
@@ -224,7 +225,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
                       top: 10,
                       right: 10,
                       child: IconButton.filled(
-                        tooltip: 'Close scanner',
+                        tooltip: l10n.closeScanner,
                         onPressed: _stopScanner,
                         icon: const Icon(Icons.close),
                       ),
@@ -239,7 +240,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Proxy Config',
+                l10n.proxyConfig,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 12),
@@ -262,12 +263,12 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 controller: _hostController,
                 enabled: proxyFieldEnabled,
                 decoration: InputDecoration(
-                  labelText: 'Proxy host',
+                  labelText: l10n.proxyHost,
                   prefixIcon: const Icon(Icons.dns_outlined),
                   suffixIcon: _clearTextButton(
                     controller: _hostController,
                     enabled: proxyFieldEnabled,
-                    tooltip: 'Clear host',
+                    tooltip: l10n.clearHost,
                   ),
                   errorText: hostError,
                 ),
@@ -278,12 +279,12 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 enabled: proxyFieldEnabled,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  labelText: 'Proxy port',
+                  labelText: l10n.proxyPort,
                   prefixIcon: const Icon(Icons.numbers),
                   suffixIcon: _clearTextButton(
                     controller: _portController,
                     enabled: proxyFieldEnabled,
-                    tooltip: 'Clear port',
+                    tooltip: l10n.clearPort,
                   ),
                   errorText: portError,
                 ),
@@ -319,11 +320,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
                   label: Text(
                     vpnRunning
                         ? Platform.isWindows
-                              ? 'Stop Windows VPN'
-                              : 'Stop VPN'
+                              ? l10n.stopWindowsVpn
+                              : l10n.stopVpn
                         : Platform.isWindows
-                        ? 'Start Windows VPN + proxy'
-                        : 'Start as VPN + proxy',
+                        ? l10n.startWindowsVpnProxy
+                        : l10n.startVpnProxy,
                   ),
                 ),
               ),
@@ -345,7 +346,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
                         ? Icons.stop_circle_outlined
                         : Icons.settings_ethernet,
                   ),
-                  label: Text(proxyRunning ? 'Stop proxy' : 'Start as proxy'),
+                  label: Text(proxyRunning ? l10n.stopProxy : l10n.startProxy),
                 ),
               ),
               if (config != null) ...[
@@ -359,10 +360,13 @@ class _ReceivingPageState extends State<ReceivingPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Proxy Apps', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                l10n.proxyApps,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 8),
               Text(
-                'Apps with their own proxy setting can use 127.0.0.1:3781 after Start as VPN or Start as proxy.',
+                l10n.proxyAppsDescription,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 12),
@@ -375,8 +379,8 @@ class _ReceivingPageState extends State<ReceivingPage> {
                   icon: const Icon(Icons.telegram),
                   label: Text(
                     Platform.isWindows
-                        ? 'Open Telegram Desktop proxy'
-                        : 'Open Telegram proxy',
+                        ? l10n.openTelegramDesktopProxy
+                        : l10n.openTelegramProxy,
                   ),
                 ),
               ),
@@ -395,7 +399,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
       if (!opened && mounted) {
         showLocalistNotice(
           context,
-          message: 'Telegram could not be opened.',
+          message: context.l10n.telegramCouldNotOpen,
           tone: InAppNoticeTone.warning,
         );
       }
@@ -404,7 +408,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
       if (mounted) {
         showLocalistNotice(
           context,
-          message: 'Telegram could not be opened.',
+          message: context.l10n.telegramCouldNotOpen,
           tone: InAppNoticeTone.warning,
         );
       }
@@ -444,14 +448,14 @@ class _ReceivingPageState extends State<ReceivingPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
+            child: Text(context.l10n.ok),
           ),
           FilledButton(
             onPressed: () {
               openAppSettings();
               Navigator.of(context).pop();
             },
-            child: const Text('Open settings'),
+            child: Text(context.l10n.openSettings),
           ),
         ],
       ),
@@ -459,20 +463,17 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   String _runningStatusText({
+    required AppLocalizations l10n,
     required bool vpnRunning,
     required bool proxyRunning,
   }) {
     if (vpnRunning && proxyRunning) {
-      return Platform.isWindows
-          ? 'Windows VPN mode and local proxy are active on 127.0.0.1:3781.'
-          : 'prstun VPN and local proxy are active on 127.0.0.1:3781.';
+      return l10n.vpnProxyRunningStatus(windows: Platform.isWindows);
     }
     if (proxyRunning) {
-      return 'Local proxy is active on 127.0.0.1:3781.';
+      return l10n.localProxyRunningStatus;
     }
-    return Platform.isWindows
-        ? 'Windows VPN mode is active.'
-        : 'prstun VPN receiving mode is active.';
+    return l10n.vpnRunningStatus(windows: Platform.isWindows);
   }
 
   Future<void> _startScanner() async {
@@ -487,8 +488,8 @@ class _ReceivingPageState extends State<ReceivingPage> {
     if (!permission.isGranted) {
       if (mounted) {
         await _showPermissionPopup(
-          title: 'Camera permission required',
-          message: 'Localist needs camera access to scan proxy QR configs.',
+          title: context.l10n.cameraRequired,
+          message: context.l10n.cameraRequiredBody,
         );
       }
       return;
@@ -512,7 +513,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
       if (mounted) {
         showLocalistNotice(
           context,
-          message: 'Scanner could not start.',
+          message: context.l10n.scannerCouldNotStart,
           tone: InAppNoticeTone.warning,
         );
       }
@@ -544,16 +545,16 @@ class _ReceivingPageState extends State<ReceivingPage> {
       return showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Scanner device'),
-          content: const Text('Use the default Windows camera device?'),
+          title: Text(context.l10n.scannerDevice),
+          content: Text(context.l10n.useDefaultWindowsCamera),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop('default'),
-              child: const Text('Default camera'),
+              child: Text(context.l10n.defaultCamera),
             ),
           ],
         ),
@@ -562,7 +563,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
     return showDialog<String>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Scanner device'),
+        title: Text(context.l10n.scannerDevice),
         children: [
           for (final device in devices)
             SimpleDialogOption(
@@ -629,7 +630,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
     }
     showLocalistNotice(
       context,
-      message: 'Config is not valid.',
+      message: context.l10n.invalidConfig,
       tone: InAppNoticeTone.error,
     );
   }
@@ -653,13 +654,12 @@ class _ReceivingPageState extends State<ReceivingPage> {
     setState(() {
       _applyConfig(config);
       _configController.text = configText ?? config.url;
-      _configTip =
-          'Proxy Config is ready. Use Start as VPN + proxy or Start as proxy when you are ready.';
+      _configTip = context.l10n.configReadyTip;
     });
     unawaited(_persistDraft());
     showLocalistNotice(
       context,
-      message: 'Config loaded. Choose Start as VPN + proxy or Start as proxy.',
+      message: context.l10n.configLoadedNotice,
       tone: InAppNoticeTone.success,
     );
   }
@@ -677,7 +677,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Choose proxy endpoint',
+                  context.l10n.chooseProxyEndpoint,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
@@ -693,8 +693,8 @@ class _ReceivingPageState extends State<ReceivingPage> {
                           title: Text(endpoint.label),
                           subtitle: Text(
                             endpoint.protocol == ProxyProtocol.http
-                                ? '${endpoint.config.url} - VPN compatible'
-                                : '${endpoint.config.url} - manual proxy endpoint',
+                                ? '${endpoint.config.url} - ${context.l10n.vpnCompatible}'
+                                : '${endpoint.config.url} - ${context.l10n.manualProxyEndpoint}',
                           ),
                           onTap: () => Navigator.of(context).pop(endpoint),
                         ),
@@ -753,8 +753,8 @@ class _ReceivingPageState extends State<ReceivingPage> {
                           title: Text(endpoint.label),
                           subtitle: Text(
                             endpoint.protocol == ProxyProtocol.http
-                                ? '${endpoint.config.url} - VPN compatible'
-                                : '${endpoint.config.url} - manual proxy endpoint',
+                                ? '${endpoint.config.url} - ${context.l10n.vpnCompatible}'
+                                : '${endpoint.config.url} - ${context.l10n.manualProxyEndpoint}',
                           ),
                           onTap: () => Navigator.of(context).pop(endpoint),
                         ),
@@ -832,17 +832,17 @@ class _ReceivingPageState extends State<ReceivingPage> {
   String? _hostError(String value) {
     final host = value.trim();
     if (host.isEmpty) {
-      return 'Required';
+      return context.l10n.required;
     }
     if (host.contains(RegExp(r'\s'))) {
-      return 'No spaces';
+      return context.l10n.noSpaces;
     }
     if (host.contains('://')) {
-      return 'Host only';
+      return context.l10n.hostOnly;
     }
     final uri = Uri.tryParse('http://$host');
     if (uri == null || uri.host.isEmpty || uri.host != host) {
-      return 'Invalid host';
+      return context.l10n.invalidHost;
     }
     return null;
   }
@@ -850,14 +850,14 @@ class _ReceivingPageState extends State<ReceivingPage> {
   String? _portError(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) {
-      return 'Required';
+      return context.l10n.required;
     }
     final parsed = int.tryParse(trimmed);
     if (parsed == null) {
-      return 'Numbers only';
+      return context.l10n.numbersOnly;
     }
     if (parsed < 1 || parsed > 65535) {
-      return 'Use 1-65535';
+      return context.l10n.portRange1To65535;
     }
     return null;
   }
@@ -996,6 +996,7 @@ class _NearbyDeviceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
     return Opacity(
       opacity: enabled ? 1 : .56,
       child: Material(
@@ -1023,7 +1024,7 @@ class _NearbyDeviceTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${device.platform} - ${device.endpointSummary}',
+                        '${device.platform} - ${_endpointSummary(l10n)}',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelSmall,
@@ -1041,7 +1042,7 @@ class _NearbyDeviceTile extends StatelessWidget {
                       style: Theme.of(context).textTheme.labelLarge,
                     ),
                     Text(
-                      _lastSeenLabel(device.lastSeen),
+                      _lastSeenLabel(context, device.lastSeen),
                       style: Theme.of(context).textTheme.labelSmall,
                     ),
                   ],
@@ -1054,15 +1055,24 @@ class _NearbyDeviceTile extends StatelessWidget {
     );
   }
 
-  static String _lastSeenLabel(DateTime value) {
+  static String _lastSeenLabel(BuildContext context, DateTime value) {
     final seconds = DateTime.now().difference(value).inSeconds;
     if (seconds < 5) {
-      return 'now';
+      return context.l10n.now;
     }
     if (seconds < 60) {
       return '${seconds}s';
     }
     return '${DateTime.now().difference(value).inMinutes}m';
+  }
+
+  String _endpointSummary(AppLocalizations l10n) {
+    final hosts = device.endpoints.map((endpoint) => endpoint.host).toSet();
+    final protocols = device.endpoints
+        .map((endpoint) => endpoint.protocol.label)
+        .toSet()
+        .join(' / ');
+    return l10n.endpointSummary(protocols, hosts.length);
   }
 }
 
@@ -1152,10 +1162,10 @@ class _WindowsQrScannerPageState extends State<_WindowsQrScannerPage> {
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(
-        title: const Text('Localist QR'),
+        title: Text(context.l10n.localistQr),
         centerTitle: true,
         leading: IconButton(
-          tooltip: 'Close scanner',
+          tooltip: context.l10n.closeScanner,
           onPressed: _closeScanner,
           icon: const Icon(Icons.close),
         ),
@@ -1186,7 +1196,7 @@ class _WindowsQrScannerPageState extends State<_WindowsQrScannerPage> {
                             child: Padding(
                               padding: const EdgeInsets.all(16),
                               child: Text(
-                                'Scanner could not start.',
+                                context.l10n.scannerCouldNotStart,
                                 style: TextStyle(color: scheme.error),
                                 textAlign: TextAlign.center,
                               ),
@@ -1211,7 +1221,7 @@ class _WindowsQrScannerPageState extends State<_WindowsQrScannerPage> {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.videocam_outlined),
-                title: const Text('Scanner device'),
+                title: Text(context.l10n.scannerDevice),
                 subtitle: Text(widget.deviceName),
               ),
               const Spacer(),
@@ -1220,7 +1230,7 @@ class _WindowsQrScannerPageState extends State<_WindowsQrScannerPage> {
                 child: FilledButton.tonalIcon(
                   onPressed: _closeScanner,
                   icon: const Icon(Icons.close),
-                  label: const Text('Close scanner'),
+                  label: Text(context.l10n.closeScanner),
                 ),
               ),
             ],
