@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.4.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.0-blue"></a>
 </p>
 
 ## Overview
@@ -32,6 +32,9 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 
 ## What's New
 
+- 📲 Xray QR codes now use v2rayNG-compatible `socks://Og@host:port#name` links instead of raw JSON.
+- 🧯 Windows proxy relays now apply socket backpressure and throttle traffic-stat saves to prevent high-speed transfer RAM/CPU runaway.
+- 🛠️ Windows release builds prefer the generated C++/WinRT projection so `webview_windows` compiles reliably on this toolchain.
 - 🧭 Nearby discovery now ignores the current phone's own Sharing announcements.
 - 🖤 Android widgets now use a darker redesigned style with separate Sending and Receiving widgets.
 - 🔔 Android checks for updates on startup and shows an in-app notice only when a newer installable release exists.
@@ -66,6 +69,7 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 - 🧩 `v3.2.0` - Permission cleanup, updater repair, widgets, crash reporting, flags, color settings, and README refresh.
 - 📱 `v3.3.0` - iOS Xray/sing-box QR configs, Windows system proxy mode, Wintun startup fixes, and release staging polish.
 - 🧭 `v3.4.0` - Self-discovery filtering, black Android widgets, separate Sending/Receiving widgets, startup update notices, and tag-only release builds.
+- 📲 `v3.5.0` - v2rayNG SOCKS QR links for Xray, Windows relay backpressure, throttled traffic stats, and C++/WinRT build reliability.
 
 ## Repository Layout
 

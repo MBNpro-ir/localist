@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.4.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.0-blue"></a>
 </p>
 
 ## معرفی
@@ -32,6 +32,9 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 
 ## تغییرات جدید
 
+- 📲 QRهای Xray به جای JSON حالا لینک سازگار با v2rayNG با فرمت `socks://Og@host:port#name` می‌سازند.
+- 🧯 relay پروکسی ویندوز حالا backpressure دارد و ذخیره آمار ترافیک throttle شده تا هنگام انتقال سریع، RAM/CPU از کنترل خارج نشود.
+- 🛠️ build ویندوز از C++/WinRT projection تولیدشده استفاده می‌کند تا `webview_windows` روی این toolchain پایدار کامپایل شود.
 - 🧭 Nearby discovery دیگر اعلان Sharing خود همان گوشی را در Receiving نشان نمی‌دهد.
 - 🖤 ویجت‌های اندروید با طراحی مشکی بازطراحی شدند و ویجت‌های جدا برای Sending و Receiving اضافه شد.
 - 🔔 اندروید هنگام باز شدن برنامه آپدیت را بررسی می‌کند و فقط وقتی نسخه جدید قابل نصب باشد اعلان داخلی نشان می‌دهد.
@@ -66,6 +69,7 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 - 🧩 `v3.2.0` - پاک‌سازی permissionها، تعمیر updater، ویجت، crash reporter، پرچم‌ها، رنگ‌ها و به‌روزرسانی README.
 - 📱 `v3.3.0` - QR کانفیگ iOS برای Xray/sing-box، حالت system proxy ویندوز، اصلاح Wintun و آماده‌سازی بهتر release.
 - 🧭 `v3.4.0` - فیلتر self-discovery، ویجت‌های مشکی اندروید، ویجت جدا برای Sending/Receiving، اعلان آپدیت هنگام شروع، و release build فقط با tag.
+- 📲 `v3.5.0` - لینک SOCKS سازگار با v2rayNG برای QRهای Xray، backpressure ویندوز، throttle آمار ترافیک و پایداری build C++/WinRT.
 
 ## ساختار پروژه
 

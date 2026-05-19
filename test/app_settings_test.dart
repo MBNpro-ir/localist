@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/models/app_settings.dart';
 import 'package:localist/models/service_state.dart';
 import 'package:localist/services/app_update_service.dart';
+import 'package:localist/services/v2rayng_socks_uri.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -75,6 +76,19 @@ void main() {
     expect(decoded!.endpoints, hasLength(2));
     expect(decoded.endpoints.first.config.url, 'http://192.168.1.10:2060');
     expect(decoded.endpoints.last.config.url, 'socks5://192.168.1.10:3075');
+  });
+
+  test('v2rayNG socks URI uses no-auth socks share format', () {
+    final uri = buildV2rayNgSocksUri(
+      host: '192.168.1.10',
+      port: 3075,
+      name: 'Localist Xray 192.168.1.10:3075',
+    );
+
+    expect(
+      uri,
+      'socks://Og@192.168.1.10:3075#Localist%20Xray%20192.168.1.10%3A3075',
+    );
   });
 
   test('discovered device parses announced endpoints', () {

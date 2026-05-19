@@ -42,6 +42,9 @@ class WindowsLocalistService {
   int _totalRxBytes = 0;
   int _totalTxBytes = 0;
   Future<void>? _totalsLoader;
+  Timer? _statsSaveTimer;
+  bool _statsSaveInFlight = false;
+  bool _statsSavePending = false;
 
   Future<bool> ensureVpnPermission() async {
     final admin = await checkAdminAccess();
@@ -260,6 +263,7 @@ class WindowsLocalistService {
     _windowsProxyApplied = false;
     _clearWindowsProxyOnStop = false;
     _remoteProxy = null;
+    await _flushTotals();
     return true;
   }
 
@@ -462,13 +466,32 @@ class WindowsLocalistService {
     _sessionRxBytes += downloadedBytes;
     _totalTxBytes += uploadedBytes;
     _totalRxBytes += downloadedBytes;
-    unawaited(_saveTotals());
+    _scheduleSaveTotals();
   }
 
-  Future<void> _saveTotals() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_statsRxKey, _totalRxBytes);
-    await prefs.setInt(_statsTxKey, _totalTxBytes);
+  void _scheduleSaveTotals() {
+    _statsSavePending = true;
+    _statsSaveTimer ??= Timer(const Duration(seconds: 2), () {
+      _statsSaveTimer = null;
+      unawaited(_flushTotals());
+    });
+  }
+
+  Future<void> _flushTotals() async {
+    _statsSaveTimer?.cancel();
+    _statsSaveTimer = null;
+    if (!_statsSavePending || _statsSaveInFlight) {
+      return;
+    }
+    _statsSavePending = false;
+    _statsSaveInFlight = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_statsRxKey, _totalRxBytes);
+      await prefs.setInt(_statsTxKey, _totalTxBytes);
+    } finally {
+      _statsSaveInFlight = false;
+    }
   }
 
   RootRoutingInfo _adminInfo({
@@ -1759,6 +1782,7 @@ class _SocketReader {
     _subscription = socket.listen(
       (data) {
         _buffer.addAll(data);
+        _pauseIfNeeded();
         _completeWaiter();
       },
       onError: (Object error) {
@@ -1780,6 +1804,7 @@ class _SocketReader {
   Completer<void>? _waiter;
   Object? _error;
   bool _closed = false;
+  bool _paused = false;
 
   void unreadByte(int value) {
     _buffer.addFirst(value);
@@ -1787,12 +1812,16 @@ class _SocketReader {
 
   Future<int> readByte() async {
     await _ensureAvailable(1);
-    return _buffer.removeFirst();
+    final value = _buffer.removeFirst();
+    _resumeIfNeeded();
+    return value;
   }
 
   Future<List<int>> readExact(int count) async {
     await _ensureAvailable(count);
-    return [for (var i = 0; i < count; i++) _buffer.removeFirst()];
+    final bytes = [for (var i = 0; i < count; i++) _buffer.removeFirst()];
+    _resumeIfNeeded();
+    return bytes;
   }
 
   Future<int> readPort() async {
@@ -1831,8 +1860,11 @@ class _SocketReader {
       _waiter ??= Completer<void>();
       await _waiter!.future;
     }
-    final chunk = List<int>.from(_buffer);
-    _buffer.clear();
+    final count = _buffer.length > _maxRelayChunk
+        ? _maxRelayChunk
+        : _buffer.length;
+    final chunk = [for (var i = 0; i < count; i++) _buffer.removeFirst()];
+    _resumeIfNeeded();
     return chunk;
   }
 
@@ -1860,4 +1892,24 @@ class _SocketReader {
     }
     _waiter = null;
   }
+
+  void _pauseIfNeeded() {
+    if (_paused || _buffer.length < _highWaterMark) {
+      return;
+    }
+    _paused = true;
+    _subscription.pause();
+  }
+
+  void _resumeIfNeeded() {
+    if (!_paused || _buffer.length > _lowWaterMark) {
+      return;
+    }
+    _paused = false;
+    _subscription.resume();
+  }
+
+  static const _maxRelayChunk = 64 * 1024;
+  static const _highWaterMark = 256 * 1024;
+  static const _lowWaterMark = 96 * 1024;
 }

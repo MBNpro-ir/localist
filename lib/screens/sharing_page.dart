@@ -10,6 +10,7 @@ import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import '../services/native_bridge_service.dart';
+import '../services/v2rayng_socks_uri.dart';
 import '../widgets/glass.dart';
 
 class SharingPage extends StatelessWidget {
@@ -873,27 +874,11 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
   }
 
   String _xraySocksConfig(SmartProxyEndpoint endpoint) {
-    const encoder = JsonEncoder.withIndent('  ');
-    return encoder.convert({
-      'log': {'loglevel': 'warning'},
-      'inbounds': [
-        {
-          'tag': 'local-socks',
-          'listen': '127.0.0.1',
-          'port': 10808,
-          'protocol': 'socks',
-          'settings': {'auth': 'noauth', 'udp': true, 'ip': '127.0.0.1'},
-        },
-      ],
-      'outbounds': [
-        {
-          'tag': 'localist-socks',
-          'protocol': 'socks',
-          'settings': {'address': endpoint.host, 'port': endpoint.port},
-        },
-        {'tag': 'direct', 'protocol': 'freedom'},
-      ],
-    });
+    return buildV2rayNgSocksUri(
+      host: endpoint.host,
+      port: endpoint.port,
+      name: 'Localist Xray ${endpoint.host}:${endpoint.port}',
+    );
   }
 
   String _singBoxSocksConfig(SmartProxyEndpoint endpoint) {
