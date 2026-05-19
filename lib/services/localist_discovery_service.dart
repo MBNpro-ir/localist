@@ -24,6 +24,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
   bool _scanning = false;
   bool _refreshInFlight = false;
   bool _pendingNotify = false;
+  Set<String> _localIpv4Addresses = const {};
 
   bool get scanning => _scanning;
 
@@ -152,12 +153,16 @@ class LocalistDiscoveryService extends ChangeNotifier {
     if (map['deviceId'] == _deviceId) {
       return;
     }
+    if (_isLocalAddress(datagram.address.address)) {
+      return;
+    }
     final device = LocalistDiscoveredDevice.fromAnnouncement(
       map,
       sourceAddress: datagram.address.address,
       lastSeen: DateTime.now(),
     );
-    if (device.endpoints.isEmpty) {
+    if (device.endpoints.isEmpty ||
+        device.endpoints.every((endpoint) => _isLocalAddress(endpoint.host))) {
       return;
     }
     final previous = _devices[device.id];
@@ -197,24 +202,32 @@ class LocalistDiscoveryService extends ChangeNotifier {
         includeLoopback: false,
         type: InternetAddressType.IPv4,
       );
+      final localAddresses = <String>{};
       for (final interface in interfaces) {
         for (final address in interface.addresses) {
           final host = address.address;
           if (!_isUsableIpv4(host)) {
             continue;
           }
+          localAddresses.add(host);
           hosts
             ..add(_ipv4WithLastOctet(host, 1))
             ..add(_ipv4WithLastOctet(host, 254))
             ..add(_ipv4WithLastOctet(host, 255));
         }
       }
+      _localIpv4Addresses = localAddresses;
     } catch (error) {
       _logs.warning(
         'Local discovery could not inspect network interfaces: $error',
       );
     }
     return hosts.map(InternetAddress.new).toList(growable: false);
+  }
+
+  bool _isLocalAddress(String value) {
+    return value == InternetAddress.loopbackIPv4.address ||
+        _localIpv4Addresses.contains(value);
   }
 
   bool _sameVisibleDevice(

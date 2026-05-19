@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/localist_sharing_widget_description"
+    android:initialLayout="@layout/localist_widget_sharing"
+    android:minWidth="110dp"
+    android:minHeight="86dp"
+    android:previewLayout="@layout/localist_widget_sharing"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="localist_widget_description">Control Localist sending and receiving</string>
+    <string name="localist_sharing_widget_description">Start or stop Localist sending</string>
+    <string name="localist_receiving_widget_description">Start or stop Localist receiving</string>
 </resources>

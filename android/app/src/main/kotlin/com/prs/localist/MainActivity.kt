@@ -188,6 +188,7 @@ class MainActivity : FlutterActivity() {
         val selectedLocalIps = call.argument<List<String>>("selectedLocalIps")
             ?.filter { it.isNotBlank() }
             ?: emptyList()
+        val discoveryDeviceId = call.argument<String>("discoveryDeviceId").orEmpty()
         val bindAddresses = if (shareAllRoutes) {
             emptyList()
         } else {
@@ -217,6 +218,7 @@ class MainActivity : FlutterActivity() {
                 LocalistVpnService.EXTRA_SELECTED_LOCAL_IPS,
                 ArrayList(selectedLocalIps),
             )
+            putExtra(LocalistVpnService.EXTRA_DISCOVERY_DEVICE_ID, discoveryDeviceId)
         }
         startLocalistService(intent, result, "proxy_service_start_failed", "proxy service")
     }

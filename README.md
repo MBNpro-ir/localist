@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="README.fa.md">فارسی</a> | <strong>English</strong>
+  <a href="README.fa.md">ظپط§ط±ط³غŒ</a> | <strong>English</strong>
 </p>
 
 <p align="center">
@@ -17,14 +17,14 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.3.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.4.0-blue"></a>
 </p>
 
 ## Overview
 
 Localist is a Flutter app for sharing and receiving local proxy access across Android and Windows.
 
-- Android can share HTTP/SOCKS5 proxy endpoints, receive a remote endpoint as VPN or local proxy, scan QR codes, discover nearby Localist devices, install GitHub release updates, and expose a home-screen widget for Sending/Receiving controls.
+- Android can share HTTP/SOCKS5 proxy endpoints, receive a remote endpoint as VPN or local proxy, scan QR codes, discover nearby Localist devices without listing itself, install GitHub release updates, and expose full or single-action home-screen widgets for Sending/Receiving controls.
 - Windows can share proxy endpoints, advertise them for local discovery, show and scan QR codes with a webcam, run compactly with tray behavior, follow Windows accent colors, and use bundled Wintun/tun2socks tools for Receiving VPN mode when available.
 - First-run setup now asks only for permissions needed at startup. Camera permission is requested only when the QR scanner is opened.
 - Crash reporting opens the user's email client with crash details, app logs, platform data, device information, and stack traces.
@@ -32,34 +32,44 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 
 ## What's New
 
-- 📱 EN: iOS QR tab now generates Xray and sing-box SOCKS configs for every active Sharing IP.
-  FA: تب iOS برای همه IPهای فعال Sharing کانفیگ SOCKS مخصوص Xray و sing-box می‌سازد.
-- 🧭 EN: Proxy QR codes now keep Proxy and iOS flows in separate tabs with click-to-open cards.
-  FA: بخش Proxy QR codes حالا تب‌های جدا برای Proxy و iOS دارد و QRها فقط با کلیک روی کارت باز می‌شوند.
-- 🪟 EN: Windows Receiving adds Start as system proxy and renames the manual mode to Start as local proxy.
-  FA: در Receiving ویندوز گزینه Start as system proxy اضافه شد و حالت دستی به Start as local proxy تغییر نام داد.
-- 🧹 EN: Stopping Windows system proxy clears the Windows proxy settings automatically.
-  FA: با توقف system proxy، تنظیمات پروکسی ویندوز به صورت خودکار پاک می‌شود.
-- 🛠️ EN: Wintun/tun2socks startup now checks administrator access, uses the correct `warn` log level, and preserves useful failure logs.
-  FA: راه‌اندازی Wintun/tun2socks دسترسی ادمین را چک می‌کند، سطح لاگ درست `warn` را می‌فرستد و خطاهای مفید را نگه می‌دارد.
-- 🚀 EN: GitHub Actions release packaging keeps compiled assets staged in `compiled` before publishing.
-  FA: اکشن انتشار GitHub خروجی‌های کامپایل‌شده را قبل از انتشار داخل `compiled` آماده می‌کند.
+- ًں§­ EN: Nearby discovery now ignores the current phone's own Sharing announcements.
+  FA: Nearby discovery ط¯غŒع¯ط± ط§ط¹ظ„ط§ظ† Sharing ط®ظˆط¯ ظ‡ظ…ط§ظ† ع¯ظˆط´غŒ ط±ط§ ط¯ط± Receiving ظ†ط´ط§ظ† ظ†ظ…غŒâ€Œط¯ظ‡ط¯.
+- ًں–¤ EN: Android widgets now use a darker redesigned style with separate Sending and Receiving widgets.
+  FA: ظˆغŒط¬طھâ€Œظ‡ط§غŒ ط§ظ†ط¯ط±ظˆغŒط¯ ط¨ط§ ط·ط±ط§ط­غŒ ظ…ط´ع©غŒ ط¨ط§ط²ط·ط±ط§ط­غŒ ط´ط¯ظ†ط¯ ظˆ ظˆغŒط¬طھâ€Œظ‡ط§غŒ ط¬ط¯ط§ ط¨ط±ط§غŒ Sending ظˆ Receiving ط§ط¶ط§ظپظ‡ ط´ط¯.
+- ًں”” EN: Android checks for updates on startup and shows an in-app notice only when a newer installable release exists.
+  FA: ط§ظ†ط¯ط±ظˆغŒط¯ ظ‡ظ†ع¯ط§ظ… ط¨ط§ط² ط´ط¯ظ† ط¨ط±ظ†ط§ظ…ظ‡ ط¢ظ¾ط¯غŒطھ ط±ط§ ط¨ط±ط±ط³غŒ ظ…غŒâ€Œع©ظ†ط¯ ظˆ ظپظ‚ط· ظˆظ‚طھغŒ ظ†ط³ط®ظ‡ ط¬ط¯غŒط¯ ظ‚ط§ط¨ظ„ ظ†طµط¨ ط¨ط§ط´ط¯ ط§ط¹ظ„ط§ظ† ط¯ط§ط®ظ„غŒ ظ†ط´ط§ظ† ظ…غŒâ€Œط¯ظ‡ط¯.
+- ًںڈ·ï¸ڈ EN: GitHub Actions release builds now run from `v*` tags, not every branch push.
+  FA: ط§ع©ط´ظ† ط§ظ†طھط´ط§ط± GitHub ظپظ‚ط· ط¨ط§ طھع¯â€Œظ‡ط§غŒ `v*` ع©ط§ظ…ظ¾ط§غŒظ„ ظ…غŒâ€Œع©ظ†ط¯طŒ ظ†ظ‡ ط¨ط§ ظ‡ط± push ط±ظˆغŒ branch.
+
+- ًں“± EN: iOS QR tab now generates Xray and sing-box SOCKS configs for every active Sharing IP.
+  FA: طھط¨ iOS ط¨ط±ط§غŒ ظ‡ظ…ظ‡ IPظ‡ط§غŒ ظپط¹ط§ظ„ Sharing ع©ط§ظ†ظپغŒع¯ SOCKS ظ…ط®طµظˆطµ Xray ظˆ sing-box ظ…غŒâ€Œط³ط§ط²ط¯.
+- ًں§­ EN: Proxy QR codes now keep Proxy and iOS flows in separate tabs with click-to-open cards.
+  FA: ط¨ط®ط´ Proxy QR codes ط­ط§ظ„ط§ طھط¨â€Œظ‡ط§غŒ ط¬ط¯ط§ ط¨ط±ط§غŒ Proxy ظˆ iOS ط¯ط§ط±ط¯ ظˆ QRظ‡ط§ ظپظ‚ط· ط¨ط§ ع©ظ„غŒع© ط±ظˆغŒ ع©ط§ط±طھ ط¨ط§ط² ظ…غŒâ€Œط´ظˆظ†ط¯.
+- ًںھں EN: Windows Receiving adds Start as system proxy and renames the manual mode to Start as local proxy.
+  FA: ط¯ط± Receiving ظˆغŒظ†ط¯ظˆط² ع¯ط²غŒظ†ظ‡ Start as system proxy ط§ط¶ط§ظپظ‡ ط´ط¯ ظˆ ط­ط§ظ„طھ ط¯ط³طھغŒ ط¨ظ‡ Start as local proxy طھط؛غŒغŒط± ظ†ط§ظ… ط¯ط§ط¯.
+- ًں§¹ EN: Stopping Windows system proxy clears the Windows proxy settings automatically.
+  FA: ط¨ط§ طھظˆظ‚ظپ system proxyطŒ طھظ†ط¸غŒظ…ط§طھ ظ¾ط±ظˆع©ط³غŒ ظˆغŒظ†ط¯ظˆط² ط¨ظ‡ طµظˆط±طھ ط®ظˆط¯ع©ط§ط± ظ¾ط§ع© ظ…غŒâ€Œط´ظˆط¯.
+- ًں› ï¸ڈ EN: Wintun/tun2socks startup now checks administrator access, uses the correct `warn` log level, and preserves useful failure logs.
+  FA: ط±ط§ظ‡â€Œط§ظ†ط¯ط§ط²غŒ Wintun/tun2socks ط¯ط³طھط±ط³غŒ ط§ط¯ظ…غŒظ† ط±ط§ ع†ع© ظ…غŒâ€Œع©ظ†ط¯طŒ ط³ط·ط­ ظ„ط§ع¯ ط¯ط±ط³طھ `warn` ط±ط§ ظ…غŒâ€Œظپط±ط³طھط¯ ظˆ ط®ط·ط§ظ‡ط§غŒ ظ…ظپغŒط¯ ط±ط§ ظ†ع¯ظ‡ ظ…غŒâ€Œط¯ط§ط±ط¯.
+- ًںڑ€ EN: GitHub Actions release packaging keeps compiled assets staged in `compiled` before publishing.
+  FA: ط§ع©ط´ظ† ط§ظ†طھط´ط§ط± GitHub ط®ط±ظˆط¬غŒâ€Œظ‡ط§غŒ ع©ط§ظ…ظ¾ط§غŒظ„â€Œط´ط¯ظ‡ ط±ط§ ظ‚ط¨ظ„ ط§ط² ط§ظ†طھط´ط§ط± ط¯ط§ط®ظ„ `compiled` ط¢ظ…ط§ط¯ظ‡ ظ…غŒâ€Œع©ظ†ط¯.
 
 ## Version History
 
-- 🚀 `v1.0.0` - Initial release workflow and packaged Android/Windows builds.
-- 🧰 `v1.0.2` - `v1.0.5` - Release packaging fixes, README badges, and early build pipeline cleanup.
-- ⚡ `v1.1.0` - Performance improvements for older Android devices.
-- 🪟 `v1.1.2` - Windows portrait window sizing fixes.
-- 📦 `v1.5.0` - Broader Localist release packaging and app polish.
-- 🌉 `v1.6.0` - Windows Receiving VPN support through Wintun/tun2socks.
-- 🛠️ `v1.6.4` - Android VPN and settings port fixes.
-- 📡 `v2.0.0` - Nearby discovery, Wintun fixes, and release publishing improvements.
-- 🔋 `v2.1.0` - QR scanner battery behavior and themed in-app notices.
-- 🌐 `v3.0.0` - Language onboarding and smart GitHub updater.
-- ✅ `v3.1.0` - Onboarding navigation, Persian localization, and version badge updates.
-- 🧩 `v3.2.0` - Permission cleanup, updater repair, widgets, crash reporting, flags, color settings, and README refresh.
-- 📱 `v3.3.0` - iOS Xray/sing-box QR configs, Windows system proxy mode, Wintun startup fixes, and release staging polish.
+- ًںڑ€ `v1.0.0` - Initial release workflow and packaged Android/Windows builds.
+- ًں§° `v1.0.2` - `v1.0.5` - Release packaging fixes, README badges, and early build pipeline cleanup.
+- âڑ، `v1.1.0` - Performance improvements for older Android devices.
+- ًںھں `v1.1.2` - Windows portrait window sizing fixes.
+- ًں“¦ `v1.5.0` - Broader Localist release packaging and app polish.
+- ًںŒ‰ `v1.6.0` - Windows Receiving VPN support through Wintun/tun2socks.
+- ًں› ï¸ڈ `v1.6.4` - Android VPN and settings port fixes.
+- ًں“، `v2.0.0` - Nearby discovery, Wintun fixes, and release publishing improvements.
+- ًں”‹ `v2.1.0` - QR scanner battery behavior and themed in-app notices.
+- ًںŒگ `v3.0.0` - Language onboarding and smart GitHub updater.
+- âœ… `v3.1.0` - Onboarding navigation, Persian localization, and version badge updates.
+- ًں§© `v3.2.0` - Permission cleanup, updater repair, widgets, crash reporting, flags, color settings, and README refresh.
+- ًں“± `v3.3.0` - iOS Xray/sing-box QR configs, Windows system proxy mode, Wintun startup fixes, and release staging polish.
+- 🧭 `v3.4.0` - Self-discovery filtering, black Android widgets, separate Sending/Receiving widgets, startup update notices, and tag-only release builds.
 
 ## Repository Layout
 
@@ -223,7 +233,7 @@ Camera permission is requested only when the user opens QR scanning in Receiving
 
 The Android updater checks GitHub releases, chooses the matching APK for the device ABI, downloads it to the app cache, validates the download length, and opens the Android package installer.
 
-The Android widget supports small and larger home-screen sizes. It shows service status and provides quick controls for Sending and Receiving. If Receiving has no saved remote proxy config, the widget opens the app.
+The Android widgets support small and larger home-screen sizes. The full widget shows service status with Sending and Receiving controls, while the single-action widgets provide dedicated Sending-only and Receiving-only buttons. If Receiving has no saved remote proxy config, the widget opens the app.
 
 Crash reporting collects the crash type, time, semantic version, platform, Android SDK/ABIs, stack trace, and Localist app logs, then opens the user's email client with a ready-to-send support report.
 

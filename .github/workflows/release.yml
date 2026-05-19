@@ -8,9 +8,6 @@ on:
         required: false
         default: ""
   push:
-    branches:
-      - "main"
-      - "master"
     tags:
       - "v*"
 
@@ -276,18 +273,16 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          ✨ Localist v${APP_VERSION} improves iOS proxy handoff, Windows receiving modes, and Wintun startup reliability.
+          ✨ Localist v${APP_VERSION} improves nearby discovery, Android widgets, and update awareness.
 
           ## Changes
 
-          - 📱 Adds an iOS QR tab with Xray and sing-box SOCKS configs for every active Sharing IP.
-          - 🧭 Keeps Proxy and iOS QR flows in separate tabs with click-to-open cards.
-          - 🪟 Adds Windows Start as system proxy and renames manual receiving to Start as local proxy.
-          - 🧹 Clears Windows system proxy settings automatically when system proxy mode stops.
-          - 🛠️ Fixes Wintun/tun2socks startup by checking administrator access and using the supported warn log level.
-          - 🔎 Captures useful tun2socks startup output when Wintun fails.
-          - 📦 Stages release assets in compiled before publishing.
-          - 🏷️ Bumps the app version to v${APP_VERSION}.
+          - 🧭 Prevents a phone from discovering its own Sharing service in Receiving.
+          - 🖤 Redesigns Android widgets with a darker style.
+          - 🧩 Adds separate Sending and Receiving home-screen widgets.
+          - 🔔 Checks for updates automatically on app startup and shows an in-app update notice only when an update exists.
+          - 🏷️ Builds releases from version tags instead of every branch push.
+          - 🚀 Bumps the app version to v${APP_VERSION}.
 
           ## Assets
 

@@ -21,6 +21,7 @@ import 'screens/settings_page.dart';
 import 'screens/sharing_page.dart';
 import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
+import 'services/app_update_service.dart';
 import 'services/crash_reporter_service.dart';
 import 'services/log_service.dart';
 import 'services/localist_discovery_service.dart';
@@ -201,6 +202,7 @@ class _LocalistShellState extends State<LocalistShell>
     with WindowListener, tray.TrayListener {
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final LocalistDiscoveryService _discovery = LocalistDiscoveryService.instance;
+  final AppUpdateService _updates = AppUpdateService();
   final LogService _logs = LogService.instance;
   late final PageController _pageController;
   Timer? _refreshTimer;
@@ -217,6 +219,7 @@ class _LocalistShellState extends State<LocalistShell>
   bool _trayDestroyed = false;
   bool _windowActionInProgress = false;
   bool _trayMenuInProgress = false;
+  bool _startupUpdateChecked = false;
   List<LocalistDiscoveredDevice> _discoveredDevices = const [];
   bool _discoveryScanning = false;
   final Set<String> _announcedDeviceIds = {};
@@ -239,6 +242,7 @@ class _LocalistShellState extends State<LocalistShell>
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showOnboardingGuideIfNeeded();
+      _checkForStartupUpdate();
     });
   }
 
@@ -657,6 +661,35 @@ class _LocalistShellState extends State<LocalistShell>
       actionIcon: Icons.arrow_forward,
       onTap: () => _setPage(1, force: true),
     );
+  }
+
+  Future<void> _checkForStartupUpdate() async {
+    if (_startupUpdateChecked || !Platform.isAndroid) {
+      return;
+    }
+    _startupUpdateChecked = true;
+    try {
+      final result = await _updates.checkForUpdate();
+      if (!mounted ||
+          !result.updateAvailable ||
+          !result.canInstallOnThisDevice) {
+        return;
+      }
+      showLocalistNotice(
+        context,
+        message: context.l10n.updaterAvailable(
+          result.release.version.toString(),
+        ),
+        tone: InAppNoticeTone.info,
+        icon: Icons.system_update_alt_outlined,
+        duration: const Duration(seconds: 9),
+        actionLabel: context.l10n.installUpdate,
+        actionIcon: Icons.arrow_forward,
+        onTap: () => _setPage(2, force: true),
+      );
+    } catch (error) {
+      _logs.warning('Startup update check failed: $error');
+    }
   }
 
   void _showInAppNotice(

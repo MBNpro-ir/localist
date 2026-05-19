@@ -3,18 +3,19 @@ package com.prs.localist
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.widget.RemoteViews
 
-class LocalistWidgetProvider : AppWidgetProvider() {
+open class LocalistWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        updateWidgets(context, appWidgetManager, appWidgetIds)
+        updateWidgets(context, appWidgetManager, appWidgetIds, kindFor(javaClass))
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -28,14 +29,20 @@ class LocalistWidgetProvider : AppWidgetProvider() {
             LocalistVpnService.ACTION_START_LOCAL_PROXY -> Unit
             else -> return
         }
-        val manager = AppWidgetManager.getInstance(context)
-        updateWidgets(context, manager, manager.getAppWidgetIds(componentName(context)))
+        updateAll(context)
     }
 
     private fun toggleSharing(context: Context) {
         val snapshot = LocalistVpnService.snapshot(context)
-        if (snapshot["proxyRunning"] == true || snapshot["receivingRunning"] == true || snapshot["localProxyRunning"] == true) {
-            startService(context, Intent(context, LocalistVpnService::class.java).setAction(LocalistVpnService.ACTION_STOP))
+        if (
+            snapshot["proxyRunning"] == true ||
+                snapshot["receivingRunning"] == true ||
+                snapshot["localProxyRunning"] == true
+        ) {
+            startService(
+                context,
+                Intent(context, LocalistVpnService::class.java).setAction(LocalistVpnService.ACTION_STOP),
+            )
             return
         }
         startService(
@@ -55,8 +62,15 @@ class LocalistWidgetProvider : AppWidgetProvider() {
 
     private fun toggleReceiving(context: Context) {
         val snapshot = LocalistVpnService.snapshot(context)
-        if (snapshot["receivingRunning"] == true || snapshot["localProxyRunning"] == true || snapshot["proxyRunning"] == true) {
-            startService(context, Intent(context, LocalistVpnService::class.java).setAction(LocalistVpnService.ACTION_STOP))
+        if (
+            snapshot["receivingRunning"] == true ||
+                snapshot["localProxyRunning"] == true ||
+                snapshot["proxyRunning"] == true
+        ) {
+            startService(
+                context,
+                Intent(context, LocalistVpnService::class.java).setAction(LocalistVpnService.ACTION_STOP),
+            )
             return
         }
         val remote = snapshot["remoteProxy"] as? Map<*, *>
@@ -100,64 +114,131 @@ class LocalistWidgetProvider : AppWidgetProvider() {
 
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
-            updateWidgets(context, manager, manager.getAppWidgetIds(componentName(context)))
+            for (kind in WidgetKind.entries) {
+                val componentName = ComponentName(context, kind.providerClass)
+                updateWidgets(
+                    context,
+                    manager,
+                    manager.getAppWidgetIds(componentName),
+                    kind,
+                )
+            }
         }
 
         private fun updateWidgets(
             context: Context,
             appWidgetManager: AppWidgetManager,
             appWidgetIds: IntArray,
+            kind: WidgetKind,
         ) {
             val snapshot = LocalistVpnService.snapshot(context)
             val sharingActive = snapshot["proxyRunning"] == true
             val receivingActive = snapshot["receivingRunning"] == true || snapshot["localProxyRunning"] == true
             for (widgetId in appWidgetIds) {
-                val views = RemoteViews(context.packageName, R.layout.localist_widget)
-                views.setTextViewText(
-                    R.id.localist_widget_status,
-                    when {
-                        sharingActive -> "Sending is on"
-                        receivingActive -> "Receiving is on"
-                        else -> "Ready"
-                    },
-                )
-                views.setTextViewText(
-                    R.id.localist_widget_sending,
-                    if (sharingActive) "Stop sending" else "Start sending",
-                )
-                views.setTextViewText(
-                    R.id.localist_widget_receiving,
-                    if (receivingActive) "Stop receiving" else "Receiving",
-                )
-                views.setInt(
-                    R.id.localist_widget_sending,
-                    "setBackgroundResource",
-                    if (sharingActive) R.drawable.localist_widget_button_active else R.drawable.localist_widget_button,
-                )
-                views.setInt(
-                    R.id.localist_widget_receiving,
-                    "setBackgroundResource",
-                    if (receivingActive) R.drawable.localist_widget_button_active else R.drawable.localist_widget_button,
-                )
+                val views = RemoteViews(context.packageName, kind.layoutId)
                 views.setOnClickPendingIntent(
                     R.id.localist_widget_root,
                     PendingIntent.getActivity(
                         context,
-                        100,
+                        kind.openRequestCode,
                         context.packageManager.getLaunchIntentForPackage(context.packageName)
                             ?: Intent(context, MainActivity::class.java),
                         pendingFlags(),
                     ),
                 )
-                views.setOnClickPendingIntent(
-                    R.id.localist_widget_sending,
-                    broadcastIntent(context, ACTION_TOGGLE_SHARING, 101),
-                )
-                views.setOnClickPendingIntent(
-                    R.id.localist_widget_receiving,
-                    broadcastIntent(context, ACTION_TOGGLE_RECEIVING, 102),
-                )
+                when (kind) {
+                    WidgetKind.FULL -> bindFullWidget(context, views, sharingActive, receivingActive)
+                    WidgetKind.SHARING -> bindSharingWidget(context, views, sharingActive, receivingActive)
+                    WidgetKind.RECEIVING -> bindReceivingWidget(context, views, sharingActive, receivingActive)
+                }
                 appWidgetManager.updateAppWidget(widgetId, views)
+            }
+        }
+
+        private fun bindFullWidget(
+            context: Context,
+            views: RemoteViews,
+            sharingActive: Boolean,
+            receivingActive: Boolean,
+        ) {
+            views.setTextViewText(R.id.localist_widget_status, statusText(sharingActive, receivingActive))
+            views.setTextViewText(
+                R.id.localist_widget_sending,
+                if (sharingActive) "Stop sending" else "Start sending",
+            )
+            views.setTextViewText(
+                R.id.localist_widget_receiving,
+                if (receivingActive) "Stop receiving" else "Start receiving",
+            )
+            views.setInt(
+                R.id.localist_widget_sending,
+                "setBackgroundResource",
+                if (sharingActive) R.drawable.localist_widget_button_active else R.drawable.localist_widget_button,
+            )
+            views.setInt(
+                R.id.localist_widget_receiving,
+                "setBackgroundResource",
+                if (receivingActive) R.drawable.localist_widget_button_active else R.drawable.localist_widget_button,
+            )
+            views.setOnClickPendingIntent(
+                R.id.localist_widget_sending,
+                broadcastIntent(context, ACTION_TOGGLE_SHARING, 101),
+            )
+            views.setOnClickPendingIntent(
+                R.id.localist_widget_receiving,
+                broadcastIntent(context, ACTION_TOGGLE_RECEIVING, 102),
+            )
+        }
+
+        private fun bindSharingWidget(
+            context: Context,
+            views: RemoteViews,
+            sharingActive: Boolean,
+            receivingActive: Boolean,
+        ) {
+            views.setTextViewText(R.id.localist_widget_status, statusText(sharingActive, receivingActive))
+            views.setTextViewText(
+                R.id.localist_widget_sending,
+                if (sharingActive) "Stop sending" else "Start sending",
+            )
+            views.setInt(
+                R.id.localist_widget_sending,
+                "setBackgroundResource",
+                if (sharingActive) R.drawable.localist_widget_button_active else R.drawable.localist_widget_button,
+            )
+            views.setOnClickPendingIntent(
+                R.id.localist_widget_sending,
+                broadcastIntent(context, ACTION_TOGGLE_SHARING, 201),
+            )
+        }
+
+        private fun bindReceivingWidget(
+            context: Context,
+            views: RemoteViews,
+            sharingActive: Boolean,
+            receivingActive: Boolean,
+        ) {
+            views.setTextViewText(R.id.localist_widget_status, statusText(sharingActive, receivingActive))
+            views.setTextViewText(
+                R.id.localist_widget_receiving,
+                if (receivingActive) "Stop receiving" else "Start receiving",
+            )
+            views.setInt(
+                R.id.localist_widget_receiving,
+                "setBackgroundResource",
+                if (receivingActive) R.drawable.localist_widget_button_active else R.drawable.localist_widget_button,
+            )
+            views.setOnClickPendingIntent(
+                R.id.localist_widget_receiving,
+                broadcastIntent(context, ACTION_TOGGLE_RECEIVING, 202),
+            )
+        }
+
+        private fun statusText(sharingActive: Boolean, receivingActive: Boolean): String {
+            return when {
+                sharingActive -> "Sending is on"
+                receivingActive -> "Receiving is on"
+                else -> "Ready"
             }
         }
 
@@ -170,12 +251,27 @@ class LocalistWidgetProvider : AppWidgetProvider() {
             )
         }
 
-        private fun componentName(context: Context): android.content.ComponentName {
-            return android.content.ComponentName(context, LocalistWidgetProvider::class.java)
-        }
-
         private fun pendingFlags(): Int {
             return PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         }
+
+        private fun kindFor(providerClass: Class<*>): WidgetKind {
+            return WidgetKind.entries.firstOrNull { it.providerClass == providerClass }
+                ?: WidgetKind.FULL
+        }
     }
+}
+
+class LocalistSharingWidgetProvider : LocalistWidgetProvider()
+
+class LocalistReceivingWidgetProvider : LocalistWidgetProvider()
+
+private enum class WidgetKind(
+    val providerClass: Class<out AppWidgetProvider>,
+    val layoutId: Int,
+    val openRequestCode: Int,
+) {
+    FULL(LocalistWidgetProvider::class.java, R.layout.localist_widget, 100),
+    SHARING(LocalistSharingWidgetProvider::class.java, R.layout.localist_widget_sharing, 200),
+    RECEIVING(LocalistReceivingWidgetProvider::class.java, R.layout.localist_widget_receiving, 300),
 }

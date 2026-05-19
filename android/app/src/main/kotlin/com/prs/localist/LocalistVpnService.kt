@@ -89,12 +89,14 @@ class LocalistVpnService : VpnService() {
         val selectedLocalIps = intent.getStringArrayListExtra(EXTRA_SELECTED_LOCAL_IPS)
             ?.filter { it.isNotBlank() }
             ?: emptyList()
+        val discoveryDeviceId = intent.getStringExtra(EXTRA_DISCOVERY_DEVICE_ID).orEmpty()
         State.mode = MODE_SHARING
         State.protocols = protocols
         State.protocolPorts = protocolPorts
         State.port = protocolPorts[protocols.first()] ?: defaultPort(protocols.first())
         State.shareAllRoutes = shareAllRoutes
         State.selectedLocalIps = selectedLocalIps
+        State.discoveryDeviceId = discoveryDeviceId.ifBlank { State.discoveryDeviceId }
         State.ipAddress = HotspotController.localIpAddress()
         State.receivingRunning = false
         State.localProxyRunning = false
@@ -471,6 +473,7 @@ class LocalistVpnService : VpnService() {
                     EXTRA_SELECTED_LOCAL_IPS,
                     ArrayList(State.selectedLocalIps),
                 )
+                putExtra(EXTRA_DISCOVERY_DEVICE_ID, State.discoveryDeviceId)
             }
         }
     }
@@ -582,6 +585,7 @@ class LocalistVpnService : VpnService() {
         const val EXTRA_REMOTE_HOST = "remoteHost"
         const val EXTRA_REMOTE_PORT = "remotePort"
         const val EXTRA_LOCAL_PROXY_PORT = "localProxyPort"
+        const val EXTRA_DISCOVERY_DEVICE_ID = "discoveryDeviceId"
         val SUPPORTED_PROTOCOLS = setOf("http", "socks5")
 
         private const val NOTIFICATION_ID = 10888
@@ -637,6 +641,10 @@ class LocalistVpnService : VpnService() {
                     },
                 )
             }
+        }
+
+        fun discoveryDeviceId(): String {
+            return synchronized(State) { State.discoveryDeviceId }
         }
 
         private fun normalizedProtocols(values: List<String>): List<String> {
@@ -701,6 +709,7 @@ class LocalistVpnService : VpnService() {
         var port = 3075
         var shareAllRoutes = true
         var selectedLocalIps = emptyList<String>()
+        var discoveryDeviceId = ""
         var ipAddress = "192.168.43.1"
         var remoteProtocol = ""
         var remoteHost = ""

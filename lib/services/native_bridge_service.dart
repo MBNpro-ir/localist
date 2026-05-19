@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
+import 'localist_discovery_protocol.dart';
 import 'windows_localist_service.dart';
 
 class NativeBridgeService {
@@ -100,6 +101,7 @@ class NativeBridgeService {
         upstreamProxy: upstreamProxy,
       );
     }
+    final discoveryDeviceId = await localistDiscoveryDeviceId();
     return await _channel.invokeMethod<bool>('startProxyService', {
           'protocols': protocols.map((protocol) => protocol.name).toList(),
           'ports': {
@@ -107,6 +109,7 @@ class NativeBridgeService {
           },
           'shareAllRoutes': shareAllRoutes,
           'selectedLocalIps': selectedLocalIps.toList(),
+          'discoveryDeviceId': discoveryDeviceId,
         }) ??
         false;
   }

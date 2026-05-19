@@ -831,7 +831,9 @@ class _UpdatePanelState extends State<_UpdatePanel> {
       if (!mounted) {
         return;
       }
-      setState(() => _message = context.l10n.updaterFailed);
+      if (!quiet) {
+        setState(() => _message = context.l10n.updaterFailed);
+      }
     } finally {
       if (mounted) {
         setState(() => _checking = false);

@@ -56,6 +56,26 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/localist_widget_info" />
         </receiver>
+        <receiver
+            android:name=".LocalistSharingWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/localist_sharing_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".LocalistReceivingWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/localist_receiving_widget_info" />
+        </receiver>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

@@ -86,7 +86,7 @@ class LocalistDiscoveryResponder(private val context: Context) {
         if (
             request.optString("type") != DISCOVERY_TYPE ||
                 request.optString("op") != QUERY_OP ||
-                request.optString("deviceId") == deviceId()
+            request.optString("deviceId") == deviceId()
         ) {
             return
         }
@@ -181,6 +181,10 @@ class LocalistDiscoveryResponder(private val context: Context) {
     }
 
     private fun deviceId(): String {
+        val stateDeviceId = LocalistVpnService.discoveryDeviceId()
+        if (stateDeviceId.isNotBlank()) {
+            return stateDeviceId
+        }
         val prefs = context.getSharedPreferences(PREFS_DISCOVERY, Context.MODE_PRIVATE)
         val stored = prefs.getString(KEY_DEVICE_ID, null)
         if (!stored.isNullOrBlank()) {
