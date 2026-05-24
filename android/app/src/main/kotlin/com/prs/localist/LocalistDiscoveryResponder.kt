@@ -33,6 +33,7 @@ class LocalistDiscoveryResponder(private val context: Context) {
     private val lastResponseByPeer = mutableMapOf<String, Long>()
 
     fun start(endpointsProvider: () -> List<LocalistDiscoveryEndpoint>) {
+        debugLog("discovery responder start requested")
         stop()
         this.endpointsProvider = endpointsProvider
         running = true
@@ -43,6 +44,7 @@ class LocalistDiscoveryResponder(private val context: Context) {
     }
 
     fun stop() {
+        debugLog("discovery responder stopping")
         running = false
         runCatching { socket?.close() }
         socket = null
@@ -53,6 +55,7 @@ class LocalistDiscoveryResponder(private val context: Context) {
         cachedEndpointsAtMs = 0L
         lastResponseByPeer.clear()
         releaseMulticastLock()
+        debugLog("discovery responder stopped")
     }
 
     private fun listenLoop() {
@@ -63,14 +66,20 @@ class LocalistDiscoveryResponder(private val context: Context) {
                 udpSocket.broadcast = true
                 udpSocket.bind(InetSocketAddress(DISCOVERY_PORT))
                 socket = udpSocket
+                debugLog("discovery responder listening port=$DISCOVERY_PORT")
                 @Suppress("DEPRECATION")
                 runCatching { udpSocket.joinGroup(group) }
+                    .onSuccess { debugLog("discovery responder joined default multicast") }
+                    .onFailure { debugLog("discovery responder default multicast join failed: ${it.message}") }
                 joinGroupOnInterfaces(udpSocket, group)
                 val buffer = ByteArray(MAX_PACKET_BYTES)
                 while (running) {
                     val packet = DatagramPacket(buffer, buffer.size)
                     runCatching {
                         udpSocket.receive(packet)
+                        debugLog(
+                            "discovery query received from ${packet.address.hostAddress}:${packet.port} bytes=${packet.length}",
+                        )
                         handlePacket(udpSocket, packet)
                     }
                 }
@@ -82,21 +91,27 @@ class LocalistDiscoveryResponder(private val context: Context) {
     private fun handlePacket(udpSocket: MulticastSocket, packet: DatagramPacket) {
         val request = runCatching {
             JSONObject(String(packet.data, packet.offset, packet.length, Charsets.UTF_8))
-        }.getOrNull() ?: return
+        }.getOrNull() ?: run {
+            debugLog("discovery packet ignored: invalid JSON")
+            return
+        }
         if (
             request.optString("type") != DISCOVERY_TYPE ||
                 request.optString("op") != QUERY_OP ||
             request.optString("deviceId") == deviceId()
         ) {
+            debugLog("discovery packet ignored: not a remote query")
             return
         }
         val now = System.currentTimeMillis()
         val peerKey = "${packet.address.hostAddress}:${packet.port}"
         if (isPeerRateLimited(peerKey, now)) {
+            debugLog("discovery peer rate limited peer=$peerKey")
             return
         }
         val endpoints = currentEndpoints(now)
         if (endpoints.isEmpty()) {
+            debugLog("discovery response skipped: no endpoints")
             return
         }
         val response = JSONObject()
@@ -120,6 +135,7 @@ class LocalistDiscoveryResponder(private val context: Context) {
             )
         val bytes = response.toString().toByteArray(Charsets.UTF_8)
         udpSocket.send(DatagramPacket(bytes, bytes.size, packet.address, packet.port))
+        debugLog("discovery announcement sent peer=$peerKey endpoints=${endpoints.size}")
     }
 
     private fun joinGroupOnInterfaces(udpSocket: MulticastSocket, group: InetAddress) {
@@ -129,6 +145,10 @@ class LocalistDiscoveryResponder(private val context: Context) {
                 .forEach { network ->
                     runCatching {
                         udpSocket.joinGroup(InetSocketAddress(group, DISCOVERY_PORT), network)
+                    }.onSuccess {
+                        debugLog("discovery joined multicast interface=${network.name}")
+                    }.onFailure {
+                        debugLog("discovery join failed interface=${network.name}: ${it.message}")
                     }
                 }
         }
@@ -140,9 +160,12 @@ class LocalistDiscoveryResponder(private val context: Context) {
         }
         val endpoints = runCatching {
             endpointsProvider?.invoke().orEmpty()
+        }.onFailure {
+            debugLog("discovery endpoint provider failed: ${it.message}")
         }.getOrDefault(cachedEndpoints)
         cachedEndpoints = endpoints
         cachedEndpointsAtMs = now
+        debugLog("discovery endpoints cached count=${endpoints.size}")
         return endpoints
     }
 
@@ -178,6 +201,10 @@ class LocalistDiscoveryResponder(private val context: Context) {
             }
         }
         multicastLock = null
+    }
+
+    private fun debugLog(message: String) {
+        MainActivity.broadcastNativeLog(context, "LocalistDiscoveryResponder", message)
     }
 
     private fun deviceId(): String {

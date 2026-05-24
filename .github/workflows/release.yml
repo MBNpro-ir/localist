@@ -72,6 +72,16 @@ jobs:
             --build-name="$APP_VERSION" \
             --build-number="$BUILD_NUMBER"
 
+      - name: Build universal APK
+        run: |
+          flutter build apk --release \
+            --target-platform android-arm,android-arm64,android-x64 \
+            --obfuscate \
+            --split-debug-info=build/symbols/android-universal \
+            --tree-shake-icons \
+            --build-name="$APP_VERSION" \
+            --build-number="$BUILD_NUMBER"
+
       - name: Build Android App Bundle
         run: |
           flutter build appbundle --release \
@@ -87,8 +97,9 @@ jobs:
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release/android/localist-v${APP_VERSION}-android-armeabi-v7a.apk"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release/android/localist-v${APP_VERSION}-android-arm64-v8a.apk"
           cp build/app/outputs/flutter-apk/app-x86_64-release.apk "release/android/localist-v${APP_VERSION}-android-x86_64.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "release/android/localist-v${APP_VERSION}-android-universal.apk"
           cp build/app/outputs/bundle/release/app-release.aab "release/android/localist-v${APP_VERSION}-android-universal.aab"
-          7z a -tzip -mx=9 "release/localist-v${APP_VERSION}-android-symbols.zip" build/symbols/android build/symbols/android-aab
+          7z a -tzip -mx=9 "release/localist-v${APP_VERSION}-android-symbols.zip" build/symbols/android build/symbols/android-universal build/symbols/android-aab
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -273,20 +284,22 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          ✨ Localist v${APP_VERSION} improves nearby discovery, Android widgets, and update awareness.
+          🐞 Localist v${APP_VERSION} adds Active Debug Mode, saveable device-detail logs, and nearby retry.
 
           ## Changes
 
-          - 🧭 Prevents a phone from discovering its own Sharing service in Receiving.
-          - 🖤 Redesigns Android widgets with a darker style.
-          - 🧩 Adds separate Sending and Receiving home-screen widgets.
-          - 🔔 Checks for updates automatically on app startup and shows an in-app update notice only when an update exists.
-          - 🏷️ Builds releases from version tags instead of every branch push.
+          - 🐛 Adds DEBUG logs for app actions, settings, native bridge calls, service lifecycle, and network paths.
+          - 💾 Adds Save log on Android and Windows with app, platform, device, runtime, and network-interface details.
+          - 📡 Sends Android native service/proxy/discovery logs into the in-app Logs screen while debug mode is active.
+          - 🧰 Adds an Active debug mode switch in Settings and a DEBUG filter in Logs.
+          - 🔁 Adds a Retry control that restarts Nearby Devices discovery even while scanning.
+          - 📱 Warns when Sharing is using an iPhone Personal Hotspot client IP that the host iPhone may not be able to reach.
+          - 📦 Builds a universal Android APK alongside ABI-specific APKs.
           - 🚀 Bumps the app version to v${APP_VERSION}.
 
           ## Assets
 
-          - Android split APKs: armeabi-v7a, arm64-v8a, x86_64
+          - Android APKs: universal, armeabi-v7a, arm64-v8a, x86_64
           - Android App Bundle: universal AAB
           - Windows Desktop: x64 ZIP package
           - Split debug symbols are uploaded as separate ZIP files for crash symbolication.

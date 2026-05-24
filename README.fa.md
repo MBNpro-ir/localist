@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.4-blue"></a>
 </p>
 
 ## معرفی
@@ -32,6 +32,12 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 
 ## تغییرات جدید
 
+- 🐞 حالت Active Debug Mode سطح لاگ DEBUG را برای اکشن‌های برنامه، تنظیمات، native bridge، چرخه سرویس‌ها و مسیرهای شبکه اضافه می‌کند.
+- 💾 در اندروید و ویندوز می‌توانید لاگ را با جزئیات کامل برنامه، پلتفرم، دستگاه، runtime و کارت‌های شبکه روی مسیر دلخواه ذخیره کنید.
+- 📡 لاگ‌های native اندروید برای proxy، VPN و discovery وقتی debug mode فعال است داخل صفحه Logs نمایش داده می‌شوند.
+- 🔁 بخش Nearby Devices دکمه Retry دارد و حتی وسط جست‌وجو می‌تواند discovery را از اول شروع کند.
+- 📱 در Sharing اگر IP داخل محدوده iPhone Personal Hotspot باشد، برنامه هشدار می‌دهد که آیفون میزبان معمولاً نمی‌تواند به دستگاه وصل‌شده برگردد.
+- 📦 GitHub Actions حالا کنار APKهای جداشده و AAB، یک Android universal APK هم منتشر می‌کند.
 - 📲 QRهای Xray به جای JSON حالا لینک سازگار با v2rayNG با فرمت `socks://Og@host:port#name` می‌سازند.
 - 🧯 relay پروکسی ویندوز حالا backpressure دارد و ذخیره آمار ترافیک throttle شده تا هنگام انتقال سریع، RAM/CPU از کنترل خارج نشود.
 - 🛠️ build ویندوز از C++/WinRT projection تولیدشده استفاده می‌کند تا `webview_windows` روی این toolchain پایدار کامپایل شود.
@@ -70,6 +76,7 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 - 📱 `v3.3.0` - QR کانفیگ iOS برای Xray/sing-box، حالت system proxy ویندوز، اصلاح Wintun و آماده‌سازی بهتر release.
 - 🧭 `v3.4.0` - فیلتر self-discovery، ویجت‌های مشکی اندروید، ویجت جدا برای Sending/Receiving، اعلان آپدیت هنگام شروع، و release build فقط با tag.
 - 📲 `v3.5.0` - لینک SOCKS سازگار با v2rayNG برای QRهای Xray، backpressure ویندوز، throttle آمار ترافیک و پایداری build C++/WinRT.
+- 🐞 `v3.5.4` - Active Debug Mode، ذخیره لاگ همراه جزئیات دستگاه، Retry در Nearby، راهنمایی iPhone hotspot، لاگ native اندروید و universal APK.
 
 ## ساختار پروژه
 
@@ -136,6 +143,16 @@ flutter build apk --release `
   --tree-shake-icons
 ```
 
+Universal release APK:
+
+```powershell
+flutter build apk --release `
+  --target-platform android-arm,android-arm64,android-x64 `
+  --obfuscate `
+  --split-debug-info=build\symbols\android-universal `
+  --tree-shake-icons
+```
+
 Android App Bundle:
 
 ```powershell
@@ -151,6 +168,7 @@ flutter build appbundle --release `
 build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
 build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 build/app/outputs/flutter-apk/app-x86_64-release.apk
+build/app/outputs/flutter-apk/app-release.apk
 build/app/outputs/bundle/release/app-release.aab
 ```
 
@@ -188,6 +206,7 @@ workflow انتشار فقط با push تگ‌های `v*` یا اجرای دست
 - `localist-v<version>-android-armeabi-v7a.apk`
 - `localist-v<version>-android-arm64-v8a.apk`
 - `localist-v<version>-android-x86_64.apk`
+- `localist-v<version>-android-universal.apk`
 - `localist-v<version>-android-universal.aab`
 - `localist-v<version>-windows-x64.zip`
 
@@ -211,8 +230,8 @@ Sharing:
 
 Receiving:
 
-- اندروید: discovery خودکار، QR/manual config، draftهای ذخیره‌شده، اعتبارسنجی host/port، local proxy mode یا Android `VpnService`.
-- ویندوز: discovery خودکار، QR/manual config، draftهای ذخیره‌شده، اعتبارسنجی host/port، local proxy mode یا VPN mode با Wintun در صورت وجود ابزارهای bundled.
+- اندروید: discovery خودکار همراه Retry/Restart دستی، QR/manual config، draftهای ذخیره‌شده، اعتبارسنجی host/port، local proxy mode یا Android `VpnService`.
+- ویندوز: discovery خودکار همراه Retry/Restart دستی، QR/manual config، draftهای ذخیره‌شده، اعتبارسنجی host/port، local proxy mode یا VPN mode با Wintun در صورت وجود ابزارهای bundled.
 
 Settings:
 
@@ -221,6 +240,12 @@ Settings:
 - رفتار دکمه close ویندوز می‌تواند ask، رفتن به taskbar tray یا exit کامل باشد.
 - portهای proxy هنگام فعال بودن Sharing قفل می‌شوند.
 - theme از Android dynamic colors یا Windows accent colors پیروی می‌کند و palette رنگ سفارشی گسترده‌تر شده است.
+- Active Debug Mode فیلتر DEBUG را در Logs فعال می‌کند و trace دقیق سرویس‌ها، دکمه‌ها، native callها و شبکه را ثبت می‌کند.
+
+Logs:
+
+- Copy متن فعلی لاگ‌های داخل حافظه را کپی می‌کند.
+- Save log دیالوگ ذخیره اندروید یا ویندوز را باز می‌کند و گزارش کامل شامل نسخه برنامه، build mode، جزئیات دستگاه، runtime، کارت‌های شبکه و لاگ‌های برنامه را می‌نویسد.
 
 ## Permission، آپدیتر، ویجت و گزارش کرش اندروید
 

@@ -9,9 +9,12 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
+import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
 import '../services/v2rayng_socks_uri.dart';
 import '../widgets/glass.dart';
+
+String _lastIphoneHotspotEndpointSignature = '';
 
 class SharingPage extends StatelessWidget {
   const SharingPage({
@@ -56,6 +59,10 @@ class SharingPage extends StatelessWidget {
     final endpointIps = settings.shareAllRoutes
         ? (localIps.isEmpty && fallbackIp.isNotEmpty ? [fallbackIp] : localIps)
         : localIps.where(settings.isLocalIpSelected).toList(growable: false);
+    final iphoneHotspotEndpoint = endpointIps.any(
+      _isIphonePersonalHotspotClientIp,
+    );
+    _logIphoneHotspotEndpoint(endpointIps);
 
     return PageSurface(
       key: const PageStorageKey<String>('sharing-page'),
@@ -72,6 +79,7 @@ class SharingPage extends StatelessWidget {
           activeProtocols: activeProtocols,
           localIps: localIps,
           fallbackIp: fallbackIp,
+          iphoneHotspotEndpoint: iphoneHotspotEndpoint,
           onStartSharing: onStartSharing,
           onStopSharing: onStopSharing,
           onRefresh: onRefresh,
@@ -107,6 +115,7 @@ class _SharingControlPanel extends StatelessWidget {
     required this.activeProtocols,
     required this.localIps,
     required this.fallbackIp,
+    required this.iphoneHotspotEndpoint,
     required this.onStartSharing,
     required this.onStopSharing,
     required this.onRefresh,
@@ -123,6 +132,7 @@ class _SharingControlPanel extends StatelessWidget {
   final Set<ProxyProtocol> activeProtocols;
   final List<String> localIps;
   final String fallbackIp;
+  final bool iphoneHotspotEndpoint;
   final VoidCallback onStartSharing;
   final VoidCallback onStopSharing;
   final VoidCallback onRefresh;
@@ -173,7 +183,12 @@ class _SharingControlPanel extends StatelessWidget {
             value: settings.shareAllRoutes,
             onChanged: busy || running || oppositeServiceActive
                 ? null
-                : (value) => settings.setShareAllRoutes(value),
+                : (value) {
+                    LogService.instance.debug(
+                      'Sharing share-all-routes switch changed value=$value',
+                    );
+                    settings.setShareAllRoutes(value);
+                  },
           ),
           if (settings.shareAllRoutes) ...[
             const SizedBox(height: 10),
@@ -210,11 +225,22 @@ class _SharingControlPanel extends StatelessWidget {
                             selected: settings.isLocalIpSelected(ip),
                             enabled:
                                 !busy && !running && !oppositeServiceActive,
-                            onSelected: (selected) =>
-                                settings.setLocalIpSelected(ip, selected),
+                            onSelected: (selected) {
+                              LogService.instance.debug(
+                                'Sharing local IP chip changed ip=$ip selected=$selected',
+                              );
+                              settings.setLocalIpSelected(ip, selected);
+                            },
                           ),
                       ],
                     ),
+            ),
+          ],
+          if (iphoneHotspotEndpoint) ...[
+            const SizedBox(height: 12),
+            ServiceLockNotice(
+              message: l10n.iphoneHotspotHostCannotUseProxy,
+              icon: Icons.phone_iphone_outlined,
             ),
           ],
           if (isWindows) ...[
@@ -363,9 +389,14 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
               child: Checkbox(
                 value: _enabledDraft,
                 onChanged: widget.enabled
-                    ? (value) => setState(() {
-                        _enabledDraft = value ?? false;
-                      })
+                    ? (value) {
+                        LogService.instance.debug(
+                          'Windows VPN proxy checkbox changed value=${value ?? false}',
+                        );
+                        setState(() {
+                          _enabledDraft = value ?? false;
+                        });
+                      }
                     : null,
               ),
             ),
@@ -470,6 +501,9 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
     }
     setState(() => _saving = true);
     try {
+      LogService.instance.debug(
+        'Windows VPN proxy settings save requested enabled=$_enabledDraft port=$port',
+      );
       await widget.settings.setWindowsVpnProxy(
         enabled: _enabledDraft,
         port: port,
@@ -733,6 +767,9 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
                 ],
                 selected: {mode},
                 onSelectionChanged: (values) {
+                  LogService.instance.debug(
+                    'Proxy QR mode selected mode=${values.single.name}',
+                  );
                   setState(() => _mode = values.single);
                 },
               ),
@@ -748,9 +785,16 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
                       configs: iosConfigs,
                       selected: selectedIosConfig,
                       selectedId: _selectedIosId,
-                      onSelect: (config) =>
-                          setState(() => _selectedIosId = config.id),
-                      onClose: () => setState(() => _selectedIosId = null),
+                      onSelect: (config) => setState(() {
+                        LogService.instance.debug(
+                          'iOS QR config selected id=${config.id}',
+                        );
+                        _selectedIosId = config.id;
+                      }),
+                      onClose: () => setState(() {
+                        LogService.instance.debug('iOS QR preview closed');
+                        _selectedIosId = null;
+                      }),
                     )
                   : Column(
                       key: const ValueKey('proxy'),
@@ -764,8 +808,12 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
                               _QrEndpointChip(
                                 endpoint: endpoint,
                                 selected: endpoint.id == _selectedId,
-                                onTap: () =>
-                                    setState(() => _selectedId = endpoint.id),
+                                onTap: () => setState(() {
+                                  LogService.instance.debug(
+                                    'Proxy QR endpoint selected id=${endpoint.id}',
+                                  );
+                                  _selectedId = endpoint.id;
+                                }),
                               ),
                           ],
                         ),
@@ -780,8 +828,12 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
                                   padding: const EdgeInsets.only(top: 14),
                                   child: _QrPreview(
                                     endpoint: selected,
-                                    onClose: () =>
-                                        setState(() => _selectedId = null),
+                                    onClose: () => setState(() {
+                                      LogService.instance.debug(
+                                        'Proxy QR preview closed',
+                                      );
+                                      _selectedId = null;
+                                    }),
                                   ),
                                 ),
                         ),
@@ -994,7 +1046,12 @@ class _QrPreview extends StatelessWidget {
                 ),
                 IconButton.filledTonal(
                   tooltip: l10n.closeQrCode,
-                  onPressed: onClose,
+                  onPressed: () {
+                    LogService.instance.debug(
+                      'Proxy QR close button pressed id=${endpoint.id}',
+                    );
+                    onClose();
+                  },
                   icon: const Icon(Icons.close),
                 ),
               ],
@@ -1016,6 +1073,9 @@ class _QrPreview extends StatelessWidget {
                   Expanded(
                     child: FilledButton.tonalIcon(
                       onPressed: () async {
+                        LogService.instance.debug(
+                          'Proxy QR copy button pressed id=${endpoint.id}',
+                        );
                         await Clipboard.setData(
                           ClipboardData(text: endpoint.data),
                         );
@@ -1035,10 +1095,15 @@ class _QrPreview extends StatelessWidget {
                     const SizedBox(width: 8),
                     IconButton.filledTonal(
                       tooltip: l10n.shareConfig,
-                      onPressed: () => NativeBridgeService.instance.shareText(
-                        text: endpoint.data,
-                        title: 'Localist ${l10n.smart}',
-                      ),
+                      onPressed: () {
+                        LogService.instance.debug(
+                          'Proxy QR share button pressed id=${endpoint.id}',
+                        );
+                        NativeBridgeService.instance.shareText(
+                          text: endpoint.data,
+                          title: 'Localist ${l10n.smart}',
+                        );
+                      },
                       icon: const Icon(Icons.ios_share),
                     ),
                   ],
@@ -1191,6 +1256,9 @@ class _QrConfigPreview extends StatelessWidget {
                 IconButton.filledTonal(
                   tooltip: l10n.copyConfig,
                   onPressed: () async {
+                    LogService.instance.debug(
+                      'iOS QR copy button pressed id=${config.id}',
+                    );
                     await Clipboard.setData(ClipboardData(text: config.data));
                     if (context.mounted) {
                       showLocalistNotice(
@@ -1205,7 +1273,12 @@ class _QrConfigPreview extends StatelessWidget {
                 const SizedBox(width: 8),
                 IconButton.filledTonal(
                   tooltip: l10n.closeQrCode,
-                  onPressed: onClose,
+                  onPressed: () {
+                    LogService.instance.debug(
+                      'iOS QR close button pressed id=${config.id}',
+                    );
+                    onClose();
+                  },
                   icon: const Icon(Icons.close),
                 ),
               ],
@@ -1259,6 +1332,36 @@ class _QrConfig {
   final String subtitle;
   final String data;
   final IconData icon;
+}
+
+bool _isIphonePersonalHotspotClientIp(String value) {
+  final octets = value.split('.').map(int.tryParse).toList();
+  if (octets.length != 4 || octets.any((octet) => octet == null)) {
+    return false;
+  }
+  final typed = octets.cast<int>();
+  return typed[0] == 172 &&
+      typed[1] == 20 &&
+      typed[2] == 10 &&
+      typed[3] >= 2 &&
+      typed[3] <= 14;
+}
+
+void _logIphoneHotspotEndpoint(List<String> endpointIps) {
+  final matches = endpointIps
+      .where(_isIphonePersonalHotspotClientIp)
+      .toList(growable: false);
+  final signature = matches.join(',');
+  if (signature == _lastIphoneHotspotEndpointSignature) {
+    return;
+  }
+  _lastIphoneHotspotEndpointSignature = signature;
+  if (matches.isEmpty) {
+    return;
+  }
+  LogService.instance.debug(
+    'iPhone Personal Hotspot client IP detected: $signature. The hotspot owner may not be able to connect back to this proxy.',
+  );
 }
 
 class _CachedQrImage extends StatelessWidget {

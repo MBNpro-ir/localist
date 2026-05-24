@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.4-blue"></a>
 </p>
 
 ## Overview
@@ -32,6 +32,12 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 
 ## What's New
 
+- 🐞 Active Debug Mode adds a DEBUG log level for app actions, settings, native bridge calls, service lifecycle, and network paths.
+- 💾 Logs can now be saved from Android and Windows with full app, platform, device, runtime, and network-interface details for troubleshooting.
+- 📡 Android native proxy, VPN, and discovery logs are forwarded into the in-app Logs screen while debug mode is active.
+- 🔁 Nearby Devices has a Retry control that restarts discovery even while a scan is already running.
+- 📱 Sharing warns when a proxy IP is in the iPhone Personal Hotspot client range that the host iPhone usually cannot reach.
+- 📦 GitHub Actions now publishes a universal Android APK alongside split APKs and the universal AAB.
 - 📲 Xray QR codes now use v2rayNG-compatible `socks://Og@host:port#name` links instead of raw JSON.
 - 🧯 Windows proxy relays now apply socket backpressure and throttle traffic-stat saves to prevent high-speed transfer RAM/CPU runaway.
 - 🛠️ Windows release builds prefer the generated C++/WinRT projection so `webview_windows` compiles reliably on this toolchain.
@@ -70,6 +76,7 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 - 📱 `v3.3.0` - iOS Xray/sing-box QR configs, Windows system proxy mode, Wintun startup fixes, and release staging polish.
 - 🧭 `v3.4.0` - Self-discovery filtering, black Android widgets, separate Sending/Receiving widgets, startup update notices, and tag-only release builds.
 - 📲 `v3.5.0` - v2rayNG SOCKS QR links for Xray, Windows relay backpressure, throttled traffic stats, and C++/WinRT build reliability.
+- 🐞 `v3.5.4` - Active Debug Mode, saveable device-detail log exports, Nearby retry, iPhone hotspot guidance, native Android logging, and universal APK releases.
 
 ## Repository Layout
 
@@ -136,6 +143,16 @@ flutter build apk --release `
   --tree-shake-icons
 ```
 
+Universal release APK:
+
+```powershell
+flutter build apk --release `
+  --target-platform android-arm,android-arm64,android-x64 `
+  --obfuscate `
+  --split-debug-info=build\symbols\android-universal `
+  --tree-shake-icons
+```
+
 Release Android App Bundle:
 
 ```powershell
@@ -151,6 +168,7 @@ Android release outputs:
 build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
 build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 build/app/outputs/flutter-apk/app-x86_64-release.apk
+build/app/outputs/flutter-apk/app-release.apk
 build/app/outputs/bundle/release/app-release.aab
 ```
 
@@ -188,6 +206,7 @@ The release workflow runs only for `v*` tag pushes or manual dispatch. It reads 
 - `localist-v<version>-android-armeabi-v7a.apk`
 - `localist-v<version>-android-arm64-v8a.apk`
 - `localist-v<version>-android-x86_64.apk`
+- `localist-v<version>-android-universal.apk`
 - `localist-v<version>-android-universal.aab`
 - `localist-v<version>-windows-x64.zip`
 
@@ -211,8 +230,8 @@ Sharing:
 
 Receiving:
 
-- Android: automatic nearby-device discovery, QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Android `VpnService` receiving mode.
-- Windows: automatic nearby-device discovery, QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Windows VPN mode through Wintun when bundled tools are available.
+- Android: automatic nearby-device discovery with manual retry/restart, QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Android `VpnService` receiving mode.
+- Windows: automatic nearby-device discovery with manual retry/restart, QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Windows VPN mode through Wintun when bundled tools are available.
 
 Settings:
 
@@ -221,6 +240,12 @@ Settings:
 - Windows close behavior can ask each time, move the window to the taskbar tray, or fully exit.
 - Proxy ports are locked while Sharing is active.
 - Theme follows Android dynamic colors or Windows accent colors, with an expanded custom seed-color palette.
+- Active Debug Mode enables DEBUG filtering in Logs and captures detailed service, button, native, and network traces.
+
+Logs:
+
+- Copy exports the current in-memory log text.
+- Save log opens the Android or Windows save dialog and writes a full debug report with app version, build mode, device details, runtime details, network interfaces, and application logs.
 
 ## Android Permissions, Updater, Widget, and Crash Reports
 

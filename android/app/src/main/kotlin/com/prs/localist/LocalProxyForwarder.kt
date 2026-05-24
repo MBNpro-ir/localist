@@ -35,13 +35,18 @@ class LocalProxyForwarder(
 
     fun start() {
         if (running) {
+            listener.onLog("Local forwarder start skipped: already running")
             return
         }
+        listener.onLog(
+            "Local forwarder starting local=$LOCAL_HOST:$localPort remote=$remoteProtocol://$remoteHost:$remotePort",
+        )
         running = true
         executor.execute { serve() }
     }
 
     fun stop() {
+        listener.onLog("Local forwarder stopping local=$LOCAL_HOST:$localPort")
         running = false
         runCatching { serverSocket?.close() }
         serverSocket = null
@@ -68,6 +73,7 @@ class LocalProxyForwarder(
     }
 
     private fun handleClient(client: Socket) {
+        listener.onLog("Local forwarder client accepted ${client.inetAddress.hostAddress}:${client.port}")
         runCatching {
             client.tcpNoDelay = true
             client.use {
@@ -112,6 +118,7 @@ class LocalProxyForwarder(
             else -> throw EOFException("Unknown SOCKS address type")
         }
         val targetPort = input.readPort()
+        listener.onLog("Local forwarder SOCKS5 request target=$host:$targetPort")
         val remote = connectRemoteProxy(host, targetPort)
         output.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
         output.flush()
@@ -130,6 +137,7 @@ class LocalProxyForwarder(
 
         if (firstParts[0].equals("CONNECT", ignoreCase = true)) {
             val (host, targetPort) = parseHostPort(firstParts[1], 443)
+            listener.onLog("Local forwarder HTTP CONNECT target=$host:$targetPort")
             val remote = connectRemoteProxy(host, targetPort)
             output.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray())
             output.flush()
@@ -148,6 +156,7 @@ class LocalProxyForwarder(
         } else {
             hostHeader?.substringAfter(':', missingDelimiterValue = "")?.toIntOrNull() ?: 80
         }
+        listener.onLog("Local forwarder HTTP request method=${firstParts[0]} target=$host:$targetPort")
         val path = buildString {
             append(if (uri.rawPath.isNullOrBlank()) "/" else uri.rawPath)
             if (!uri.rawQuery.isNullOrBlank()) {
@@ -177,11 +186,15 @@ class LocalProxyForwarder(
     }
 
     private fun connectRemoteProxy(targetHost: String, targetPort: Int): Socket {
+        listener.onLog(
+            "Remote proxy connect start proxy=$remoteProtocol://$remoteHost:$remotePort target=$targetHost:$targetPort",
+        )
         val remote = Socket()
         remote.tcpNoDelay = true
         socketProtector?.invoke(remote)
         remote.connect(InetSocketAddress(remoteHost, remotePort), CONNECT_TIMEOUT_MS)
         if (remoteProtocol.lowercase(Locale.US) == "http") {
+            listener.onLog("Remote HTTP proxy CONNECT start target=$targetHost:$targetPort")
             val output = remote.getOutputStream()
             val input = remote.getInputStream()
             output.write(
@@ -194,7 +207,9 @@ class LocalProxyForwarder(
                 remote.close()
                 throw EOFException("Remote HTTP proxy refused $targetHost:$targetPort")
             }
+            listener.onLog("Remote HTTP proxy CONNECT accepted target=$targetHost:$targetPort")
         } else {
+            listener.onLog("Remote SOCKS5 proxy CONNECT start target=$targetHost:$targetPort")
             val output = remote.getOutputStream()
             val input = remote.getInputStream()
             output.write(byteArrayOf(0x05, 0x01, 0x00))
@@ -215,7 +230,9 @@ class LocalProxyForwarder(
                 remote.close()
                 throw EOFException("Remote SOCKS5 refused $targetHost:$targetPort")
             }
+            listener.onLog("Remote SOCKS5 proxy CONNECT accepted target=$targetHost:$targetPort")
         }
+        listener.onLog("Remote proxy connect success target=$targetHost:$targetPort")
         return remote
     }
 

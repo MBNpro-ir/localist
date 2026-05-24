@@ -40,10 +40,12 @@ class LocalistProxyServer(
 
     fun start() {
         if (running) {
+            listener.onLog("Proxy server start skipped: already running")
             return
         }
         running = true
         val addresses = bindAddresses.ifEmpty { setOf("0.0.0.0") }
+        listener.onLog("Proxy server starting protocols=$protocols addresses=$addresses ports=$protocolPorts")
         for ((protocol, port) in protocolPorts) {
             for (address in addresses) {
                 executor.execute { serve(protocol, address, port) }
@@ -52,6 +54,7 @@ class LocalistProxyServer(
     }
 
     fun stop() {
+        listener.onLog("Proxy server stopping listeners=${serverSockets.size}")
         running = false
         synchronized(serverSockets) {
             for (socket in serverSockets) {
@@ -60,6 +63,7 @@ class LocalistProxyServer(
             serverSockets.clear()
         }
         executor.shutdownNow()
+        listener.onLog("Proxy server stopped")
     }
 
     private fun serve(protocol: String, bindAddress: String, port: Int) {
@@ -82,6 +86,7 @@ class LocalistProxyServer(
     }
 
     private fun handleClient(protocol: String, client: Socket) {
+        listener.onLog("Proxy client accepted protocol=$protocol peer=${client.inetAddress.hostAddress}:${client.port}")
         runCatching {
             client.tcpNoDelay = true
             client.use {
@@ -123,9 +128,12 @@ class LocalistProxyServer(
             else -> throw EOFException("Unknown SOCKS address type")
         }
         val targetPort = input.readPort()
+        listener.onLog("SOCKS5 proxy request target=$host:$targetPort")
         Socket().use { remote ->
             remote.tcpNoDelay = true
+            listener.onLog("Direct TCP connect start target=$host:$targetPort")
             remote.connect(InetSocketAddress(host, targetPort), CONNECT_TIMEOUT_MS)
+            listener.onLog("Direct TCP connect success target=$host:$targetPort")
             output.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
             output.flush()
             relay(client, remote)
@@ -144,8 +152,11 @@ class LocalistProxyServer(
 
         if (firstParts[0].equals("CONNECT", ignoreCase = true)) {
             val (host, targetPort) = parseHostPort(firstParts[1], 443)
+            listener.onLog("HTTP CONNECT proxy request target=$host:$targetPort")
             Socket().use { remote ->
+                listener.onLog("Direct TCP connect start target=$host:$targetPort")
                 remote.connect(InetSocketAddress(host, targetPort), CONNECT_TIMEOUT_MS)
+                listener.onLog("Direct TCP connect success target=$host:$targetPort")
                 output.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray())
                 output.flush()
                 relay(client, remote)
@@ -164,6 +175,7 @@ class LocalistProxyServer(
         } else {
             hostHeader?.substringAfter(':', missingDelimiterValue = "")?.toIntOrNull() ?: 80
         }
+        listener.onLog("HTTP proxy request method=${firstParts[0]} target=$host:$targetPort")
         val path = buildString {
             append(if (uri.rawPath.isNullOrBlank()) "/" else uri.rawPath)
             if (!uri.rawQuery.isNullOrBlank()) {
@@ -188,7 +200,9 @@ class LocalistProxyServer(
         }
 
         Socket().use { remote ->
+            listener.onLog("Direct TCP connect start target=$host:$targetPort")
             remote.connect(InetSocketAddress(host, targetPort), CONNECT_TIMEOUT_MS)
+            listener.onLog("Direct TCP connect success target=$host:$targetPort")
             remote.getOutputStream().write(rebuiltHeader.toByteArray())
             remote.getOutputStream().flush()
             relay(client, remote)

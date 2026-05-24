@@ -433,10 +433,12 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   Future<void> _openTelegramProxy() async {
+    _logs.debug('Open Telegram proxy button pressed');
     try {
       final opened = await _bridge.openUri(
         'tg://socks?server=127.0.0.1&port=3781',
       );
+      _logs.debug('Open Telegram proxy result opened=$opened');
       if (!opened && mounted) {
         showLocalistNotice(
           context,
@@ -468,6 +470,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
     return IconButton(
       tooltip: tooltip,
       onPressed: () {
+        _logs.debug('Clear text button pressed tooltip=$tooltip');
         controller.clear();
         if (afterClear != null && mounted) {
           setState(afterClear);
@@ -522,6 +525,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   Future<void> _startScanner() async {
+    _logs.debug('QR scanner button pressed locked=${widget.controlsLocked}');
     if (widget.controlsLocked) {
       return;
     }
@@ -530,6 +534,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
       return;
     }
     final permission = await Permission.camera.request();
+    _logs.debug('Camera permission result $permission');
     if (!permission.isGranted) {
       if (mounted) {
         await _showPermissionPopup(
@@ -547,9 +552,11 @@ class _ReceivingPageState extends State<ReceivingPage> {
       _scanning = true;
     });
     await _scannerController.start();
+    _logs.debug('Mobile QR scanner started');
   }
 
   Future<void> _startWindowsScanner() async {
+    _logs.debug('Windows QR scanner flow started');
     final String? device;
     try {
       device = await _chooseWindowsCameraDevice();
@@ -565,6 +572,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
       return;
     }
     if (device == null || !mounted) {
+      _logs.debug('Windows QR scanner cancelled before launch');
       return;
     }
     final deviceName = device;
@@ -575,14 +583,17 @@ class _ReceivingPageState extends State<ReceivingPage> {
     );
     final value = result?.trim();
     if (value == null || value.isEmpty || value == '-1' || !mounted) {
+      _logs.debug('Windows QR scanner returned no usable value');
       return;
     }
+    _logs.debug('Windows QR scanner returned config length=${value.length}');
     setState(() => _configController.text = value);
     await _handleConfigValue(value);
   }
 
   Future<String?> _chooseWindowsCameraDevice() async {
     final devices = await _bridge.getWindowsCameraDevices();
+    _logs.debug('Windows camera devices loaded count=${devices.length}');
     if (!mounted) {
       return null;
     }
@@ -621,6 +632,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   Future<void> _stopScanner() async {
+    _logs.debug('QR scanner stop requested scanning=$_scanning');
     await _scannerController.stop();
     if (!mounted) {
       return;
@@ -630,8 +642,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
 
   void _handleCapture(BarcodeCapture capture) {
     if (_handledScan) {
+      _logs.debug('QR capture ignored: already handled');
       return;
     }
+    _logs.debug('QR capture detected barcodes=${capture.barcodes.length}');
     for (final barcode in capture.barcodes) {
       final value = barcode.rawValue;
       if (value == null) {
@@ -639,6 +653,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
       }
       if (SmartProxyPayload.tryParse(value) == null &&
           RemoteProxyConfig.tryParse(value) == null) {
+        _logs.debug(
+          'QR capture ignored invalid payload length=${value.length}',
+        );
         continue;
       }
       _handledScan = true;
@@ -650,6 +667,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
         _scanning = false;
         _configController.text = value;
       });
+      _logs.debug('QR capture accepted payload length=${value.length}');
       _handleConfigValue(value);
       return;
     }
@@ -658,15 +676,19 @@ class _ReceivingPageState extends State<ReceivingPage> {
   Future<void> _handleConfigValue(String value) async {
     final trimmed = value.trim();
     if (trimmed.isEmpty) {
+      _logs.debug('Load config ignored: empty value');
       return;
     }
+    _logs.debug('Load config requested length=${trimmed.length}');
     final smart = SmartProxyPayload.tryParse(trimmed);
     if (smart != null) {
+      _logs.debug('Smart config parsed endpoints=${smart.endpoints.length}');
       await _showSmartProxyPicker(smart);
       return;
     }
     final config = RemoteProxyConfig.tryParse(trimmed);
     if (config != null) {
+      _logs.debug('Remote proxy config parsed ${config.url}');
       _loadConfig(config);
       return;
     }
@@ -696,6 +718,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   void _loadConfig(RemoteProxyConfig config, {String? configText}) {
+    _logs.debug('Applying remote proxy config ${config.url}');
     setState(() {
       _applyConfig(config);
       _configController.text = configText ?? config.url;
@@ -710,6 +733,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   Future<void> _showSmartProxyPicker(SmartProxyPayload payload) async {
+    _logs.debug(
+      'Smart proxy picker opened endpoints=${payload.endpoints.length}',
+    );
     final selected = await showModalBottomSheet<SmartProxyEndpoint>(
       context: context,
       showDragHandle: true,
@@ -753,18 +779,24 @@ class _ReceivingPageState extends State<ReceivingPage> {
       },
     );
     if (selected == null || !mounted) {
+      _logs.debug('Smart proxy picker dismissed');
       return;
     }
+    _logs.debug('Smart proxy endpoint selected ${selected.config.url}');
     _loadConfig(selected.config, configText: _configController.text.trim());
   }
 
   Future<void> _showDiscoveredDevicePicker(
     LocalistDiscoveredDevice device,
   ) async {
+    _logs.debug(
+      'Discovered device picker opened device=${device.name} endpoints=${device.endpoints.length}',
+    );
     if (widget.controlsLocked ||
         widget.busy ||
         widget.snapshot.receivingRunning ||
         widget.snapshot.localProxyRunning) {
+      _logs.debug('Discovered device picker blocked by current state');
       return;
     }
     final selected = await showModalBottomSheet<SmartProxyEndpoint>(
@@ -813,8 +845,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
       },
     );
     if (selected == null || !mounted) {
+      _logs.debug('Discovered device picker dismissed');
       return;
     }
+    _logs.debug('Discovered endpoint selected ${selected.config.url}');
     _loadConfig(selected.config, configText: device.payload.encode());
   }
 
@@ -829,6 +863,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
           ProxyProtocol.socks5.defaultPort;
       final protocol = ProxyProtocol.fromName(
         prefs.getString(_receivingDraftProtocolKey),
+      );
+      _logs.debug(
+        'Receiving draft restored protocol=${protocol.name} host=$host port=$port configLength=${configText.length}',
       );
       if (!mounted || widget.snapshot.remoteProxy != null) {
         return;
@@ -845,6 +882,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   void _setProtocol(ProxyProtocol value) {
+    _logs.debug('Receiving protocol selected ${value.name}');
     setState(() {
       _protocol = value;
       _portController.text = value.defaultPort.toString();
@@ -872,6 +910,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
     if (port != null) {
       await prefs.setInt(_receivingDraftPortKey, port);
     }
+    _logs.debug(
+      'Receiving draft persisted protocol=${_protocol.name} host=${_hostController.text.trim()} port=$port configLength=${_configController.text.length}',
+    );
   }
 
   String? _hostError(String value) {
@@ -963,16 +1004,25 @@ class _NearbyDevicesView extends StatelessWidget {
                   ),
                 ),
                 if (scanning)
-                  const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  IconButton(
-                    tooltip: l10n.searchAgain,
-                    onPressed: enabled ? () => unawaited(onRefresh()) : null,
-                    icon: const Icon(Icons.refresh),
+                  const Padding(
+                    padding: EdgeInsetsDirectional.only(end: 2),
+                    child: SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   ),
+                IconButton(
+                  tooltip: l10n.searchAgain,
+                  onPressed: enabled
+                      ? () {
+                          LogService.instance.debug(
+                            'Nearby devices retry pressed scanning=$scanning devices=${devices.length}',
+                          );
+                          unawaited(onRefresh());
+                        }
+                      : null,
+                  icon: Icon(scanning ? Icons.restart_alt : Icons.refresh),
+                ),
               ],
             ),
             const SizedBox(height: 10),

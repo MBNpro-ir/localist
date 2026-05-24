@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'log_service.dart';
 import 'native_bridge_service.dart';
 
 const _localistRepoOwner = 'MBNpro-ir';
@@ -18,12 +19,17 @@ class AppUpdateService {
     : _bridge = bridge ?? NativeBridgeService.instance;
 
   final NativeBridgeService _bridge;
+  final LogService _logs = LogService.instance;
 
   Future<AppUpdateCheck> checkForUpdate() async {
+    _logs.debug('Update check started');
     final current = await AppVersion.current();
     final release = await _fetchLatestRelease();
     final supportedAbis = await _bridge.getAndroidSupportedAbis();
     final androidAsset = release.pickAndroidAsset(supportedAbis);
+    _logs.debug(
+      'Update check finished current=$current latest=${release.version} supportedAbis=$supportedAbis selectedAsset=${androidAsset?.name}',
+    );
     return AppUpdateCheck(
       current: current,
       release: release,
@@ -38,9 +44,13 @@ class AppUpdateService {
   }) async {
     final client = HttpClient();
     try {
+      _logs.debug('Android update download started asset=${asset.name}');
       final request = await client.getUrl(Uri.parse(asset.downloadUrl));
       request.headers.set(HttpHeaders.userAgentHeader, 'Localist updater');
       final response = await request.close();
+      _logs.debug(
+        'Android update download response status=${response.statusCode} length=${response.contentLength}',
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
           'GitHub returned HTTP ${response.statusCode}.',
@@ -64,6 +74,9 @@ class AppUpdateService {
         await for (final chunk in response) {
           received += chunk.length;
           sink.add(chunk);
+          _logs.debug(
+            'Android update download chunk bytes=${chunk.length} received=$received total=$total',
+          );
           onProgress(received, total);
         }
       } finally {
@@ -73,7 +86,11 @@ class AppUpdateService {
       if (expectedLength > 0 && received != expectedLength) {
         throw const FileSystemException('Downloaded APK size mismatch.');
       }
+      _logs.debug('Android update download saved to ${file.path}');
       return file;
+    } catch (error, stack) {
+      _logs.debug('Android update download failed', error: error, stack: stack);
+      rethrow;
     } finally {
       client.close(force: true);
     }
@@ -82,6 +99,7 @@ class AppUpdateService {
   Future<AppRelease> _fetchLatestRelease() async {
     final client = HttpClient();
     try {
+      _logs.debug('Fetching latest GitHub release: $_latestReleaseApi');
       final request = await client.getUrl(Uri.parse(_latestReleaseApi));
       request.headers.set(
         HttpHeaders.acceptHeader,
@@ -90,6 +108,9 @@ class AppUpdateService {
       request.headers.set(HttpHeaders.userAgentHeader, 'Localist updater');
       final response = await request.close();
       final body = await utf8.decoder.bind(response).join();
+      _logs.debug(
+        'Latest GitHub release response status=${response.statusCode} bytes=${body.length}',
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
           'GitHub returned HTTP ${response.statusCode}.',
@@ -97,7 +118,18 @@ class AppUpdateService {
         );
       }
       final decoded = jsonDecode(body) as Map<String, Object?>;
-      return AppRelease.fromJson(decoded);
+      final release = AppRelease.fromJson(decoded);
+      _logs.debug(
+        'Latest GitHub release parsed tag=${release.tagName} assets=${release.assets.map((asset) => asset.name).join(', ')}',
+      );
+      return release;
+    } catch (error, stack) {
+      _logs.debug(
+        'Fetching latest GitHub release failed',
+        error: error,
+        stack: stack,
+      );
+      rethrow;
     } finally {
       client.close(force: true);
     }
@@ -175,6 +207,12 @@ class AppRelease {
         if (asset.name.toLowerCase().contains(token)) {
           return asset;
         }
+      }
+    }
+    for (final asset in apkAssets) {
+      final name = asset.name.toLowerCase();
+      if (name.contains('android-universal') || name.contains('universal')) {
+        return asset;
       }
     }
     return null;

@@ -62,6 +62,12 @@ class AppLocalizations {
   String get noSpaces => _s('فاصله مجاز نیست', 'No spaces');
   String get hostOnly => _s('فقط میزبان را وارد کنید', 'Host only');
   String get invalidHost => _s('میزبان نامعتبر است', 'Invalid host');
+  String get debugging => _s('دیباگ', 'Debug');
+  String get activeDebugMode => _s('حالت دیباگ فعال', 'Active debug mode');
+  String get activeDebugModeSubtitle => _s(
+    'لاگ‌های DEBUG برای سرویس‌ها، دکمه‌ها، bridge و شبکه ثبت می‌شود.',
+    'Write detailed DEBUG logs for services, buttons, native calls, and network activity.',
+  );
 
   String get languageStep => _s('زبان', 'Language');
   String get permissionsStep => _s('دسترسی‌ها', 'Permissions');
@@ -413,6 +419,10 @@ class AppLocalizations {
     'Hotspot اندروید را دستی روشن کنید، دستگاه دریافت‌کننده را به آن وصل کنید و سپس Localist را تازه‌سازی کنید.',
     'Turn on Android Hotspot manually, connect the receiving device to it, then refresh Localist.',
   );
+  String get iphoneHotspotHostCannotUseProxy => _s(
+    'این IP از محدوده Personal Hotspot آیفون است. آیفونی که خودش Hotspot را روشن کرده معمولا نمی‌تواند به پراکسی دستگاه وصل‌شده وصل شود. برای استفاده روی همان آیفون، کامپیوتر باید شبکه/هات‌اسپات را ارائه کند، یا از یک روتر/گوشی سوم یا یک relay خارجی استفاده کنید.',
+    'This IP belongs to the iPhone Personal Hotspot range. The iPhone that owns the hotspot usually cannot connect back to a proxy running on a connected device. To use it on that same iPhone, the computer must provide the network/hotspot, or you need a third router/phone or an external relay.',
+  );
   String get openAndroidHotspotSettings =>
       _s('باز کردن تنظیمات Hotspot اندروید', 'Open Android hotspot settings');
   String get refreshHotspot => _s('تازه‌سازی Hotspot', 'Refresh hotspot');
@@ -617,9 +627,15 @@ class AppLocalizations {
 
   String get all => _s('همه', 'All');
   String get copyLogs => _s('کپی گزارش‌ها', 'Copy logs');
+  String get saveLogs => _s('ذخیره گزارش‌ها', 'Save log');
+  String get logsSaved => _s('گزارش‌ها ذخیره شدند', 'Logs saved');
+  String get logsSaveCanceled => _s('ذخیره گزارش لغو شد', 'Log save canceled');
+  String get logsSaveFailed =>
+      _s('ذخیره گزارش ناموفق بود', 'Failed to save logs');
   String get clearLogs => _s('پاک کردن گزارش‌ها', 'Clear logs');
   String get noLogsYet => _s('هنوز گزارشی وجود ندارد', 'No logs yet');
   String get logInfo => _s('اطلاع', 'Info');
+  String get logDebug => _s('DEBUG', 'DEBUG');
   String get logWarning => _s('هشدار', 'Warning');
   String get logError => _s('خطا', 'Error');
 }

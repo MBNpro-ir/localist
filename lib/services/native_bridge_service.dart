@@ -4,85 +4,98 @@ import 'package:flutter/services.dart';
 
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
+import 'log_service.dart';
 import 'localist_discovery_protocol.dart';
 import 'windows_localist_service.dart';
 
 class NativeBridgeService {
-  NativeBridgeService._();
+  NativeBridgeService._() {
+    _channel.setMethodCallHandler(_handleNativeCall);
+  }
 
   static final NativeBridgeService instance = NativeBridgeService._();
   static const MethodChannel _channel = MethodChannel('com.prs.localist.vpn');
+  final LogService _logs = LogService.instance;
+
+  Future<void> _handleNativeCall(MethodCall call) async {
+    if (call.method != 'nativeLog') {
+      _logs.debug('Unknown native callback method=${call.method}');
+      return;
+    }
+    final arguments = call.arguments;
+    final message = arguments is Map
+        ? arguments['message']?.toString() ?? ''
+        : arguments.toString();
+    final source = arguments is Map
+        ? arguments['source']?.toString() ?? 'android'
+        : 'android';
+    if (message.isEmpty) {
+      return;
+    }
+    _logs.debug('Android native [$source]: $message');
+  }
 
   Future<bool> ensureVpnPermission() async {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.ensureVpnPermission();
     }
-    return await _channel.invokeMethod<bool>('ensureVpnPermission') ?? false;
+    return await _invoke<bool>('ensureVpnPermission') ?? false;
   }
 
   Future<int?> getAndroidSdkInt() async {
     if (!Platform.isAndroid) {
       return null;
     }
-    return _channel.invokeMethod<int>('getAndroidSdkInt');
+    return _invoke<int>('getAndroidSdkInt');
   }
 
   Future<List<String>> getAndroidSupportedAbis() async {
     if (!Platform.isAndroid) {
       return const [];
     }
-    return await _channel.invokeListMethod<String>('getAndroidSupportedAbis') ??
-        const [];
+    return await _invokeList<String>('getAndroidSupportedAbis') ?? const [];
   }
 
   Future<String?> getAndroidUpdateDirectory() async {
     if (!Platform.isAndroid) {
       return null;
     }
-    return _channel.invokeMethod<String>('getUpdateDirectory');
+    return _invoke<String>('getUpdateDirectory');
   }
 
   Future<bool> canInstallAndroidPackages() async {
     if (!Platform.isAndroid) {
       return false;
     }
-    return await _channel.invokeMethod<bool>('canInstallPackages') ?? false;
+    return await _invoke<bool>('canInstallPackages') ?? false;
   }
 
   Future<bool> openAndroidInstallPermissionSettings() async {
     if (!Platform.isAndroid) {
       return false;
     }
-    return await _channel.invokeMethod<bool>('openInstallPermissionSettings') ??
-        false;
+    return await _invoke<bool>('openInstallPermissionSettings') ?? false;
   }
 
   Future<bool> installAndroidApk(String path) async {
     if (!Platform.isAndroid) {
       return false;
     }
-    return await _channel.invokeMethod<bool>('installApk', {'path': path}) ??
-        false;
+    return await _invoke<bool>('installApk', {'path': path}) ?? false;
   }
 
   Future<bool> isIgnoringBatteryOptimizations() async {
     if (!Platform.isAndroid) {
       return true;
     }
-    return await _channel.invokeMethod<bool>(
-          'isIgnoringBatteryOptimizations',
-        ) ??
-        false;
+    return await _invoke<bool>('isIgnoringBatteryOptimizations') ?? false;
   }
 
   Future<bool> requestIgnoreBatteryOptimizations() async {
     if (!Platform.isAndroid) {
       return true;
     }
-    return await _channel.invokeMethod<bool>(
-          'requestIgnoreBatteryOptimizations',
-        ) ??
-        false;
+    return await _invoke<bool>('requestIgnoreBatteryOptimizations') ?? false;
   }
 
   Future<bool> startProxyService({
@@ -102,7 +115,7 @@ class NativeBridgeService {
       );
     }
     final discoveryDeviceId = await localistDiscoveryDeviceId();
-    return await _channel.invokeMethod<bool>('startProxyService', {
+    return await _invoke<bool>('startProxyService', {
           'protocols': protocols.map((protocol) => protocol.name).toList(),
           'ports': {
             for (final entry in ports.entries) entry.key.name: entry.value,
@@ -118,11 +131,7 @@ class NativeBridgeService {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.startReceivingVpn(config);
     }
-    return await _channel.invokeMethod<bool>(
-          'startReceivingVpn',
-          config.toMap(),
-        ) ??
-        false;
+    return await _invoke<bool>('startReceivingVpn', config.toMap()) ?? false;
   }
 
   Future<bool> startLocalProxy(
@@ -135,7 +144,7 @@ class NativeBridgeService {
         localPort: localPort,
       );
     }
-    return await _channel.invokeMethod<bool>('startLocalProxy', {
+    return await _invoke<bool>('startLocalProxy', {
           ...config.toMap(),
           'localPort': localPort,
         }) ??
@@ -160,9 +169,7 @@ class NativeBridgeService {
       final result = await WindowsLocalistService.instance.checkAdminAccess();
       return result.available;
     }
-    final result = await _channel.invokeMapMethod<Object?, Object?>(
-      'checkRootAccess',
-    );
+    final result = await _invokeMap<Object?, Object?>('checkRootAccess');
     return result?['available'] == true;
   }
 
@@ -170,10 +177,9 @@ class NativeBridgeService {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.setRootRoutingEnabled(enabled);
     }
-    final result = await _channel.invokeMapMethod<Object?, Object?>(
-      'setRootRoutingEnabled',
-      {'enabled': enabled},
-    );
+    final result = await _invokeMap<Object?, Object?>('setRootRoutingEnabled', {
+      'enabled': enabled,
+    });
     return RootRoutingInfo.fromMap(result ?? const {});
   }
 
@@ -187,11 +193,10 @@ class NativeBridgeService {
         selectedLocalIps: selectedLocalIps,
       );
     }
-    final result = await _channel
-        .invokeMapMethod<Object?, Object?>('startRootSharing', {
-          'shareAllRoutes': shareAllRoutes,
-          'selectedLocalIps': selectedLocalIps.toList(),
-        });
+    final result = await _invokeMap<Object?, Object?>('startRootSharing', {
+      'shareAllRoutes': shareAllRoutes,
+      'selectedLocalIps': selectedLocalIps.toList(),
+    });
     return RootRoutingInfo.fromMap(result ?? const {});
   }
 
@@ -199,9 +204,7 @@ class NativeBridgeService {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.stopRootSharing();
     }
-    final result = await _channel.invokeMapMethod<Object?, Object?>(
-      'stopRootSharing',
-    );
+    final result = await _invokeMap<Object?, Object?>('stopRootSharing');
     return RootRoutingInfo.fromMap(result ?? const {});
   }
 
@@ -209,14 +212,14 @@ class NativeBridgeService {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.stopProxyService();
     }
-    return await _channel.invokeMethod<bool>('stopProxyService') ?? false;
+    return await _invoke<bool>('stopProxyService') ?? false;
   }
 
   Future<bool> shareApk() async {
     if (Platform.isWindows) {
       return false;
     }
-    return await _channel.invokeMethod<bool>('shareApk') ?? false;
+    return await _invoke<bool>('shareApk') ?? false;
   }
 
   Future<bool> shareText({required String text, required String title}) async {
@@ -226,10 +229,7 @@ class NativeBridgeService {
         title: title,
       );
     }
-    return await _channel.invokeMethod<bool>('shareText', {
-          'text': text,
-          'title': title,
-        }) ??
+    return await _invoke<bool>('shareText', {'text': text, 'title': title}) ??
         false;
   }
 
@@ -237,21 +237,48 @@ class NativeBridgeService {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.openUri(uri);
     }
-    return await _channel.invokeMethod<bool>('openUri', {'uri': uri}) ?? false;
+    return await _invoke<bool>('openUri', {'uri': uri}) ?? false;
   }
 
   Future<bool> openHotspotSettings() async {
     if (Platform.isWindows) {
       return false;
     }
-    return await _channel.invokeMethod<bool>('openHotspotSettings') ?? false;
+    return await _invoke<bool>('openHotspotSettings') ?? false;
+  }
+
+  Future<SavedTextFileResult> saveTextFile({
+    required String text,
+    required String suggestedName,
+    String mimeType = 'text/plain',
+  }) async {
+    if (!Platform.isAndroid && !Platform.isWindows) {
+      return const SavedTextFileResult(saved: false);
+    }
+    final result = await _invokeMap<Object?, Object?>('saveTextFile', {
+      'text': text,
+      'suggestedName': suggestedName,
+      'mimeType': mimeType,
+    });
+    return SavedTextFileResult.fromMap(result ?? const {});
+  }
+
+  Future<Map<String, Object?>> getDeviceDetails() async {
+    if (!Platform.isAndroid && !Platform.isWindows) {
+      return const {};
+    }
+    final result = await _invokeMap<Object?, Object?>('getDeviceDetails');
+    return {
+      for (final entry in (result ?? const {}).entries)
+        entry.key.toString(): entry.value,
+    };
   }
 
   Future<UsageStats> getStats() async {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.getStats();
     }
-    final result = await _channel.invokeMapMethod<Object?, Object?>('getStats');
+    final result = await _invokeMap<Object?, Object?>('getStats');
     return UsageStats.fromMap(result ?? const {});
   }
 
@@ -267,9 +294,7 @@ class NativeBridgeService {
         fallbackPorts: fallbackPorts,
       );
     }
-    final result = await _channel.invokeMapMethod<Object?, Object?>(
-      'getServiceState',
-    );
+    final result = await _invokeMap<Object?, Object?>('getServiceState');
     return ServiceSnapshot.fromMap(
       result ?? const {},
       fallbackProtocol: fallbackProtocol,
@@ -290,5 +315,84 @@ class NativeBridgeService {
       return null;
     }
     return WindowsLocalistService.instance.getWindowsSettingsSignature();
+  }
+
+  Future<T?> _invoke<T>(String method, [Object? arguments]) async {
+    final started = DateTime.now();
+    _logs.debug(
+      'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_short(arguments)}',
+    );
+    try {
+      final result = await _channel.invokeMethod<T>(method, arguments);
+      _logs.debug(
+        'NativeBridge <- $method result=${_short(result)} elapsedMs=${DateTime.now().difference(started).inMilliseconds}',
+      );
+      return result;
+    } catch (error, stack) {
+      _logs.debug('NativeBridge !! $method failed', error: error, stack: stack);
+      rethrow;
+    }
+  }
+
+  Future<List<T>?> _invokeList<T>(String method, [Object? arguments]) async {
+    final started = DateTime.now();
+    _logs.debug(
+      'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_short(arguments)}',
+    );
+    try {
+      final result = await _channel.invokeListMethod<T>(method, arguments);
+      _logs.debug(
+        'NativeBridge <- $method result=${_short(result)} elapsedMs=${DateTime.now().difference(started).inMilliseconds}',
+      );
+      return result;
+    } catch (error, stack) {
+      _logs.debug('NativeBridge !! $method failed', error: error, stack: stack);
+      rethrow;
+    }
+  }
+
+  Future<Map<K, V>?> _invokeMap<K, V>(
+    String method, [
+    Object? arguments,
+  ]) async {
+    final started = DateTime.now();
+    _logs.debug(
+      'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_short(arguments)}',
+    );
+    try {
+      final result = await _channel.invokeMapMethod<K, V>(method, arguments);
+      _logs.debug(
+        'NativeBridge <- $method result=${_short(result)} elapsedMs=${DateTime.now().difference(started).inMilliseconds}',
+      );
+      return result;
+    } catch (error, stack) {
+      _logs.debug('NativeBridge !! $method failed', error: error, stack: stack);
+      rethrow;
+    }
+  }
+
+  String _short(Object? value) {
+    final text = value.toString();
+    return text.length <= 360 ? text : '${text.substring(0, 360)}...';
+  }
+}
+
+class SavedTextFileResult {
+  const SavedTextFileResult({
+    required this.saved,
+    this.canceled = false,
+    this.path,
+  });
+
+  final bool saved;
+  final bool canceled;
+  final String? path;
+
+  factory SavedTextFileResult.fromMap(Map<Object?, Object?> map) {
+    return SavedTextFileResult(
+      saved: map['saved'] == true,
+      canceled: map['canceled'] == true,
+      path: map['path']?.toString(),
+    );
   }
 }

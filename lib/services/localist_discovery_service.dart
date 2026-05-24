@@ -42,8 +42,10 @@ class LocalistDiscoveryService extends ChangeNotifier {
 
   Future<void> start() async {
     if (_scanning) {
+      _logs.debug('Local discovery start skipped: already scanning');
       return;
     }
+    _logs.debug('Local discovery starting');
     await _startSocket();
     _scanning = true;
     _notifySoon();
@@ -66,6 +68,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
   }
 
   Future<void> suspend() async {
+    _logs.debug('Local discovery suspending');
     _queryTimer?.cancel();
     _queryTimer = null;
     _pruneTimer?.cancel();
@@ -79,6 +82,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
       _scanning = false;
       notifyListeners();
     }
+    _logs.debug('Local discovery suspended');
   }
 
   Future<void> _startSocket() async {
@@ -92,16 +96,23 @@ class LocalistDiscoveryService extends ChangeNotifier {
       ..broadcastEnabled = true
       ..multicastLoopback = false
       ..listen(_handleSocketEvent, onError: (_) {});
+    _logs.debug(
+      'Local discovery socket ready deviceId=$_deviceId port=${_socket!.port}',
+    );
   }
 
   Future<void> refresh() async {
     final socket = _socket;
     final deviceId = _deviceId;
     if (socket == null || deviceId == null || _refreshInFlight) {
+      _logs.debug(
+        'Local discovery refresh skipped socketReady=${socket != null} deviceReady=${deviceId != null} inFlight=$_refreshInFlight',
+      );
       return;
     }
     _refreshInFlight = true;
     try {
+      _logs.debug('Local discovery refresh started');
       final data = utf8.encode(
         encodeLocalistDiscoveryQuery(deviceId: deviceId),
       );
@@ -113,19 +124,36 @@ class LocalistDiscoveryService extends ChangeNotifier {
           'Local discovery is querying ${targets.length} network targets.',
         );
       }
+      _logs.debug('Local discovery targets: $signature');
       for (final target in targets) {
         try {
           socket.send(data, target, localistDiscoveryPort);
-        } catch (_) {
+          _logs.debug(
+            'Local discovery query sent to ${target.address}:$localistDiscoveryPort bytes=${data.length}',
+          );
+        } catch (error, stack) {
+          _logs.debug(
+            'Local discovery query send failed for ${target.address}',
+            error: error,
+            stack: stack,
+          );
           // Some networks block directed multicast or limited broadcast.
         }
       }
     } finally {
       _refreshInFlight = false;
+      _logs.debug('Local discovery refresh finished');
     }
   }
 
+  Future<void> restart() async {
+    _logs.debug('Local discovery manual restart requested');
+    await stop();
+    await start();
+  }
+
   Future<void> stop() async {
+    _logs.debug('Local discovery stopping and clearing devices');
     await suspend();
     final hadDevices = _devices.isNotEmpty;
     _devices.clear();
@@ -146,14 +174,22 @@ class LocalistDiscoveryService extends ChangeNotifier {
   }
 
   void _handleDatagram(Datagram datagram) {
+    _logs.debug(
+      'Local discovery datagram from ${datagram.address.address}:${datagram.port} bytes=${datagram.data.length}',
+    );
     final map = decodeLocalistDiscoveryPacket(datagram.data);
     if (map == null || !isLocalistDiscoveryAnnouncement(map)) {
+      _logs.debug('Local discovery ignored packet: not an announcement');
       return;
     }
     if (map['deviceId'] == _deviceId) {
+      _logs.debug('Local discovery ignored own announcement');
       return;
     }
     if (_isLocalAddress(datagram.address.address)) {
+      _logs.debug(
+        'Local discovery ignored local source ${datagram.address.address}',
+      );
       return;
     }
     final device = LocalistDiscoveredDevice.fromAnnouncement(
@@ -163,6 +199,9 @@ class LocalistDiscoveryService extends ChangeNotifier {
     );
     if (device.endpoints.isEmpty ||
         device.endpoints.every((endpoint) => _isLocalAddress(endpoint.host))) {
+      _logs.debug(
+        'Local discovery ignored ${device.name}: no usable remote endpoints',
+      );
       return;
     }
     final previous = _devices[device.id];
@@ -183,6 +222,9 @@ class LocalistDiscoveryService extends ChangeNotifier {
     final before = _devices.length;
     _devices.removeWhere((_, device) => device.lastSeen.isBefore(cutoff));
     if (_devices.length != before) {
+      _logs.debug(
+        'Local discovery pruned ${before - _devices.length} expired device(s)',
+      );
       _notifySoon();
     }
   }
@@ -202,6 +244,9 @@ class LocalistDiscoveryService extends ChangeNotifier {
         includeLoopback: false,
         type: InternetAddressType.IPv4,
       );
+      _logs.debug(
+        'Local discovery inspected ${interfaces.length} IPv4 interface(s)',
+      );
       final localAddresses = <String>{};
       for (final interface in interfaces) {
         for (final address in interface.addresses) {
@@ -217,6 +262,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
         }
       }
       _localIpv4Addresses = localAddresses;
+      _logs.debug('Local discovery local IPv4 addresses: $localAddresses');
     } catch (error) {
       _logs.warning(
         'Local discovery could not inspect network interfaces: $error',

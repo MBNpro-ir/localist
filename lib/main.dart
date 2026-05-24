@@ -47,6 +47,9 @@ Future<void> main(List<String> args) async {
           await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         }
         final settings = await AppSettings.load();
+        LogService.instance.debug(
+          'App bootstrap complete platform=${Platform.operatingSystem} version=${Platform.version}',
+        );
         final themeSettings = await getThemeSettings();
         final colorScheme = await loadColorScheme(
           fallbackSeedColor: themeSettings.seedColor,
@@ -559,6 +562,9 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
+    _logs.debug(
+      'Settings changed snapshot sync protocols=${widget.settings.enabledProtocols.map((value) => value.name).join(',')} ports=${widget.settings.protocolPorts}',
+    );
     setState(() {
       _snapshot = _snapshot.copyWith(
         protocols: widget.settings.enabledProtocols,
@@ -573,14 +579,19 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _refreshState({bool quiet = false}) async {
+    _logs.debug('Native state refresh started quiet=$quiet');
     try {
       final snapshot = await _loadServiceSnapshot();
       if (!mounted) {
         return;
       }
       setState(() => _snapshot = snapshot);
+      _logs.debug(
+        'Native state refresh completed proxy=${snapshot.proxyRunning} receiving=${snapshot.receivingRunning} localProxy=${snapshot.localProxyRunning} vpn=${snapshot.deviceVpnActive}',
+      );
       unawaited(_syncDiscoveryLifecycle());
     } catch (error) {
+      _logs.debug('Native state refresh failed quiet=$quiet', error: error);
       if (!quiet) {
         _logs.warning('Unable to refresh native state: $error');
       }
@@ -592,6 +603,9 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     final nextDevices = _discovery.devices;
+    _logs.debug(
+      'Discovery changed scanning=${_discovery.scanning} devices=${nextDevices.length}',
+    );
     LocalistDiscoveredDevice? newlyFound;
     for (final device in nextDevices) {
       if (!_announcedDeviceIds.contains(device.id)) {
@@ -623,6 +637,9 @@ class _LocalistShellState extends State<LocalistShell>
   Future<void> _syncDiscoveryLifecycle() async {
     final l10n = context.l10n;
     try {
+      _logs.debug(
+        'Discovery lifecycle sync shouldRun=$_shouldRunDiscovery busy=$_busy sharing=$_sharingActive receiving=$_receivingActive',
+      );
       if (_shouldRunDiscovery) {
         await _discovery.resume();
       } else {
@@ -641,9 +658,14 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<void> _refreshDiscovery() async {
     final l10n = context.l10n;
+    _logs.debug(
+      'Discovery retry button pressed scanning=${_discovery.scanning} devices=${_discoveredDevices.length}',
+    );
     try {
-      await _discovery.refresh();
+      await _discovery.restart();
+      _logs.debug('Discovery retry completed');
     } catch (error) {
+      _logs.debug('Discovery retry failed', error: error);
       _logs.warning('Local discovery refresh failed: $error');
       _showInAppNotice(l10n.nearbySearchFailed);
     }
@@ -757,8 +779,10 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<bool> _requestRuntimePermissions() async {
+    _logs.debug('Runtime permission request started');
     final notification = await Permission.notification.request();
     final ok = notification.isGranted;
+    _logs.debug('Runtime permission request result notification=$notification');
     if (ok) {
       _logs.info('Runtime permissions granted');
     } else {
@@ -774,17 +798,23 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _startSharing() async {
+    _logs.debug('Sharing button pressed busy=$_busy');
     if (_busy) {
+      _logs.debug('Sharing start ignored: busy');
       return;
     }
     final l10n = context.l10n;
     if (_receivingActive) {
+      _logs.debug('Sharing start blocked: receiving is active');
       _showServiceConflictMessage(l10n.receiving, l10n.sharing);
       return;
     }
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
+      _logs.debug(
+        'Sharing start flow root=${widget.settings.rootRoutingEnabled} protocols=${widget.settings.enabledProtocols.map((value) => value.name).join(',')} ports=${widget.settings.protocolPorts} shareAll=${widget.settings.shareAllRoutes} selectedIps=${widget.settings.selectedLocalIps}',
+      );
       if (!Platform.isWindows && widget.settings.rootRoutingEnabled) {
         if (!widget.settings.shareAllRoutes &&
             widget.settings.selectedLocalIps.isEmpty) {
@@ -871,7 +901,9 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _stopSharing() async {
+    _logs.debug('Stop sharing button pressed busy=$_busy');
     if (_busy) {
+      _logs.debug('Stop sharing ignored: busy');
       return;
     }
     final l10n = context.l10n;
@@ -896,7 +928,9 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _stopReceiving() async {
+    _logs.debug('Stop receiving button pressed busy=$_busy');
     if (_busy) {
+      _logs.debug('Stop receiving ignored: busy');
       return;
     }
     final l10n = context.l10n;
@@ -920,11 +954,16 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _startReceiving(RemoteProxyConfig config) async {
+    _logs.debug(
+      'Start receiving VPN button pressed config=${config.url} busy=$_busy',
+    );
     if (_busy) {
+      _logs.debug('Start receiving VPN ignored: busy');
       return;
     }
     final l10n = context.l10n;
     if (_sharingActive) {
+      _logs.debug('Start receiving VPN blocked: sharing is active');
       _showServiceConflictMessage(l10n.sharing, l10n.receiving);
       return;
     }
@@ -944,6 +983,7 @@ class _LocalistShellState extends State<LocalistShell>
         return;
       }
       final vpnReady = await _bridge.ensureVpnPermission();
+      _logs.debug('VPN permission result ready=$vpnReady');
       if (!vpnReady) {
         _logs.warning('VPN permission was not granted');
         if (mounted) {
@@ -974,11 +1014,16 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _startLocalProxy(RemoteProxyConfig config) async {
+    _logs.debug(
+      'Start local proxy button pressed config=${config.url} busy=$_busy',
+    );
     if (_busy) {
+      _logs.debug('Start local proxy ignored: busy');
       return;
     }
     final l10n = context.l10n;
     if (_sharingActive) {
+      _logs.debug('Start local proxy blocked: sharing is active');
       _showServiceConflictMessage(l10n.sharing, l10n.receiving);
       return;
     }
@@ -1017,11 +1062,16 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _startSystemProxy(RemoteProxyConfig config) async {
+    _logs.debug(
+      'Start system proxy button pressed config=${config.url} busy=$_busy',
+    );
     if (_busy) {
+      _logs.debug('Start system proxy ignored: busy');
       return;
     }
     final l10n = context.l10n;
     if (_sharingActive) {
+      _logs.debug('Start system proxy blocked: sharing is active');
       _showServiceConflictMessage(l10n.sharing, l10n.receiving);
       return;
     }
@@ -1061,6 +1111,7 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<bool> _testProxyConnection(RemoteProxyConfig config) async {
     try {
+      _logs.debug('Proxy reachability test started ${config.url}');
       final socket = await Socket.connect(
         config.host,
         config.port,
@@ -1076,11 +1127,20 @@ class _LocalistShellState extends State<LocalistShell>
             .toList()
             .timeout(const Duration(seconds: 3));
         socket.destroy();
-        return response.length == 2 && response[0] == 0x05 && response[1] == 0;
+        final ok =
+            response.length == 2 && response[0] == 0x05 && response[1] == 0;
+        _logs.debug('SOCKS5 reachability test result ${config.url} ok=$ok');
+        return ok;
       }
       socket.destroy();
+      _logs.debug('TCP reachability test result ${config.url} ok=true');
       return true;
-    } catch (_) {
+    } catch (error, stack) {
+      _logs.debug(
+        'Proxy reachability test failed ${config.url}',
+        error: error,
+        stack: stack,
+      );
       return false;
     }
   }
@@ -1107,8 +1167,10 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<void> _openHotspotSettings() async {
     final l10n = context.l10n;
+    _logs.debug('Open hotspot settings button pressed');
     try {
       final opened = await _bridge.openHotspotSettings();
+      _logs.debug('Open hotspot settings result opened=$opened');
       if (!opened && mounted) {
         showLocalistNotice(
           context,
@@ -1130,8 +1192,10 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<void> _shareApk() async {
     final l10n = context.l10n;
+    _logs.debug('Share APK button pressed');
     try {
       final shared = await _bridge.shareApk();
+      _logs.debug('Share APK result shared=$shared');
       if (shared) {
         _logs.info('APK share sheet opened');
       } else {
@@ -1148,6 +1212,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _showLogsSheet() {
+    _logs.debug('Logs sheet button pressed');
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1160,6 +1225,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _showStatsSheet() async {
+    _logs.debug('Stats sheet button pressed');
     await _refreshState(quiet: true);
     if (!mounted || !_statsAvailable) {
       return;
@@ -1368,10 +1434,12 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   void _goToPage(int value) {
+    _logs.debug('Navigation destination selected index=$value');
     _setPage(value);
   }
 
   void _handlePageChanged(int value) {
+    _logs.debug('Page changed index=$value');
     setState(() => _index = value);
     unawaited(_syncDiscoveryLifecycle());
   }
@@ -1381,6 +1449,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     if (_index == value && !force) {
+      _logs.debug('Page change skipped index=$value force=$force');
       return;
     }
     if (_index != value) {
@@ -1417,6 +1486,9 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   void _toggleTheme(ThemeSettingsModel themeSettings) {
+    _logs.debug(
+      'Theme toggle button pressed current=${themeSettings.themeMode.name}',
+    );
     themeSettings.setThemeMode(
       themeSettings.isDarkMode ? ThemeMode.light : ThemeMode.dark,
     );
@@ -1435,6 +1507,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _showOnboardingGuide() {
+    _logs.debug('Onboarding guide opened');
     return showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,

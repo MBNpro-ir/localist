@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/log_service.dart';
+
 enum AppLanguage {
   system('system', null),
   english('en', Locale('en')),
@@ -66,6 +68,7 @@ class AppSettings extends ChangeNotifier {
     required int windowsVpnProxyPort,
     required AppLanguage language,
     required bool languageSelected,
+    required bool activeDebugMode,
   }) : _enabledProtocols = _coerceProtocols(enabledProtocols),
        _protocolPorts = _coerceProtocolPorts(protocolPorts),
        _shareAllRoutes = shareAllRoutes,
@@ -78,7 +81,8 @@ class AppSettings extends ChangeNotifier {
          fallback: _defaultWindowsVpnProxyPort,
        ),
        _language = language,
-       _languageSelected = languageSelected;
+       _languageSelected = languageSelected,
+       _activeDebugMode = activeDebugMode;
 
   static const _protocolKey = 'proxy.protocol';
   static const _protocolsKey = 'proxy.protocols';
@@ -93,6 +97,7 @@ class AppSettings extends ChangeNotifier {
   static const _windowsVpnProxyEnabledKey = 'windows.vpnProxy.enabled';
   static const _windowsVpnProxyPortKey = 'windows.vpnProxy.port';
   static const _languageKey = 'app.language';
+  static const _activeDebugModeKey = 'debug.activeMode';
 
   Set<ProxyProtocol> _enabledProtocols;
   Map<ProxyProtocol, int> _protocolPorts;
@@ -104,6 +109,7 @@ class AppSettings extends ChangeNotifier {
   int _windowsVpnProxyPort;
   AppLanguage _language;
   bool _languageSelected;
+  bool _activeDebugMode;
 
   Set<ProxyProtocol> get enabledProtocols =>
       Set.unmodifiable(_enabledProtocols);
@@ -119,6 +125,7 @@ class AppSettings extends ChangeNotifier {
   AppLanguage get language => _language;
   bool get languageSelected => _languageSelected;
   Locale? get locale => _language.locale;
+  bool get activeDebugMode => _activeDebugMode;
 
   int portFor(ProxyProtocol protocol) {
     return _protocolPorts[protocol] ?? protocol.defaultPort;
@@ -139,7 +146,7 @@ class AppSettings extends ChangeNotifier {
     final legacyPort = prefs.getInt(_portKey);
     final storedSocks5Port = prefs.getInt(_socks5PortKey);
     final storedLanguage = prefs.getString(_languageKey);
-    return AppSettings(
+    final settings = AppSettings(
       enabledProtocols: storedProtocols == null && legacyProtocol == null
           ? _defaultProtocols
           : storedProtocols == null
@@ -172,7 +179,10 @@ class AppSettings extends ChangeNotifier {
           prefs.getInt(_windowsVpnProxyPortKey) ?? _defaultWindowsVpnProxyPort,
       language: AppLanguage.fromStorage(storedLanguage),
       languageSelected: storedLanguage != null,
+      activeDebugMode: prefs.getBool(_activeDebugModeKey) ?? false,
     );
+    LogService.instance.setDebugMode(settings.activeDebugMode, announce: false);
+    return settings;
   }
 
   Future<void> setProtocolEnabled(ProxyProtocol protocol, bool enabled) async {
@@ -191,6 +201,9 @@ class AppSettings extends ChangeNotifier {
       return;
     }
     _enabledProtocols = safeValues;
+    LogService.instance.debug(
+      'Settings: enabled protocols -> ${safeValues.map((value) => value.name).join(', ')}',
+    );
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(
@@ -210,6 +223,7 @@ class AppSettings extends ChangeNotifier {
       return;
     }
     _protocolPorts = {..._protocolPorts, protocol: safePort};
+    LogService.instance.debug('Settings: ${protocol.name} port -> $safePort');
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_portKeyFor(protocol), safePort);
@@ -223,6 +237,7 @@ class AppSettings extends ChangeNotifier {
       return;
     }
     _shareAllRoutes = value;
+    LogService.instance.debug('Settings: share all routes -> $value');
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_shareAllRoutesKey, value);
@@ -239,6 +254,9 @@ class AppSettings extends ChangeNotifier {
       return;
     }
     _selectedLocalIps = next;
+    LogService.instance.debug(
+      'Settings: selected local IPs -> ${next.toList()..sort()}',
+    );
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_selectedLocalIpsKey, next.toList()..sort());
@@ -253,6 +271,7 @@ class AppSettings extends ChangeNotifier {
       return;
     }
     _rootRoutingEnabled = value;
+    LogService.instance.debug('Settings: root routing -> $value');
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_rootRoutingKey, value);
@@ -263,6 +282,9 @@ class AppSettings extends ChangeNotifier {
       return;
     }
     _windowsCloseBehavior = value;
+    LogService.instance.debug(
+      'Settings: Windows close behavior -> ${value.storageValue}',
+    );
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_windowsCloseBehaviorKey, value.storageValue);
@@ -279,6 +301,9 @@ class AppSettings extends ChangeNotifier {
     }
     _windowsVpnProxyEnabled = enabled;
     _windowsVpnProxyPort = safePort;
+    LogService.instance.debug(
+      'Settings: Windows VPN proxy -> enabled=$enabled port=$safePort',
+    );
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_windowsVpnProxyEnabledKey, enabled);
@@ -291,9 +316,22 @@ class AppSettings extends ChangeNotifier {
     }
     _language = value;
     _languageSelected = true;
+    LogService.instance.debug('Settings: language -> ${value.storageValue}');
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_languageKey, value.storageValue);
+  }
+
+  Future<void> setActiveDebugMode(bool value) async {
+    if (_activeDebugMode == value) {
+      return;
+    }
+    _activeDebugMode = value;
+    LogService.instance.setDebugMode(value);
+    LogService.instance.debug('Settings: active debug mode -> $value');
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_activeDebugModeKey, value);
   }
 
   static const _defaultProtocols = {ProxyProtocol.socks5};

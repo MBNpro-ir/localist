@@ -47,6 +47,7 @@ class LocalistVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        debugLog("onStartCommand action=${intent?.action} startId=$startId")
         when (intent?.action) {
             ACTION_START -> startLocalist(intent)
             ACTION_START_RECEIVING -> startReceiving(intent)
@@ -90,6 +91,9 @@ class LocalistVpnService : VpnService() {
             ?.filter { it.isNotBlank() }
             ?: emptyList()
         val discoveryDeviceId = intent.getStringExtra(EXTRA_DISCOVERY_DEVICE_ID).orEmpty()
+        debugLog(
+            "start sharing protocols=$protocols ports=$protocolPorts shareAllRoutes=$shareAllRoutes selectedLocalIps=$selectedLocalIps",
+        )
         State.mode = MODE_SHARING
         State.protocols = protocols
         State.protocolPorts = protocolPorts
@@ -125,12 +129,14 @@ class LocalistVpnService : VpnService() {
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
         LocalistWidgetProvider.updateAll(this)
+        debugLog("sharing started ip=${State.ipAddress} proxyRunning=${State.proxyRunning}")
     }
 
     private fun startReceiving(intent: Intent) {
         val protocol = intent.getStringExtra(EXTRA_REMOTE_PROTOCOL) ?: "socks5"
         val host = intent.getStringExtra(EXTRA_REMOTE_HOST) ?: ""
         val port = intent.getIntExtra(EXTRA_REMOTE_PORT, defaultPort(protocol))
+        debugLog("start receiving protocol=$protocol host=$host port=$port")
         State.mode = MODE_RECEIVING
         State.protocols = normalizedProtocols(listOf(protocol))
         State.remoteProtocol = State.protocols.first()
@@ -166,6 +172,9 @@ class LocalistVpnService : VpnService() {
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
         LocalistWidgetProvider.updateAll(this)
+        debugLog(
+            "receiving started vpnConnected=${State.vpnConnected} localProxyPort=${State.localProxyPort}",
+        )
     }
 
     private fun startLocalProxy(intent: Intent) {
@@ -176,6 +185,7 @@ class LocalistVpnService : VpnService() {
             EXTRA_LOCAL_PROXY_PORT,
             LocalProxyForwarder.DEFAULT_LOCAL_PORT,
         )
+        debugLog("start local proxy protocol=$protocol host=$host port=$port localPort=$localPort")
         State.mode = MODE_LOCAL_PROXY
         State.protocols = normalizedProtocols(listOf(protocol))
         State.remoteProtocol = State.protocols.first()
@@ -211,9 +221,11 @@ class LocalistVpnService : VpnService() {
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
         LocalistWidgetProvider.updateAll(this)
+        debugLog("local proxy started localPort=$localPort")
     }
 
     private fun startVpnInterface(protocol: String, host: String, port: Int) {
+        debugLog("start VPN interface protocol=$protocol host=$host port=$port")
         runCatching { vpnInterface?.close() }
         val tunProxyPort = PRSTUN_PROXY_PORT
         startTunForwarder(
@@ -230,6 +242,7 @@ class LocalistVpnService : VpnService() {
             .setMtu(1500)
         vpnInterface = builder.establish()
         State.vpnConnected = vpnInterface != null
+        debugLog("VPN interface established=${State.vpnConnected}")
         vpnInterface?.let { descriptor ->
             prsTunEngine = PrsTunEngine(this).also {
                 it.start(
@@ -268,6 +281,7 @@ class LocalistVpnService : VpnService() {
         protocolPorts: Map<String, Int>,
         bindAddresses: List<String>,
     ) {
+        debugLog("start native proxy protocols=$protocols ports=$protocolPorts bind=$bindAddresses")
         proxyServer?.stop()
         proxyServer = LocalistProxyServer(
             protocolPorts = protocols.associateWith {
@@ -280,15 +294,17 @@ class LocalistVpnService : VpnService() {
                 }
 
                 override fun onLog(message: String) {
-                    // Native logs are available through logcat; Flutter keeps the user-facing list.
+                    debugLog("proxy: $message")
                 }
             },
         ).also { it.start() }
         State.proxyRunning = true
         State.receivingRunning = false
+        debugLog("native proxy started")
     }
 
     private fun startDiscoveryResponder() {
+        debugLog("start discovery responder")
         if (discoveryResponder == null) {
             discoveryResponder = LocalistDiscoveryResponder(applicationContext)
         }
@@ -296,6 +312,7 @@ class LocalistVpnService : VpnService() {
     }
 
     private fun stopDiscoveryResponder() {
+        debugLog("stop discovery responder")
         discoveryResponder?.stop()
         discoveryResponder = null
     }
@@ -303,6 +320,7 @@ class LocalistVpnService : VpnService() {
     private fun discoveryEndpoints(): List<LocalistDiscoveryEndpoint> {
         val state = synchronized(State) {
             if (!State.proxyRunning) {
+                debugLog("discovery endpoints requested while proxy is stopped")
                 return emptyList()
             }
             DiscoveryState(
@@ -320,7 +338,7 @@ class LocalistVpnService : VpnService() {
         } else {
             state.selectedLocalIps
         }
-        return state.protocols.flatMap { protocol ->
+        val endpoints = state.protocols.flatMap { protocol ->
             hosts.map { host ->
                 LocalistDiscoveryEndpoint(
                     protocol = protocol,
@@ -329,6 +347,8 @@ class LocalistVpnService : VpnService() {
                 )
             }
         }
+        debugLog("discovery endpoints=${endpoints.joinToString { "${it.protocol}://${it.host}:${it.port}" }}")
+        return endpoints
     }
 
     private fun startAppLocalForwarder(
@@ -337,6 +357,7 @@ class LocalistVpnService : VpnService() {
         port: Int,
         localPort: Int,
     ) {
+        debugLog("start app local forwarder protocol=$protocol host=$host port=$port localPort=$localPort")
         localProxyForwarder?.stop()
         localProxyForwarder = buildForwarder(
             protocol = protocol,
@@ -352,6 +373,7 @@ class LocalistVpnService : VpnService() {
         port: Int,
         localPort: Int,
     ) {
+        debugLog("start TUN forwarder protocol=$protocol host=$host port=$port localPort=$localPort")
         tunProxyForwarder?.stop()
         tunProxyForwarder = buildForwarder(
             protocol = protocol,
@@ -378,7 +400,7 @@ class LocalistVpnService : VpnService() {
                 }
 
                 override fun onLog(message: String) {
-                    // User-facing logs are collected in Flutter.
+                    debugLog("forwarder: $message")
                 }
             },
             socketProtector = { socket -> protect(socket) },
@@ -386,6 +408,7 @@ class LocalistVpnService : VpnService() {
     }
 
     private fun acquireRuntimeLocks() {
+        debugLog("acquire runtime locks")
         if (wakeLock?.isHeld != true) {
             val powerManager = getSystemService(PowerManager::class.java)
             wakeLock = powerManager?.newWakeLock(
@@ -409,6 +432,7 @@ class LocalistVpnService : VpnService() {
     }
 
     private fun releaseRuntimeLocks() {
+        debugLog("release runtime locks")
         runCatching {
             if (wifiLock?.isHeld == true) {
                 wifiLock?.release()
@@ -424,6 +448,7 @@ class LocalistVpnService : VpnService() {
     }
 
     private fun stopLocalist(removeForeground: Boolean = true) {
+        debugLog("stop localist removeForeground=$removeForeground")
         notificationHandler.removeCallbacks(notificationUpdater)
         prsTunEngine?.stop()
         prsTunEngine = null
@@ -448,6 +473,11 @@ class LocalistVpnService : VpnService() {
             stopSelf()
         }
         LocalistWidgetProvider.updateAll(this)
+        debugLog("localist stopped")
+    }
+
+    private fun debugLog(message: String) {
+        MainActivity.broadcastNativeLog(applicationContext, "LocalistVpnService", message)
     }
 
     private fun intentWithCurrentConfig(): Intent {

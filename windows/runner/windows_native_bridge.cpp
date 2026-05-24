@@ -1,6 +1,8 @@
 #include "windows_native_bridge.h"
 
 #include <dwmapi.h>
+#include <commdlg.h>
+#include <fstream>
 #include <mfapi.h>
 #include <mfidl.h>
 #include <shellapi.h>
@@ -86,6 +88,20 @@ std::string GetStringArgument(const EncodableValue* arguments, const char* key) 
   }
   const std::string* value = std::get_if<std::string>(&it->second);
   return value == nullptr ? std::string() : *value;
+}
+
+std::string GetEnvironmentString(const wchar_t* name) {
+  const DWORD size = GetEnvironmentVariableW(name, nullptr, 0);
+  if (size == 0) {
+    return std::string();
+  }
+  std::wstring value(size, L'\0');
+  const DWORD written = GetEnvironmentVariableW(name, value.data(), size);
+  if (written == 0) {
+    return std::string();
+  }
+  value.resize(written);
+  return WideToUtf8(value);
 }
 
 EncodableValue BoolMap(bool available, bool enabled, bool launched = false,
@@ -262,6 +278,120 @@ EncodableValue GetWindowsCameraDevices() {
   return EncodableValue(devices);
 }
 
+std::string ProcessorArchitectureName(WORD architecture) {
+  switch (architecture) {
+    case PROCESSOR_ARCHITECTURE_AMD64:
+      return "x64";
+    case PROCESSOR_ARCHITECTURE_ARM64:
+      return "arm64";
+    case PROCESSOR_ARCHITECTURE_INTEL:
+      return "x86";
+    case PROCESSOR_ARCHITECTURE_ARM:
+      return "arm";
+    default:
+      return "unknown";
+  }
+}
+
+EncodableValue GetWindowsDeviceDetails() {
+  SYSTEM_INFO system_info{};
+  GetNativeSystemInfo(&system_info);
+
+  MEMORYSTATUSEX memory_status{};
+  memory_status.dwLength = sizeof(memory_status);
+  GlobalMemoryStatusEx(&memory_status);
+
+  EncodableMap map;
+  map[EncodableValue("computerName")] =
+      EncodableValue(GetEnvironmentString(L"COMPUTERNAME"));
+  map[EncodableValue("userName")] =
+      EncodableValue(GetEnvironmentString(L"USERNAME"));
+  map[EncodableValue("userDomain")] =
+      EncodableValue(GetEnvironmentString(L"USERDOMAIN"));
+  map[EncodableValue("osEnvironment")] =
+      EncodableValue(GetEnvironmentString(L"OS"));
+  map[EncodableValue("processorArchitecture")] =
+      EncodableValue(ProcessorArchitectureName(
+          system_info.wProcessorArchitecture));
+  map[EncodableValue("processorArchitectureEnv")] =
+      EncodableValue(GetEnvironmentString(L"PROCESSOR_ARCHITECTURE"));
+  map[EncodableValue("processorIdentifier")] =
+      EncodableValue(GetEnvironmentString(L"PROCESSOR_IDENTIFIER"));
+  map[EncodableValue("numberOfProcessors")] =
+      EncodableValue(static_cast<int>(system_info.dwNumberOfProcessors));
+  map[EncodableValue("pageSize")] =
+      EncodableValue(static_cast<int>(system_info.dwPageSize));
+  map[EncodableValue("allocationGranularity")] =
+      EncodableValue(static_cast<int>(system_info.dwAllocationGranularity));
+  map[EncodableValue("memoryLoadPercent")] =
+      EncodableValue(static_cast<int>(memory_status.dwMemoryLoad));
+  map[EncodableValue("totalPhysicalMemoryMb")] = EncodableValue(
+      static_cast<int64_t>(memory_status.ullTotalPhys / 1024 / 1024));
+  map[EncodableValue("availablePhysicalMemoryMb")] = EncodableValue(
+      static_cast<int64_t>(memory_status.ullAvailPhys / 1024 / 1024));
+  map[EncodableValue("remoteSession")] =
+      EncodableValue(GetSystemMetrics(SM_REMOTESESSION) != 0);
+  map[EncodableValue("primaryScreenWidth")] =
+      EncodableValue(GetSystemMetrics(SM_CXSCREEN));
+  map[EncodableValue("primaryScreenHeight")] =
+      EncodableValue(GetSystemMetrics(SM_CYSCREEN));
+  map[EncodableValue("windowsSettingsSignature")] =
+      EncodableValue(WindowsSettingsSignature());
+  return EncodableValue(map);
+}
+
+EncodableValue SaveTextFile(HWND window, const EncodableValue* arguments) {
+  const std::string text = GetStringArgument(arguments, "text");
+  const std::string suggested_name =
+      GetStringArgument(arguments, "suggestedName").empty()
+          ? "localist-debug-log.txt"
+          : GetStringArgument(arguments, "suggestedName");
+  std::wstring file_name = Utf8ToWide(suggested_name);
+  if (file_name.empty()) {
+    file_name = L"localist-debug-log.txt";
+  }
+  std::vector<wchar_t> buffer(MAX_PATH, L'\0');
+  wcsncpy_s(buffer.data(), buffer.size(), file_name.c_str(), _TRUNCATE);
+
+  OPENFILENAMEW open_file_name{};
+  open_file_name.lStructSize = sizeof(open_file_name);
+  open_file_name.hwndOwner = window;
+  open_file_name.lpstrFile = buffer.data();
+  open_file_name.nMaxFile = static_cast<DWORD>(buffer.size());
+  open_file_name.lpstrFilter =
+      L"Text files (*.txt)\0*.txt\0Log files (*.log)\0*.log\0All files (*.*)\0*.*\0";
+  open_file_name.lpstrDefExt = L"txt";
+  open_file_name.Flags =
+      OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+  EncodableMap map;
+  if (!GetSaveFileNameW(&open_file_name)) {
+    const DWORD error = CommDlgExtendedError();
+    map[EncodableValue("saved")] = EncodableValue(false);
+    map[EncodableValue("canceled")] = EncodableValue(error == 0);
+    if (error != 0) {
+      map[EncodableValue("errorCode")] =
+          EncodableValue(static_cast<int>(error));
+    }
+    return EncodableValue(map);
+  }
+
+  std::ofstream output(buffer.data(), std::ios::binary | std::ios::trunc);
+  if (!output.is_open()) {
+    map[EncodableValue("saved")] = EncodableValue(false);
+    map[EncodableValue("canceled")] = EncodableValue(false);
+    map[EncodableValue("error")] = EncodableValue("Could not open output file.");
+    return EncodableValue(map);
+  }
+  output.write(text.data(), static_cast<std::streamsize>(text.size()));
+  output.close();
+
+  map[EncodableValue("saved")] = EncodableValue(output.good());
+  map[EncodableValue("canceled")] = EncodableValue(false);
+  map[EncodableValue("path")] = EncodableValue(WideToUtf8(buffer.data()));
+  return EncodableValue(map);
+}
+
 void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
                       std::unique_ptr<MethodResult<EncodableValue>> result) {
   const std::string& method = call.method_name();
@@ -318,6 +448,16 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
 
   if (method == "getWindowsCameraDevices") {
     result->Success(GetWindowsCameraDevices());
+    return;
+  }
+
+  if (method == "saveTextFile") {
+    result->Success(SaveTextFile(window, arguments));
+    return;
+  }
+
+  if (method == "getDeviceDetails") {
+    result->Success(GetWindowsDeviceDetails());
     return;
   }
 

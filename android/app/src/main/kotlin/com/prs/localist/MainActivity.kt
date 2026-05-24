@@ -1,8 +1,11 @@
 package com.prs.localist
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
 import android.content.ClipData
+import android.content.IntentFilter
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
@@ -20,6 +23,29 @@ import java.net.ServerSocket
 
 class MainActivity : FlutterActivity() {
     private var pendingVpnResult: MethodChannel.Result? = null
+    private var pendingSaveFileResult: MethodChannel.Result? = null
+    private var pendingSaveFileText: String = ""
+    private var methodChannel: MethodChannel? = null
+    private var nativeLogReceiverRegistered = false
+    private val nativeLogReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ACTION_NATIVE_LOG) {
+                return
+            }
+            val message = intent.getStringExtra(EXTRA_NATIVE_LOG_MESSAGE).orEmpty()
+            if (message.isBlank()) {
+                return
+            }
+            methodChannel?.invokeMethod(
+                "nativeLog",
+                mapOf(
+                    "source" to intent.getStringExtra(EXTRA_NATIVE_LOG_SOURCE).orEmpty()
+                        .ifBlank { "android" },
+                    "message" to message,
+                ),
+            )
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,7 +54,8 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
@@ -57,9 +84,40 @@ class MainActivity : FlutterActivity() {
                 "shareText" -> shareText(call, result)
                 "openUri" -> openUri(call, result)
                 "openHotspotSettings" -> openHotspotSettings(result)
+                "saveTextFile" -> saveTextFile(call, result)
+                "getDeviceDetails" -> result.success(deviceDetails())
                 else -> result.notImplemented()
             }
         }
+        registerNativeLogReceiver()
+    }
+
+    override fun onDestroy() {
+        unregisterNativeLogReceiver()
+        methodChannel = null
+        super.onDestroy()
+    }
+
+    private fun registerNativeLogReceiver() {
+        if (nativeLogReceiverRegistered) {
+            return
+        }
+        val filter = IntentFilter(ACTION_NATIVE_LOG)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(nativeLogReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(nativeLogReceiver, filter)
+        }
+        nativeLogReceiverRegistered = true
+    }
+
+    private fun unregisterNativeLogReceiver() {
+        if (!nativeLogReceiverRegistered) {
+            return
+        }
+        runCatching { unregisterReceiver(nativeLogReceiver) }
+        nativeLogReceiverRegistered = false
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -67,6 +125,43 @@ class MainActivity : FlutterActivity() {
         if (requestCode == VPN_REQUEST_CODE) {
             pendingVpnResult?.success(resultCode == Activity.RESULT_OK)
             pendingVpnResult = null
+            return
+        }
+        if (requestCode == SAVE_FILE_REQUEST_CODE) {
+            val saveResult = pendingSaveFileResult
+            val text = pendingSaveFileText
+            pendingSaveFileResult = null
+            pendingSaveFileText = ""
+            val uri = data?.data
+            if (saveResult == null) {
+                return
+            }
+            if (resultCode != Activity.RESULT_OK || uri == null) {
+                saveResult.success(
+                    mapOf(
+                        "saved" to false,
+                        "canceled" to true,
+                    ),
+                )
+                return
+            }
+            runCatching {
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    output.writer(Charsets.UTF_8).buffered().use { writer ->
+                        writer.write(text)
+                    }
+                } ?: error("Could not open selected output stream.")
+            }.onSuccess {
+                saveResult.success(
+                    mapOf(
+                        "saved" to true,
+                        "canceled" to false,
+                        "path" to uri.toString(),
+                    ),
+                )
+            }.onFailure { error ->
+                saveResult.error("save_text_file_failed", error.message, null)
+            }
         }
     }
 
@@ -420,6 +515,65 @@ class MainActivity : FlutterActivity() {
         result.success(false)
     }
 
+    private fun saveTextFile(call: MethodCall, result: MethodChannel.Result) {
+        if (pendingSaveFileResult != null) {
+            result.error("save_file_pending", "A save dialog is already open.", null)
+            return
+        }
+        val text = call.argument<String>("text") ?: ""
+        val suggestedName = call.argument<String>("suggestedName")
+            ?.ifBlank { "localist-debug-log.txt" }
+            ?: "localist-debug-log.txt"
+        val mimeType = call.argument<String>("mimeType")
+            ?.ifBlank { "text/plain" }
+            ?: "text/plain"
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mimeType
+            putExtra(Intent.EXTRA_TITLE, suggestedName)
+            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }
+        pendingSaveFileResult = result
+        pendingSaveFileText = text
+        runCatching {
+            startActivityForResult(intent, SAVE_FILE_REQUEST_CODE)
+        }.onFailure { error ->
+            pendingSaveFileResult = null
+            pendingSaveFileText = ""
+            result.error("save_text_file_unavailable", error.message, null)
+        }
+    }
+
+    private fun deviceDetails(): Map<String, Any?> {
+        val displayMetrics = resources.displayMetrics
+        return mapOf(
+            "manufacturer" to Build.MANUFACTURER,
+            "brand" to Build.BRAND,
+            "model" to Build.MODEL,
+            "device" to Build.DEVICE,
+            "product" to Build.PRODUCT,
+            "hardware" to Build.HARDWARE,
+            "board" to Build.BOARD,
+            "bootloader" to Build.BOOTLOADER,
+            "fingerprint" to Build.FINGERPRINT,
+            "androidRelease" to Build.VERSION.RELEASE,
+            "androidSdkInt" to Build.VERSION.SDK_INT,
+            "androidSecurityPatch" to if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Build.VERSION.SECURITY_PATCH
+            } else {
+                ""
+            },
+            "supportedAbis" to Build.SUPPORTED_ABIS.toList(),
+            "packageName" to packageName,
+            "installerPackageName" to packageManager.getInstallerPackageName(packageName),
+            "isIgnoringBatteryOptimizations" to isIgnoringBatteryOptimizations(),
+            "screenWidthPx" to displayMetrics.widthPixels,
+            "screenHeightPx" to displayMetrics.heightPixels,
+            "screenDensity" to displayMetrics.density,
+            "screenDensityDpi" to displayMetrics.densityDpi,
+        )
+    }
+
     private fun updateDirectory(): File {
         return File(cacheDir, "updates").apply { mkdirs() }
     }
@@ -435,6 +589,22 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "com.prs.localist.vpn"
+        private const val ACTION_NATIVE_LOG = "com.prs.localist.NATIVE_LOG"
+        private const val EXTRA_NATIVE_LOG_MESSAGE = "message"
+        private const val EXTRA_NATIVE_LOG_SOURCE = "source"
         private const val VPN_REQUEST_CODE = 41088
+        private const val SAVE_FILE_REQUEST_CODE = 41089
+
+        fun broadcastNativeLog(context: Context, source: String, message: String) {
+            if (message.isBlank()) {
+                return
+            }
+            context.sendBroadcast(
+                Intent(ACTION_NATIVE_LOG)
+                    .setPackage(context.packageName)
+                    .putExtra(EXTRA_NATIVE_LOG_SOURCE, source)
+                    .putExtra(EXTRA_NATIVE_LOG_MESSAGE, message),
+            )
+        }
     }
 }

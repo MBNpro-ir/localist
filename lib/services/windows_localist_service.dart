@@ -47,14 +47,18 @@ class WindowsLocalistService {
   bool _statsSavePending = false;
 
   Future<bool> ensureVpnPermission() async {
+    _logs.debug('Windows VPN permission check started');
     final admin = await checkAdminAccess();
     if (admin.available) {
+      _logs.debug('Windows VPN permission already available');
       return true;
     }
     final requested = await setRootRoutingEnabled(true);
     if (requested.available) {
+      _logs.debug('Windows VPN permission granted after admin request');
       return true;
     }
+    _logs.debug('Windows VPN permission denied: ${requested.lastError}');
     throw PlatformException(
       code: 'windows_admin_required',
       message: requested.lastError.isEmpty
@@ -70,6 +74,9 @@ class WindowsLocalistService {
     required Set<String> selectedLocalIps,
     RemoteProxyConfig? upstreamProxy,
   }) async {
+    _logs.debug(
+      'Windows sharing start requested protocols=${protocols.map((value) => value.name).join(',')} ports=$ports shareAllRoutes=$shareAllRoutes selectedLocalIps=$selectedLocalIps upstream=${upstreamProxy?.url}',
+    );
     await _ensureTotalsLoaded();
     final activeProtocols = protocols.isEmpty
         ? {ProxyProtocol.socks5}
@@ -98,10 +105,14 @@ class WindowsLocalistService {
     _sessionRxBytes = 0;
     _sessionTxBytes = 0;
     await _discoveryResponder.start(_buildDiscoveryEndpoints);
+    _logs.debug(
+      'Windows sharing started bindAddresses=$addresses protocols=${activeProtocols.map((value) => value.name).join(',')} ports=$_protocolPorts',
+    );
     return true;
   }
 
   Future<bool> startReceivingVpn(RemoteProxyConfig config) async {
+    _logs.debug('Windows receiving VPN start requested config=${config.url}');
     await _ensureTotalsLoaded();
     await _discoveryResponder.stop();
     await _startLocalForwarder(config, localPort: _localProxyPort);
@@ -134,6 +145,9 @@ class WindowsLocalistService {
     });
     _sessionRxBytes = 0;
     _sessionTxBytes = 0;
+    _logs.debug(
+      'Windows receiving VPN started wintun=$wintunStarted localProxyPort=$_localProxyPort windowsProxyApplied=$_windowsProxyApplied',
+    );
     return true;
   }
 
@@ -141,6 +155,9 @@ class WindowsLocalistService {
     RemoteProxyConfig config, {
     int localPort = 3781,
   }) async {
+    _logs.debug(
+      'Windows local proxy start requested config=${config.url} localPort=$localPort',
+    );
     await _ensureTotalsLoaded();
     await _discoveryResponder.stop();
     if (!await _isLocalPortAvailable(localPort)) {
@@ -166,6 +183,7 @@ class WindowsLocalistService {
     _localProxyPort = localPort;
     _sessionRxBytes = 0;
     _sessionTxBytes = 0;
+    _logs.debug('Windows local proxy started localPort=$_localProxyPort');
     return true;
   }
 
@@ -173,6 +191,9 @@ class WindowsLocalistService {
     RemoteProxyConfig config, {
     int localPort = 3781,
   }) async {
+    _logs.debug(
+      'Windows system proxy start requested config=${config.url} localPort=$localPort',
+    );
     await _ensureTotalsLoaded();
     await _discoveryResponder.stop();
     if (!await _isLocalPortAvailable(localPort)) {
@@ -207,18 +228,22 @@ class WindowsLocalistService {
     _localProxyPort = localPort;
     _sessionRxBytes = 0;
     _sessionTxBytes = 0;
+    _logs.debug('Windows system proxy started localPort=$_localProxyPort');
     return true;
   }
 
   Future<RootRoutingInfo> checkAdminAccess() async {
+    _logs.debug('Windows admin access check requested');
     final result = await _channel.invokeMapMethod<Object?, Object?>(
       'checkRootAccess',
     );
     final available = result?['available'] == true;
+    _logs.debug('Windows admin access result available=$available raw=$result');
     return _adminInfo(available: available, enabled: available);
   }
 
   Future<RootRoutingInfo> setRootRoutingEnabled(bool enabled) async {
+    _logs.debug('Windows admin escalation requested enabled=$enabled');
     final result = await _channel.invokeMapMethod<Object?, Object?>(
       'setRootRoutingEnabled',
       {'enabled': enabled},
@@ -250,6 +275,9 @@ class WindowsLocalistService {
   }
 
   Future<bool> stopProxyService() async {
+    _logs.debug(
+      'Windows stop requested proxy=$_proxyRunning receiving=$_receivingRunning localProxy=$_localProxyRunning windowsProxy=$_windowsProxyApplied',
+    );
     await _discoveryResponder.stop();
     await _wintun.stop();
     await _proxyServer?.stop();
@@ -264,20 +292,28 @@ class WindowsLocalistService {
     _clearWindowsProxyOnStop = false;
     _remoteProxy = null;
     await _flushTotals();
+    _logs.debug('Windows stop completed');
     return true;
   }
 
   Future<bool> openUri(String uri) async {
+    _logs.debug('Windows open URI requested uri=$uri');
     return await _channel.invokeMethod<bool>('openUri', {'uri': uri}) ?? false;
   }
 
   Future<bool> shareText({required String text, required String title}) async {
+    _logs.debug(
+      'Windows share text requested title=$title bytes=${text.length}',
+    );
     await Clipboard.setData(ClipboardData(text: text));
     return true;
   }
 
   Future<UsageStats> getStats() async {
     await _ensureTotalsLoaded();
+    _logs.debug(
+      'Windows stats requested sessionRx=$_sessionRxBytes sessionTx=$_sessionTxBytes totalRx=$_totalRxBytes totalTx=$_totalTxBytes',
+    );
     return UsageStats(
       sessionRxBytes: _sessionRxBytes,
       sessionTxBytes: _sessionTxBytes,
@@ -291,12 +327,13 @@ class WindowsLocalistService {
     required int fallbackPort,
     required Map<ProxyProtocol, int> fallbackPorts,
   }) async {
+    _logs.debug('Windows service snapshot requested');
     await _ensureTotalsLoaded();
     final localIps = await WindowsNetworkInspector.localProxyIps();
     final admin = await checkAdminAccess();
     final protocols = _protocols.isEmpty ? {fallbackProtocol} : _protocols;
     final ports = _protocolPorts.isEmpty ? fallbackPorts : _protocolPorts;
-    return ServiceSnapshot(
+    final snapshot = ServiceSnapshot(
       vpnConnected: _receivingRunning,
       deviceVpnActive: _wintun.running || _windowsProxyApplied,
       proxyRunning: _proxyRunning,
@@ -315,16 +352,23 @@ class WindowsLocalistService {
       remoteProxy: _remoteProxy,
       root: admin,
     );
+    _logs.debug(
+      'Windows service snapshot loaded proxy=${snapshot.proxyRunning} receiving=${snapshot.receivingRunning} localProxy=${snapshot.localProxyRunning} vpn=${snapshot.deviceVpnActive}',
+    );
+    return snapshot;
   }
 
   Future<List<String>> getCameraDevices() async {
+    _logs.debug('Windows camera device list requested');
     final result = await _channel.invokeListMethod<String>(
       'getWindowsCameraDevices',
     );
+    _logs.debug('Windows camera devices: ${result ?? const []}');
     return result ?? const [];
   }
 
   Future<String?> getWindowsSettingsSignature() async {
+    _logs.debug('Windows settings signature requested');
     return await _channel.invokeMethod<String>('getWindowsSettingsSignature');
   }
 
@@ -332,6 +376,9 @@ class WindowsLocalistService {
     RemoteProxyConfig config, {
     required int localPort,
   }) async {
+    _logs.debug(
+      'Windows local forwarder setup remote=${config.url} localPort=$localPort',
+    );
     await _proxyServer?.stop();
     _proxyServer = null;
     await _localForwarder?.stop();
@@ -352,10 +399,12 @@ class WindowsLocalistService {
     }
     _localForwarder = forwarder;
     _localProxyPort = localPort;
+    _logs.debug('Windows local forwarder ready on 127.0.0.1:$localPort');
   }
 
   Future<List<SmartProxyEndpoint>> _buildDiscoveryEndpoints() async {
     if (!_proxyRunning) {
+      _logs.debug('Windows discovery endpoints skipped: proxy not running');
       return const [];
     }
     final selectedAddresses = _proxyServer?.bindAddresses ?? const <String>{};
@@ -363,9 +412,10 @@ class WindowsLocalistService {
         ? await WindowsNetworkInspector.localProxyIps()
         : selectedAddresses.toList(growable: false);
     if (hosts.isEmpty) {
+      _logs.debug('Windows discovery endpoints empty: no hosts');
       return const [];
     }
-    return [
+    final endpoints = [
       for (final protocol in _protocols)
         for (final host in hosts)
           SmartProxyEndpoint(
@@ -374,15 +424,21 @@ class WindowsLocalistService {
             port: _protocolPorts[protocol] ?? protocol.defaultPort,
           ),
     ];
+    _logs.debug(
+      'Windows discovery endpoints built: ${endpoints.map((endpoint) => endpoint.config.url).join(', ')}',
+    );
+    return endpoints;
   }
 
   Future<void> _applyWindowsSystemProxy(int localPort) async {
+    _logs.debug('Applying Windows system proxy localPort=$localPort');
     final prefs = await SharedPreferences.getInstance();
     final alreadyStored = prefs.getBool(_restoreProxyStoredKey) ?? false;
     if (!alreadyStored) {
       final current = await _channel.invokeMapMethod<Object?, Object?>(
         'getWindowsSystemProxy',
       );
+      _logs.debug('Stored current Windows system proxy: $current');
       await prefs.setBool(_restoreProxyStoredKey, true);
       await prefs.setBool(_restoreProxyEnabledKey, current?['enabled'] == true);
       await prefs.setString(
@@ -406,12 +462,17 @@ class WindowsLocalistService {
         message: 'Windows system proxy could not be enabled.',
       );
     }
+    _logs.debug('Windows system proxy applied');
   }
 
   Future<void> _restoreWindowsSystemProxyIfNeeded() async {
     if (!_windowsProxyApplied) {
+      _logs.debug('Windows system proxy restore skipped: nothing applied');
       return;
     }
+    _logs.debug(
+      'Restoring Windows system proxy clearOnStop=$_clearWindowsProxyOnStop',
+    );
     if (_clearWindowsProxyOnStop) {
       await _channel.invokeMethod<bool>('setWindowsSystemProxy', {
         'enabled': false,
@@ -420,6 +481,7 @@ class WindowsLocalistService {
       });
       await _clearStoredWindowsProxy();
       _clearWindowsProxyOnStop = false;
+      _logs.debug('Windows system proxy cleared');
       return;
     }
     final prefs = await SharedPreferences.getInstance();
@@ -434,12 +496,14 @@ class WindowsLocalistService {
       await prefs.remove(_restoreProxyEnabledKey);
       await prefs.remove(_restoreProxyServerKey);
       await prefs.remove(_restoreProxyBypassKey);
+      _logs.debug('Windows system proxy restored from stored state');
     } else {
       await _channel.invokeMethod<bool>('setWindowsSystemProxy', {
         'enabled': false,
         'server': '',
         'bypass': '',
       });
+      _logs.debug('Windows system proxy disabled without stored state');
     }
   }
 
@@ -459,6 +523,7 @@ class WindowsLocalistService {
     final prefs = await SharedPreferences.getInstance();
     _totalRxBytes = prefs.getInt(_statsRxKey) ?? 0;
     _totalTxBytes = prefs.getInt(_statsTxKey) ?? 0;
+    _logs.debug('Windows totals loaded rx=$_totalRxBytes tx=$_totalTxBytes');
   }
 
   void _recordTraffic(int uploadedBytes, int downloadedBytes) {
@@ -489,6 +554,7 @@ class WindowsLocalistService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_statsRxKey, _totalRxBytes);
       await prefs.setInt(_statsTxKey, _totalTxBytes);
+      _logs.debug('Windows totals flushed rx=$_totalRxBytes tx=$_totalTxBytes');
     } finally {
       _statsSaveInFlight = false;
     }
@@ -522,6 +588,7 @@ class WindowsLocalistService {
     Set<ProxyProtocol> protocols,
     Map<ProxyProtocol, int> ports,
   ) {
+    _logs.debug('Windows port validation protocols=$protocols ports=$ports');
     final seen = <int>{};
     for (final protocol in protocols) {
       final port = ports[protocol] ?? protocol.defaultPort;
@@ -546,8 +613,12 @@ class WindowsLocalistService {
     RemoteProxyConfig? upstreamProxy,
   ) async {
     if (upstreamProxy == null) {
+      _logs.debug('Windows upstream proxy validation skipped');
       return;
     }
+    _logs.debug(
+      'Windows upstream proxy validation started ${upstreamProxy.url}',
+    );
     if (upstreamProxy.port < 1024 || upstreamProxy.port > 65535) {
       throw PlatformException(
         code: 'internal_vpn_proxy_unavailable',
@@ -575,14 +646,21 @@ class WindowsLocalistService {
             'Internal VPN proxy is not reachable on ${upstreamProxy.host}:${upstreamProxy.port}.',
       );
     }
+    _logs.debug('Windows upstream proxy is reachable ${upstreamProxy.url}');
   }
 
   Future<bool> _isLocalPortAvailable(int port) async {
     ServerSocket? socket;
     try {
       socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      _logs.debug('Windows local port available port=$port');
       return true;
-    } catch (_) {
+    } catch (error, stack) {
+      _logs.debug(
+        'Windows local port unavailable port=$port',
+        error: error,
+        stack: stack,
+      );
       return false;
     } finally {
       await socket?.close();
@@ -592,13 +670,20 @@ class WindowsLocalistService {
   Future<bool> _isTcpConnectable(String host, int port) async {
     Socket? socket;
     try {
+      _logs.debug('Windows TCP probe started $host:$port');
       socket = await Socket.connect(
         host,
         port,
         timeout: const Duration(seconds: 2),
       );
+      _logs.debug('Windows TCP probe succeeded $host:$port');
       return true;
-    } catch (_) {
+    } catch (error, stack) {
+      _logs.debug(
+        'Windows TCP probe failed $host:$port',
+        error: error,
+        stack: stack,
+      );
       return false;
     } finally {
       socket?.destroy();
@@ -627,15 +712,20 @@ class WindowsWintunController {
   bool get running => _running;
 
   Future<bool> start(RemoteProxyConfig config) async {
+    LogService.instance.debug('Wintun start requested proxy=${config.url}');
     await stop();
     final tools = await _findTools();
     if (tools == null) {
       LogService.instance.warning(
         'Wintun is unavailable: tun2socks.exe and wintun.dll must be beside Localist.exe or in windows\\runner\\resources.',
       );
+      LogService.instance.debug('Wintun tools unavailable');
       return false;
     }
     final route = await _findRouteForHost(config.host);
+    LogService.instance.debug(
+      'Wintun route for ${config.host}: interface=${route?.interfaceAlias} nextHop=${route?.nextHop} ip=${route?.ip}',
+    );
     final args = <String>[
       '-device',
       _tunInterface,
@@ -657,6 +747,9 @@ class WindowsWintunController {
         workingDirectory: tools.directory,
         mode: ProcessStartMode.normal,
       );
+      LogService.instance.debug(
+        'tun2socks started pid=${process.pid} args=${args.join(' ')} directory=${tools.directory}',
+      );
       _process = process;
       unawaited(
         process.stdout.listen((data) {
@@ -675,6 +768,7 @@ class WindowsWintunController {
           }
           _process = null;
           _running = false;
+          LogService.instance.debug('tun2socks process exited');
           await _deleteDefaultRoutes();
           await _deleteRemoteBypassRoute();
         }),
@@ -703,8 +797,10 @@ class WindowsWintunController {
       }
       await _addDefaultRoutes();
       _running = true;
+      LogService.instance.debug('Wintun start completed');
       return true;
     } catch (error) {
+      LogService.instance.debug('Wintun start failed', error: error);
       await stop();
       if (error is PlatformException) {
         rethrow;
@@ -731,17 +827,23 @@ class WindowsWintunController {
   }
 
   Future<void> stop() async {
+    LogService.instance.debug('Wintun stop requested running=$_running');
     await _deleteDefaultRoutes();
     await _deleteRemoteBypassRoute();
     _process?.kill();
     _process = null;
     _running = false;
+    LogService.instance.debug('Wintun stop completed');
   }
 
   Future<_WindowsWintunTools?> _findTools() async {
+    LogService.instance.debug('Searching for Wintun tools');
     final bundledTun2socks = _fileNearExecutable('tun2socks.exe');
     final bundledWintun = _fileNearExecutable('wintun.dll');
     if (await bundledTun2socks.exists() && await bundledWintun.exists()) {
+      LogService.instance.debug(
+        'Wintun tools found beside executable: ${bundledTun2socks.path}',
+      );
       return _WindowsWintunTools(
         tun2socksPath: bundledTun2socks.path,
         directory: bundledTun2socks.parent.path,
@@ -755,6 +857,9 @@ class WindowsWintunController {
       '${Directory.current.path}\\windows\\runner\\resources\\wintun.dll',
     );
     if (await resourceTun2socks.exists() && await resourceWintun.exists()) {
+      LogService.instance.debug(
+        'Wintun tools found in resources: ${resourceTun2socks.path}',
+      );
       return _WindowsWintunTools(
         tun2socksPath: resourceTun2socks.path,
         directory: resourceTun2socks.parent.path,
@@ -763,12 +868,17 @@ class WindowsWintunController {
 
     final pathTun2socks = await _where('tun2socks.exe');
     if (pathTun2socks == null) {
+      LogService.instance.debug('tun2socks.exe not found on PATH');
       return null;
     }
     final pathWintun = File('${File(pathTun2socks).parent.path}\\wintun.dll');
     if (!await pathWintun.exists()) {
+      LogService.instance.debug(
+        'wintun.dll not found beside PATH tun2socks: $pathTun2socks',
+      );
       return null;
     }
+    LogService.instance.debug('Wintun tools found on PATH: $pathTun2socks');
     return _WindowsWintunTools(
       tun2socksPath: pathTun2socks,
       directory: File(pathTun2socks).parent.path,
@@ -780,8 +890,10 @@ class WindowsWintunController {
   }
 
   Future<String?> _where(String executable) async {
+    LogService.instance.debug('Running where.exe $executable');
     final result = await Process.run('where.exe', [executable]);
     if (result.exitCode != 0) {
+      LogService.instance.debug('where.exe did not find $executable');
       return null;
     }
     final output = result.stdout.toString().trim().split(RegExp(r'\r?\n'));
@@ -789,8 +901,10 @@ class WindowsWintunController {
   }
 
   Future<_WindowsRoute?> _findRouteForHost(String host) async {
+    LogService.instance.debug('Finding Windows route for host=$host');
     final ip = await _resolveIpv4(host);
     if (ip == null) {
+      LogService.instance.debug('Could not resolve IPv4 route host=$host');
       return null;
     }
     final script =
@@ -806,6 +920,9 @@ class WindowsWintunController {
       script,
     ]);
     if (result.exitCode != 0) {
+      LogService.instance.debug(
+        'Find-NetRoute failed exit=${result.exitCode} stderr=${result.stderr}',
+      );
       return null;
     }
     final output = result.stdout.toString().trim();
@@ -825,17 +942,26 @@ class WindowsWintunController {
       return host;
     }
     try {
+      LogService.instance.debug('Resolving IPv4 host=$host');
       final addresses = await InternetAddress.lookup(
         host,
         type: InternetAddressType.IPv4,
       );
-      return addresses.firstOrNull?.address;
-    } catch (_) {
+      final resolved = addresses.firstOrNull?.address;
+      LogService.instance.debug('Resolved host=$host ipv4=$resolved');
+      return resolved;
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'IPv4 resolve failed host=$host',
+        error: error,
+        stack: stack,
+      );
       return null;
     }
   }
 
   Future<void> _waitForInterface() async {
+    LogService.instance.debug('Waiting for Wintun interface');
     for (var attempt = 0; attempt < 20; attempt++) {
       final result = await Process.run('netsh.exe', [
         'interface',
@@ -844,6 +970,7 @@ class WindowsWintunController {
         'name=$_tunInterface',
       ]);
       if (result.exitCode == 0) {
+        LogService.instance.debug('Wintun interface appeared attempt=$attempt');
         return;
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -970,8 +1097,12 @@ class WindowsWintunController {
   }
 
   Future<void> _runNetsh(List<String> args, {bool allowFailure = false}) async {
+    LogService.instance.debug('netsh ${args.join(' ')}');
     final result = await Process.run('netsh.exe', args);
     if (allowFailure || result.exitCode == 0) {
+      LogService.instance.debug(
+        'netsh completed exit=${result.exitCode} allowFailure=$allowFailure',
+      );
       return;
     }
     throw PlatformException(
@@ -1006,6 +1137,7 @@ class _WindowsRoute {
 
 class WindowsNetworkInspector {
   static Future<List<String>> localProxyIps() async {
+    LogService.instance.debug('Windows local proxy IP inspection started');
     final interfaces = await NetworkInterface.list(
       includeLoopback: false,
       type: InternetAddressType.IPv4,
@@ -1025,17 +1157,23 @@ class WindowsNetworkInspector {
         final value = address.address;
         if (_isUsableIpv4(value) && await _canBind(value)) {
           values.add(value);
+          LogService.instance.debug(
+            'Windows local proxy IP accepted interface=${interface.name} address=$value',
+          );
         }
       }
     }
-    return values.toList()..sort((first, second) {
-      final firstPrivate = _privateScore(first);
-      final secondPrivate = _privateScore(second);
-      if (firstPrivate != secondPrivate) {
-        return secondPrivate.compareTo(firstPrivate);
-      }
-      return first.compareTo(second);
-    });
+    final sorted = values.toList()
+      ..sort((first, second) {
+        final firstPrivate = _privateScore(first);
+        final secondPrivate = _privateScore(second);
+        if (firstPrivate != secondPrivate) {
+          return secondPrivate.compareTo(firstPrivate);
+        }
+        return first.compareTo(second);
+      });
+    LogService.instance.debug('Windows local proxy IPs: $sorted');
+    return sorted;
   }
 
   static bool _isUsableIpv4(String value) {
@@ -1072,7 +1210,12 @@ class WindowsNetworkInspector {
     try {
       socket = await ServerSocket.bind(InternetAddress(host), 0);
       return true;
-    } catch (_) {
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'Windows local proxy IP bind probe failed host=$host',
+        error: error,
+        stack: stack,
+      );
       return false;
     } finally {
       await socket?.close();
@@ -1094,6 +1237,7 @@ class WindowsLocalistDiscoveryResponder {
   Future<void> start(
     Future<List<SmartProxyEndpoint>> Function() endpointsProvider,
   ) async {
+    LogService.instance.debug('Windows discovery responder starting');
     await stop();
     _endpointsProvider = endpointsProvider;
     _deviceId = await localistDiscoveryDeviceId();
@@ -1109,9 +1253,13 @@ class WindowsLocalistDiscoveryResponder {
       ..multicastLoopback = false;
     await _joinMulticast(socket);
     _subscription = socket.listen(_handleSocketEvent, onError: (_) {});
+    LogService.instance.debug(
+      'Windows discovery responder listening port=$localistDiscoveryPort deviceId=$_deviceId',
+    );
   }
 
   Future<void> stop() async {
+    LogService.instance.debug('Windows discovery responder stopping');
     await _subscription?.cancel();
     _subscription = null;
     _socket?.close();
@@ -1121,13 +1269,21 @@ class WindowsLocalistDiscoveryResponder {
     _cachedEndpoints = const [];
     _cachedEndpointsAt = null;
     _lastResponseByPeer.clear();
+    LogService.instance.debug('Windows discovery responder stopped');
   }
 
   Future<void> _joinMulticast(RawDatagramSocket socket) async {
     final group = InternetAddress(localistDiscoveryMulticastAddress);
     try {
       socket.joinMulticast(group);
-    } catch (_) {}
+      LogService.instance.debug('Windows discovery joined multicast default');
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'Windows discovery default multicast join failed',
+        error: error,
+        stack: stack,
+      );
+    }
     final interfaces = await NetworkInterface.list(
       includeLoopback: false,
       type: InternetAddressType.IPv4,
@@ -1135,7 +1291,16 @@ class WindowsLocalistDiscoveryResponder {
     for (final interface in interfaces) {
       try {
         socket.joinMulticast(group, interface);
-      } catch (_) {}
+        LogService.instance.debug(
+          'Windows discovery joined multicast interface=${interface.name}',
+        );
+      } catch (error, stack) {
+        LogService.instance.debug(
+          'Windows discovery multicast join failed interface=${interface.name}',
+          error: error,
+          stack: stack,
+        );
+      }
     }
   }
 
@@ -1150,16 +1315,22 @@ class WindowsLocalistDiscoveryResponder {
   }
 
   Future<void> _handleDatagram(Datagram datagram) async {
+    LogService.instance.debug(
+      'Windows discovery query datagram from ${datagram.address.address}:${datagram.port} bytes=${datagram.data.length}',
+    );
     final map = decodeLocalistDiscoveryPacket(datagram.data);
     if (map == null || !isLocalistDiscoveryQuery(map)) {
+      LogService.instance.debug('Windows discovery ignored non-query packet');
       return;
     }
     if (map['deviceId'] == _deviceId) {
+      LogService.instance.debug('Windows discovery ignored own query');
       return;
     }
     final now = DateTime.now();
     final peerKey = '${datagram.address.address}:${datagram.port}';
     if (_isPeerRateLimited(peerKey, now)) {
+      LogService.instance.debug('Windows discovery rate limited peer=$peerKey');
       return;
     }
     final endpointsProvider = _endpointsProvider;
@@ -1170,10 +1341,14 @@ class WindowsLocalistDiscoveryResponder {
         deviceId == null ||
         deviceName == null ||
         socket == null) {
+      LogService.instance.debug('Windows discovery responder not ready');
       return;
     }
     final endpoints = await _loadEndpoints(endpointsProvider);
     if (endpoints.isEmpty) {
+      LogService.instance.debug(
+        'Windows discovery has no endpoints to announce',
+      );
       return;
     }
     final response = utf8.encode(
@@ -1186,7 +1361,16 @@ class WindowsLocalistDiscoveryResponder {
     );
     try {
       socket.send(response, datagram.address, datagram.port);
-    } catch (_) {}
+      LogService.instance.debug(
+        'Windows discovery announcement sent to ${datagram.address.address}:${datagram.port} endpoints=${endpoints.length}',
+      );
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'Windows discovery announcement send failed',
+        error: error,
+        stack: stack,
+      );
+    }
   }
 
   Future<List<SmartProxyEndpoint>> _loadEndpoints(
@@ -1206,6 +1390,9 @@ class WindowsLocalistDiscoveryResponder {
         .then((endpoints) {
           _cachedEndpoints = endpoints;
           _cachedEndpointsAt = DateTime.now();
+          LogService.instance.debug(
+            'Windows discovery loaded ${endpoints.length} endpoint(s)',
+          );
           return endpoints;
         })
         .catchError((Object error) {
@@ -1255,10 +1442,14 @@ class WindowsProxyServer {
 
   Future<void> start() async {
     if (_running) {
+      LogService.instance.debug('Windows proxy server start skipped: running');
       return;
     }
     _running = true;
     final addresses = bindAddresses.isEmpty ? const ['0.0.0.0'] : bindAddresses;
+    LogService.instance.debug(
+      'Windows proxy server starting protocols=${protocols.map((value) => value.name).join(',')} addresses=$addresses ports=$ports upstream=${upstreamProxy?.url}',
+    );
     try {
       for (final protocol in protocols) {
         final port = ports[protocol] ?? protocol.defaultPort;
@@ -1268,6 +1459,9 @@ class WindowsProxyServer {
             port,
           );
           _servers.add(server);
+          LogService.instance.debug(
+            'Windows proxy listener bound protocol=${protocol.name} address=$address port=$port',
+          );
           server.listen(
             (client) => unawaited(_handleClient(protocol, client)),
             onError: (_) {},
@@ -1276,6 +1470,10 @@ class WindowsProxyServer {
         }
       }
     } catch (error) {
+      LogService.instance.debug(
+        'Windows proxy server start failed',
+        error: error,
+      );
       await stop();
       throw PlatformException(
         code: 'port_unavailable',
@@ -1285,15 +1483,23 @@ class WindowsProxyServer {
   }
 
   Future<void> stop() async {
+    LogService.instance.debug(
+      'Windows proxy server stopping listeners=${_servers.length}',
+    );
     _running = false;
     for (final server in _servers) {
       await server.close();
     }
     _servers.clear();
+    LogService.instance.debug('Windows proxy server stopped');
   }
 
   Future<void> _handleClient(ProxyProtocol protocol, Socket client) async {
     final reader = _SocketReader(client);
+    final peer = '${client.remoteAddress.address}:${client.remotePort}';
+    LogService.instance.debug(
+      'Windows proxy client accepted protocol=${protocol.name} peer=$peer',
+    );
     try {
       client.setOption(SocketOption.tcpNoDelay, true);
       if (protocol == ProxyProtocol.http) {
@@ -1301,7 +1507,12 @@ class WindowsProxyServer {
       } else {
         await _handleSocks5(client, reader);
       }
-    } catch (_) {
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'Windows proxy client failed protocol=${protocol.name} peer=$peer',
+        error: error,
+        stack: stack,
+      );
       client.destroy();
       await reader.cancel();
     }
@@ -1327,6 +1538,7 @@ class WindowsProxyServer {
     }
     final host = await _readSocksHost(reader, addressType);
     final targetPort = await reader.readPort();
+    LogService.instance.debug('SOCKS5 proxy request target=$host:$targetPort');
     final remote = await _connectProxyTarget(upstreamProxy, host, targetPort);
     client.add([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
     await client.flush();
@@ -1353,6 +1565,9 @@ class WindowsProxyServer {
 
     if (firstParts[0].toUpperCase() == 'CONNECT') {
       final target = _parseHostPort(firstParts[1], 443);
+      LogService.instance.debug(
+        'HTTP CONNECT proxy request target=${target.host}:${target.port}',
+      );
       final remote = await _connectProxyTarget(
         upstreamProxy,
         target.host,
@@ -1386,6 +1601,9 @@ class WindowsProxyServer {
     final targetPort = uri.hasPort
         ? uri.port
         : int.tryParse(hostHeader.substringAfter(':')) ?? 80;
+    LogService.instance.debug(
+      'HTTP proxy request method=${firstParts[0]} target=$host:$targetPort',
+    );
     final path =
         '${uri.path.isEmpty ? '/' : uri.path}'
         '${uri.hasQuery ? '?${uri.query}' : ''}';
@@ -1433,6 +1651,7 @@ class WindowsProxyServer {
       onBytes: (count) => onTraffic(0, count),
     );
     await Future.any([upload, download]);
+    LogService.instance.debug('Windows proxy relay closing');
     leftSocket.destroy();
     rightSocket.destroy();
     await leftReader.cancel();
@@ -1457,21 +1676,31 @@ class WindowsLocalProxyForwarder {
   ServerSocket? _server;
 
   Future<void> start() async {
+    LogService.instance.debug(
+      'Windows local forwarder binding 127.0.0.1:$localPort remote=$remoteProtocol://$remoteHost:$remotePort',
+    );
     _server = await ServerSocket.bind(InternetAddress.loopbackIPv4, localPort);
     _server!.listen(
       (client) => unawaited(_handleClient(client)),
       onError: (_) {},
       cancelOnError: false,
     );
+    LogService.instance.debug(
+      'Windows local forwarder listening on $localPort',
+    );
   }
 
   Future<void> stop() async {
+    LogService.instance.debug('Windows local forwarder stopping');
     await _server?.close();
     _server = null;
+    LogService.instance.debug('Windows local forwarder stopped');
   }
 
   Future<void> _handleClient(Socket client) async {
     final reader = _SocketReader(client);
+    final peer = '${client.remoteAddress.address}:${client.remotePort}';
+    LogService.instance.debug('Windows local forwarder client accepted $peer');
     try {
       client.setOption(SocketOption.tcpNoDelay, true);
       final first = await reader.readByte();
@@ -1481,7 +1710,12 @@ class WindowsLocalProxyForwarder {
       } else {
         await _handleHttpClient(client, reader);
       }
-    } catch (_) {
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'Windows local forwarder client failed $peer',
+        error: error,
+        stack: stack,
+      );
       client.destroy();
       await reader.cancel();
     }
@@ -1507,6 +1741,9 @@ class WindowsLocalProxyForwarder {
     }
     final targetHost = await _readSocksHost(reader, addressType);
     final targetPort = await reader.readPort();
+    LogService.instance.debug(
+      'Local forwarder SOCKS5 request target=$targetHost:$targetPort',
+    );
     final remote = await _connectRemoteProxy(targetHost, targetPort);
     client.add([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
     await client.flush();
@@ -1533,6 +1770,9 @@ class WindowsLocalProxyForwarder {
 
     if (firstParts[0].toUpperCase() == 'CONNECT') {
       final target = _parseHostPort(firstParts[1], 443);
+      LogService.instance.debug(
+        'Local forwarder HTTP CONNECT target=${target.host}:${target.port}',
+      );
       final remote = await _connectRemoteProxy(target.host, target.port);
       client.add(ascii.encode('HTTP/1.1 200 Connection Established\r\n\r\n'));
       await client.flush();
@@ -1562,6 +1802,9 @@ class WindowsLocalProxyForwarder {
     final targetPort = uri.hasPort
         ? uri.port
         : int.tryParse(hostHeader.substringAfter(':')) ?? 80;
+    LogService.instance.debug(
+      'Local forwarder HTTP request method=${firstParts[0]} target=$host:$targetPort',
+    );
     final path =
         '${uri.path.isEmpty ? '/' : uri.path}'
         '${uri.hasQuery ? '?${uri.query}' : ''}';
@@ -1624,6 +1867,7 @@ class WindowsLocalProxyForwarder {
       onBytes: (count) => onTraffic(0, count),
     );
     await Future.any([upload, download]);
+    LogService.instance.debug('Windows local forwarder relay closing');
     leftSocket.destroy();
     rightSocket.destroy();
     await leftReader.cancel();
@@ -1644,15 +1888,24 @@ Future<_ProxyConnection> _connectProxyTarget(
   int targetPort,
 ) async {
   if (proxy == null) {
+    LogService.instance.debug(
+      'Direct TCP connect start $targetHost:$targetPort',
+    );
     final socket = await Socket.connect(
       targetHost,
       targetPort,
       timeout: const Duration(seconds: 10),
     );
     socket.setOption(SocketOption.tcpNoDelay, true);
+    LogService.instance.debug(
+      'Direct TCP connect success $targetHost:$targetPort',
+    );
     return _ProxyConnection(socket: socket, reader: _SocketReader(socket));
   }
 
+  LogService.instance.debug(
+    'Proxy TCP connect start proxy=${proxy.url} target=$targetHost:$targetPort',
+  );
   final socket = await Socket.connect(
     proxy.host,
     proxy.port,
@@ -1662,6 +1915,9 @@ Future<_ProxyConnection> _connectProxyTarget(
   final reader = _SocketReader(socket);
   try {
     if (proxy.protocol == ProxyProtocol.http) {
+      LogService.instance.debug(
+        'HTTP upstream CONNECT start $targetHost:$targetPort',
+      );
       socket.add(
         ascii.encode(
           'CONNECT $targetHost:$targetPort HTTP/1.1\r\n'
@@ -1674,7 +1930,13 @@ Future<_ProxyConnection> _connectProxyTarget(
       if (!RegExp(r'^HTTP/1\.[01] 200\b').hasMatch(response)) {
         throw StateError('Remote HTTP proxy refused $targetHost:$targetPort');
       }
+      LogService.instance.debug(
+        'HTTP upstream CONNECT accepted $targetHost:$targetPort',
+      );
     } else {
+      LogService.instance.debug(
+        'SOCKS5 upstream CONNECT start $targetHost:$targetPort',
+      );
       socket.add([0x05, 0x01, 0x00]);
       await socket.flush();
       final version = await reader.readByte();
@@ -1703,9 +1965,20 @@ Future<_ProxyConnection> _connectProxyTarget(
       }
       await _readSocksHost(reader, addressType);
       await reader.readPort();
+      LogService.instance.debug(
+        'SOCKS5 upstream CONNECT accepted $targetHost:$targetPort',
+      );
     }
+    LogService.instance.debug(
+      'Proxy TCP connect success proxy=${proxy.url} target=$targetHost:$targetPort',
+    );
     return _ProxyConnection(socket: socket, reader: reader);
-  } catch (_) {
+  } catch (error, stack) {
+    LogService.instance.debug(
+      'Proxy TCP connect failed proxy=${proxy.url} target=$targetHost:$targetPort',
+      error: error,
+      stack: stack,
+    );
     socket.destroy();
     await reader.cancel();
     rethrow;

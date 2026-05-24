@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/log_export_service.dart';
 import '../services/log_service.dart';
 import '../widgets/glass.dart';
 
@@ -84,6 +85,64 @@ class _LogsBody extends StatefulWidget {
 
 class _LogsBodyState extends State<_LogsBody> {
   LogSeverity? _filter;
+  bool _debugFilterTouched = false;
+  bool _lastDebugModeEnabled = false;
+  bool _saving = false;
+
+  Future<void> _saveLogs() async {
+    if (_saving) {
+      return;
+    }
+    setState(() => _saving = true);
+    final l10n = context.l10n;
+    try {
+      final result = await LogExportService.instance.saveDebugLog();
+      if (!mounted) {
+        return;
+      }
+      if (result.saved) {
+        showLocalistNotice(
+          context,
+          message: l10n.logsSaved,
+          tone: InAppNoticeTone.success,
+          icon: Icons.save_outlined,
+        );
+      } else if (result.canceled) {
+        showLocalistNotice(
+          context,
+          message: l10n.logsSaveCanceled,
+          icon: Icons.close,
+        );
+      } else {
+        showLocalistNotice(
+          context,
+          message: l10n.logsSaveFailed,
+          tone: InAppNoticeTone.error,
+          icon: Icons.error_outline,
+        );
+      }
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'Save log button failed',
+        error: error,
+        stack: stack,
+      );
+      LogService.instance.error('Failed to save logs: $error');
+      if (!mounted) {
+        return;
+      }
+      showLocalistNotice(
+        context,
+        message: l10n.logsSaveFailed,
+        tone: InAppNoticeTone.error,
+        icon: Icons.error_outline,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -91,12 +150,35 @@ class _LogsBodyState extends State<_LogsBody> {
     return AnimatedBuilder(
       animation: logs,
       builder: (context, _) {
+        final debugModeEnabled = logs.debugModeEnabled;
+        if (debugModeEnabled && !_lastDebugModeEnabled) {
+          _filter = LogSeverity.debug;
+          _debugFilterTouched = false;
+        } else if (debugModeEnabled &&
+            !_debugFilterTouched &&
+            _filter == null) {
+          _filter = LogSeverity.debug;
+        } else if (!debugModeEnabled && _filter == LogSeverity.debug) {
+          _filter = null;
+          _debugFilterTouched = false;
+        }
+        _lastDebugModeEnabled = debugModeEnabled;
         final entries = logs.entries
+            .where(
+              (entry) =>
+                  debugModeEnabled || entry.severity != LogSeverity.debug,
+            )
             .where((entry) => _filter == null || entry.severity == _filter)
             .toList();
         final controls = _LogControls(
           filter: _filter,
-          onFilterChanged: (value) => setState(() => _filter = value),
+          debugModeEnabled: debugModeEnabled,
+          saving: _saving,
+          onSave: _saveLogs,
+          onFilterChanged: (value) => setState(() {
+            _filter = value;
+            _debugFilterTouched = true;
+          }),
         );
         final list = _LogList(entries: entries);
 
@@ -124,9 +206,18 @@ class _LogsBodyState extends State<_LogsBody> {
 }
 
 class _LogControls extends StatelessWidget {
-  const _LogControls({required this.filter, required this.onFilterChanged});
+  const _LogControls({
+    required this.filter,
+    required this.debugModeEnabled,
+    required this.saving,
+    required this.onSave,
+    required this.onFilterChanged,
+  });
 
   final LogSeverity? filter;
+  final bool debugModeEnabled;
+  final bool saving;
+  final Future<void> Function() onSave;
   final ValueChanged<LogSeverity?> onFilterChanged;
 
   @override
@@ -144,21 +235,40 @@ class _LogControls extends StatelessWidget {
           onSelected: (_) => onFilterChanged(null),
         ),
         for (final severity in LogSeverity.values)
-          FilterChip(
-            label: Text(_severityLabel(l10n, severity)),
-            selected: filter == severity,
-            onSelected: (_) => onFilterChanged(severity),
-          ),
+          if (severity != LogSeverity.debug || debugModeEnabled)
+            FilterChip(
+              label: Text(_severityLabel(l10n, severity)),
+              selected: filter == severity,
+              onSelected: (_) => onFilterChanged(severity),
+            ),
         IconButton.filledTonal(
           tooltip: l10n.copyLogs,
           onPressed: logs.entries.isEmpty
               ? null
-              : () => Clipboard.setData(ClipboardData(text: logs.dump())),
+              : () {
+                  LogService.instance.debug('Copy logs button pressed');
+                  Clipboard.setData(ClipboardData(text: logs.dump()));
+                },
           icon: const Icon(Icons.copy_all_outlined),
         ),
         IconButton.filledTonal(
+          tooltip: l10n.saveLogs,
+          onPressed: logs.entries.isEmpty || saving ? null : onSave,
+          icon: saving
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.save_outlined),
+        ),
+        IconButton.filledTonal(
           tooltip: l10n.clearLogs,
-          onPressed: logs.entries.isEmpty ? null : logs.clear,
+          onPressed: logs.entries.isEmpty
+              ? null
+              : () {
+                  LogService.instance.debug('Clear logs button pressed');
+                  logs.clear();
+                },
           icon: const Icon(Icons.delete_outline),
         ),
       ],
@@ -187,6 +297,7 @@ class _LogList extends StatelessWidget {
 
 String _severityLabel(AppLocalizations l10n, LogSeverity severity) {
   return switch (severity) {
+    LogSeverity.debug => l10n.logDebug,
     LogSeverity.info => l10n.logInfo,
     LogSeverity.warning => l10n.logWarning,
     LogSeverity.error => l10n.logError,
@@ -243,6 +354,7 @@ class _LogTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final color = switch (entry.severity) {
+      LogSeverity.debug => scheme.tertiary,
       LogSeverity.info => scheme.primary,
       LogSeverity.warning => Colors.amber.shade700,
       LogSeverity.error => scheme.error,

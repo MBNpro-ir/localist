@@ -24,6 +24,17 @@ void main() {
     expect(settings.windowsVpnProxyPort, 10808);
     expect(settings.language, AppLanguage.system);
     expect(settings.languageSelected, isFalse);
+    expect(settings.activeDebugMode, isFalse);
+  });
+
+  test('saves active debug mode setting', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = await AppSettings.load();
+
+    await settings.setActiveDebugMode(true);
+    final reloaded = await AppSettings.load();
+
+    expect(reloaded.activeDebugMode, isTrue);
   });
 
   test('saves app language selection', () async {
@@ -134,6 +145,25 @@ void main() {
     final asset = release.pickAndroidAsset(['arm64-v8a', 'armeabi-v7a']);
 
     expect(asset?.name, contains('arm64-v8a'));
+  });
+
+  test('update asset picker falls back to universal apk', () {
+    final release = AppRelease(
+      name: 'Localist v3.5.1',
+      tagName: 'v3.5.1',
+      htmlUrl: localistLatestReleaseUrl,
+      version: AppVersion.tryParse('v3.5.1')!,
+      assets: const [
+        UpdateAsset(
+          name: 'localist-v3.5.1-android-universal.apk',
+          downloadUrl: 'https://example.com/universal.apk',
+        ),
+      ],
+    );
+
+    final asset = release.pickAndroidAsset(['riscv64']);
+
+    expect(asset?.name, contains('universal'));
   });
 
   test('app versions compare semantic parts and build numbers', () {

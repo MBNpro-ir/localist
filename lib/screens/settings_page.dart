@@ -248,6 +248,26 @@ class _SettingsPageState extends State<SettingsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
+                    l10n.debugging,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: const Icon(Icons.bug_report_outlined),
+                    title: Text(l10n.activeDebugMode),
+                    subtitle: Text(l10n.activeDebugModeSubtitle),
+                    value: widget.settings.activeDebugMode,
+                    onChanged: widget.settings.setActiveDebugMode,
+                  ),
+                ],
+              ),
+            ),
+            GlassPanel(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
                     l10n.theme,
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
@@ -811,6 +831,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
   }
 
   Future<void> _checkForUpdates({bool quiet = false}) async {
+    _logs.debug('Update check button pressed quiet=$quiet');
     setState(() {
       _checking = true;
       _needsInstallPermission = false;
@@ -818,6 +839,9 @@ class _UpdatePanelState extends State<_UpdatePanel> {
     });
     try {
       final result = await _updates.checkForUpdate();
+      _logs.debug(
+        'Update check UI result updateAvailable=${result.updateAvailable} canInstall=${result.canInstallOnThisDevice}',
+      );
       if (!mounted) {
         return;
       }
@@ -828,6 +852,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
         _message = _messageForCheck(result);
       });
     } catch (error) {
+      _logs.debug('Update check UI failed quiet=$quiet', error: error);
       if (!mounted) {
         return;
       }
@@ -853,6 +878,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
   }
 
   Future<void> _downloadAndInstall() async {
+    _logs.debug('Download and install update button pressed');
     var check = _check;
     if (check == null) {
       await _checkForUpdates();
@@ -860,10 +886,12 @@ class _UpdatePanelState extends State<_UpdatePanel> {
     }
     final asset = check?.androidAsset;
     if (asset == null) {
+      _logs.debug('Download update blocked: no compatible asset');
       setState(() => _message = context.l10n.updaterNoCompatibleApk);
       return;
     }
     final canInstall = await _bridge.canInstallAndroidPackages();
+    _logs.debug('Android install permission canInstall=$canInstall');
     if (!canInstall) {
       await _bridge.openAndroidInstallPermissionSettings();
       if (mounted) {
@@ -893,6 +921,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
       if (!mounted) {
         return;
       }
+      _logs.debug('Android update downloaded path=${file.path}');
       setState(() {
         _downloadedApk = file;
         _progress = 1;
@@ -900,6 +929,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
       });
       await _installDownloadedApk();
     } catch (error) {
+      _logs.debug('Download and install update failed', error: error);
       if (mounted) {
         setState(() => _message = context.l10n.updaterFailed);
       }
@@ -913,9 +943,12 @@ class _UpdatePanelState extends State<_UpdatePanel> {
   Future<void> _installDownloadedApk() async {
     final apk = _downloadedApk;
     if (apk == null) {
+      _logs.debug('Install downloaded APK skipped: no file');
       return;
     }
+    _logs.debug('Install downloaded APK button pressed path=${apk.path}');
     final canInstall = await _bridge.canInstallAndroidPackages();
+    _logs.debug('Install downloaded APK permission canInstall=$canInstall');
     if (!canInstall) {
       await _bridge.openAndroidInstallPermissionSettings();
       if (mounted) {
@@ -932,6 +965,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
     });
     try {
       final opened = await _bridge.installAndroidApk(apk.path);
+      _logs.debug('Install downloaded APK result opened=$opened');
       if (mounted) {
         setState(() {
           _needsInstallPermission = !opened;
@@ -941,6 +975,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
         });
       }
     } catch (error) {
+      _logs.debug('Install downloaded APK failed', error: error);
       _logs.error('Unable to open Android update installer: $error');
       if (mounted) {
         setState(() => _message = context.l10n.updaterFailed);
@@ -976,7 +1011,12 @@ class _ProtocolToggle extends StatelessWidget {
       subtitle: Text('${protocol.scheme}://host:${settings.portFor(protocol)}'),
       value: protocolEnabled,
       onChanged: enabled && !isOnlyEnabledProtocol
-          ? (value) => settings.setProtocolEnabled(protocol, value ?? false)
+          ? (value) {
+              LogService.instance.debug(
+                'Protocol toggle changed protocol=${protocol.name} enabled=${value ?? false}',
+              );
+              settings.setProtocolEnabled(protocol, value ?? false);
+            }
           : null,
     );
   }
