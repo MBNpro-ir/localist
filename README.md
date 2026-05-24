@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.4-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.5-blue"></a>
 </p>
 
 ## Overview
@@ -80,7 +80,8 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 - 📱 `v3.3.0` - iOS Xray/sing-box QR configs, Windows system proxy mode, Wintun startup fixes, and release staging polish.
 - 🧭 `v3.4.0` - Self-discovery filtering, black Android widgets, separate Sending/Receiving widgets, startup update notices, and tag-only release builds.
 - 📲 `v3.5.0` - v2rayNG SOCKS QR links for Xray, Windows relay backpressure, throttled traffic stats, and C++/WinRT build reliability.
-- 🧯 `v3.5.4` - Active Debug Mode, `debug.log` on Windows, startup crash diagnostics, saveable device-detail log exports, Nearby retry, iPhone hotspot guidance, native Android logging, safer Internal VPN proxy handling, and universal APK releases.
+- 🐞 `v3.5.4` - Active Debug Mode, saveable device-detail log exports, Nearby retry, iPhone hotspot guidance, native Android logging, and universal APK releases.
+- 🧯 `v3.5.5` - Windows `debug.log`, startup crash diagnostics, native crash notices, safer Internal VPN proxy port validation, and soft fallback when the Internal VPN proxy is unavailable.
 
 ## Repository Layout
 
