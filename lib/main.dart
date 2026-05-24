@@ -861,19 +861,29 @@ class _LocalistShellState extends State<LocalistShell>
         }
         return;
       }
+      var internalVpnProxyUnavailable = false;
+      RemoteProxyConfig? upstreamProxy;
+      if (Platform.isWindows && widget.settings.windowsVpnProxyEnabled) {
+        final candidate = RemoteProxyConfig(
+          protocol: ProxyProtocol.socks5,
+          host: InternetAddress.loopbackIPv4.address,
+          port: widget.settings.windowsVpnProxyPort,
+        );
+        if (await _testProxyConnection(candidate)) {
+          upstreamProxy = candidate;
+        } else {
+          internalVpnProxyUnavailable = true;
+          _logs.warning(
+            'Internal VPN proxy is unavailable; starting Sharing without VPN upstream.',
+          );
+        }
+      }
       final started = await _bridge.startProxyService(
         protocols: widget.settings.enabledProtocols,
         ports: widget.settings.protocolPorts,
         shareAllRoutes: widget.settings.shareAllRoutes,
         selectedLocalIps: widget.settings.selectedLocalIps,
-        upstreamProxy:
-            Platform.isWindows && widget.settings.windowsVpnProxyEnabled
-            ? RemoteProxyConfig(
-                protocol: ProxyProtocol.socks5,
-                host: InternetAddress.loopbackIPv4.address,
-                port: widget.settings.windowsVpnProxyPort,
-              )
-            : null,
+        upstreamProxy: upstreamProxy,
       );
       if (started) {
         _logs.info(
@@ -884,6 +894,13 @@ class _LocalistShellState extends State<LocalistShell>
               )
               .join(', '),
         );
+        if (internalVpnProxyUnavailable && mounted) {
+          showLocalistNotice(
+            context,
+            message: l10n.internalVpnProxyUnavailable,
+            tone: InAppNoticeTone.warning,
+          );
+        }
       }
       await _refreshState();
     } catch (error) {

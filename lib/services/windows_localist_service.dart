@@ -83,13 +83,17 @@ class WindowsLocalistService {
         : {...protocols};
     final addresses = shareAllRoutes ? <String>{} : selectedLocalIps;
     _validatePorts(activeProtocols, ports);
-    await _validateUpstreamProxy(activeProtocols, ports, upstreamProxy);
+    final effectiveUpstreamProxy = await _resolveUpstreamProxy(
+      activeProtocols,
+      ports,
+      upstreamProxy,
+    );
     await stopProxyService();
     final server = WindowsProxyServer(
       protocols: activeProtocols,
       ports: ports,
       bindAddresses: addresses,
-      upstreamProxy: upstreamProxy,
+      upstreamProxy: effectiveUpstreamProxy,
       onTraffic: _recordTraffic,
     );
     await server.start();
@@ -106,7 +110,7 @@ class WindowsLocalistService {
     _sessionTxBytes = 0;
     await _discoveryResponder.start(_buildDiscoveryEndpoints);
     _logs.debug(
-      'Windows sharing started bindAddresses=$addresses protocols=${activeProtocols.map((value) => value.name).join(',')} ports=$_protocolPorts',
+      'Windows sharing started bindAddresses=$addresses protocols=${activeProtocols.map((value) => value.name).join(',')} ports=$_protocolPorts upstream=${effectiveUpstreamProxy?.url}',
     );
     return true;
   }
@@ -607,24 +611,23 @@ class WindowsLocalistService {
     }
   }
 
-  Future<void> _validateUpstreamProxy(
+  Future<RemoteProxyConfig?> _resolveUpstreamProxy(
     Set<ProxyProtocol> protocols,
     Map<ProxyProtocol, int> ports,
     RemoteProxyConfig? upstreamProxy,
   ) async {
     if (upstreamProxy == null) {
       _logs.debug('Windows upstream proxy validation skipped');
-      return;
+      return null;
     }
     _logs.debug(
       'Windows upstream proxy validation started ${upstreamProxy.url}',
     );
     if (upstreamProxy.port < 1024 || upstreamProxy.port > 65535) {
-      throw PlatformException(
-        code: 'internal_vpn_proxy_unavailable',
-        message:
-            'Internal VPN proxy port ${upstreamProxy.port} is outside 1024-65535.',
+      _logs.warning(
+        'Internal VPN proxy was ignored: port ${upstreamProxy.port} is outside 1024-65535.',
       );
+      return null;
     }
     final activeListenPorts = {
       for (final protocol in protocols) ports[protocol] ?? protocol.defaultPort,
@@ -634,19 +637,19 @@ class WindowsLocalistService {
         upstreamProxy.host == InternetAddress.loopbackIPv6.address ||
         upstreamProxy.host.toLowerCase() == 'localhost';
     if (upstreamIsLoopback && activeListenPorts.contains(upstreamProxy.port)) {
-      throw PlatformException(
-        code: 'internal_vpn_proxy_unavailable',
-        message: 'Internal VPN proxy port must differ from sharing ports.',
+      _logs.warning(
+        'Internal VPN proxy was ignored: port ${upstreamProxy.port} conflicts with a sharing port.',
       );
+      return null;
     }
     if (!await _isTcpConnectable(upstreamProxy.host, upstreamProxy.port)) {
-      throw PlatformException(
-        code: 'internal_vpn_proxy_unavailable',
-        message:
-            'Internal VPN proxy is not reachable on ${upstreamProxy.host}:${upstreamProxy.port}.',
+      _logs.warning(
+        'Internal VPN proxy is not reachable on ${upstreamProxy.host}:${upstreamProxy.port}; Sharing will continue without VPN upstream.',
       );
+      return null;
     }
     _logs.debug('Windows upstream proxy is reachable ${upstreamProxy.url}');
+    return upstreamProxy;
   }
 
   Future<bool> _isLocalPortAvailable(int port) async {

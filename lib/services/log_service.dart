@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 enum LogSeverity {
@@ -33,9 +35,11 @@ class LogService extends ChangeNotifier {
 
   static final LogService instance = LogService._();
   static const _maxEntries = 1200;
+  static const _debugLogFileName = 'debug.log';
 
   final List<LogEntry> _entries = [];
   bool _debugModeEnabled = false;
+  bool _debugFileWarningShown = false;
 
   List<LogEntry> get entries => List.unmodifiable(_entries.reversed);
   bool get debugModeEnabled => _debugModeEnabled;
@@ -68,6 +72,9 @@ class LogService extends ChangeNotifier {
       return;
     }
     _debugModeEnabled = enabled;
+    if (enabled) {
+      _startWindowsDebugFile();
+    }
     if (announce) {
       _add(
         enabled ? LogSeverity.info : LogSeverity.warning,
@@ -77,8 +84,13 @@ class LogService extends ChangeNotifier {
       );
       if (enabled) {
         debug('Debug logger is ready.');
+      } else {
+        _deleteWindowsDebugFile();
       }
       return;
+    }
+    if (!enabled) {
+      _deleteWindowsDebugFile();
     }
     notifyListeners();
   }
@@ -98,7 +110,93 @@ class LogService extends ChangeNotifier {
     if (_entries.length > _maxEntries) {
       _entries.removeRange(0, _entries.length - _maxEntries);
     }
+    _appendWindowsDebugFile(_entries.last);
     notifyListeners();
+  }
+
+  File? get _windowsDebugFile {
+    if (!Platform.isWindows) {
+      return null;
+    }
+    final executable = File(Platform.resolvedExecutable);
+    return File(
+      '${executable.parent.path}${Platform.pathSeparator}$_debugLogFileName',
+    );
+  }
+
+  void _startWindowsDebugFile() {
+    final file = _windowsDebugFile;
+    if (file == null) {
+      return;
+    }
+    _debugFileWarningShown = false;
+    try {
+      file.writeAsStringSync(
+        [
+          'Localist debug log',
+          '===================',
+          'Started: ${DateTime.now().toIso8601String()}',
+          'Executable: ${Platform.resolvedExecutable}',
+          '',
+        ].join('\n'),
+        mode: FileMode.write,
+        flush: true,
+      );
+    } catch (error) {
+      _debugFileWarningShown = true;
+      _entries.add(
+        LogEntry(
+          timestamp: DateTime.now(),
+          severity: LogSeverity.warning,
+          message:
+              'Could not create debug.log beside the Windows executable: $error',
+        ),
+      );
+    }
+  }
+
+  void _appendWindowsDebugFile(LogEntry entry) {
+    if (!_debugModeEnabled || !Platform.isWindows) {
+      return;
+    }
+    final file = _windowsDebugFile;
+    if (file == null) {
+      return;
+    }
+    try {
+      file.writeAsStringSync(
+        '${entry.line}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (error) {
+      if (_debugFileWarningShown) {
+        return;
+      }
+      _debugFileWarningShown = true;
+      _entries.add(
+        LogEntry(
+          timestamp: DateTime.now(),
+          severity: LogSeverity.warning,
+          message: 'Could not append to Windows debug.log: $error',
+        ),
+      );
+    }
+  }
+
+  void _deleteWindowsDebugFile() {
+    final file = _windowsDebugFile;
+    if (file == null) {
+      return;
+    }
+    _debugFileWarningShown = false;
+    try {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    } catch (_) {
+      // Turning debug mode off should never crash the app.
+    }
   }
 
   String _withDebugSource(
