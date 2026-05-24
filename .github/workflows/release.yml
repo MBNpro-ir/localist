@@ -284,16 +284,20 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          🐞 Localist v${APP_VERSION} adds Active Debug Mode, saveable device-detail logs, and nearby retry.
+          🧯 Localist v${APP_VERSION} adds Active Debug Mode, saveable device-detail logs, and Windows crash diagnostics.
 
           ## Changes
 
           - 🐛 Adds DEBUG logs for app actions, settings, native bridge calls, service lifecycle, and network paths.
           - 💾 Adds Save log on Android and Windows with app, platform, device, runtime, and network-interface details.
+          - 🪵 Writes Windows debug mode logs to debug.log beside Localist.exe and removes that file when debug mode is disabled.
+          - 🧯 Detects abnormal Windows startup/runtime exits, auto-enables debug mode, and shows a native Windows message asking the user to reopen or send debug.log.
           - 📡 Sends Android native service/proxy/discovery logs into the in-app Logs screen while debug mode is active.
           - 🧰 Adds an Active debug mode switch in Settings and a DEBUG filter in Logs.
           - 🔁 Adds a Retry control that restarts Nearby Devices discovery even while scanning.
           - 📱 Warns when Sharing is using an iPhone Personal Hotspot client IP that the host iPhone may not be able to reach.
+          - 🚫 Blocks Internal VPN proxy ports that belong to Localist itself.
+          - ⚠️ Lets Windows Sharing continue when the Internal VPN proxy is unavailable, while showing a warning.
           - 📦 Builds a universal Android APK alongside ABI-specific APKs.
           - 🚀 Bumps the app version to v${APP_VERSION}.
 

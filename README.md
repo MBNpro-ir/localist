@@ -34,6 +34,10 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 
 - 🐞 Active Debug Mode adds a DEBUG log level for app actions, settings, native bridge calls, service lifecycle, and network paths.
 - 💾 Logs can now be saved from Android and Windows with full app, platform, device, runtime, and network-interface details for troubleshooting.
+- 🪵 Windows now writes active debug logs to `debug.log` beside `Localist.exe` and deletes the file when debug mode is disabled.
+- 🧯 Windows startup crash detection auto-enables debug mode and shows native crash messages before the Flutter UI is available.
+- 🚫 Internal VPN proxy settings now reject ports that belong to Localist itself.
+- ⚠️ Windows Sharing continues without the Internal VPN proxy when that upstream is unavailable and shows a warning instead of failing.
 - 📡 Android native proxy, VPN, and discovery logs are forwarded into the in-app Logs screen while debug mode is active.
 - 🔁 Nearby Devices has a Retry control that restarts discovery even while a scan is already running.
 - 📱 Sharing warns when a proxy IP is in the iPhone Personal Hotspot client range that the host iPhone usually cannot reach.
@@ -76,7 +80,7 @@ Localist is a Flutter app for sharing and receiving local proxy access across An
 - 📱 `v3.3.0` - iOS Xray/sing-box QR configs, Windows system proxy mode, Wintun startup fixes, and release staging polish.
 - 🧭 `v3.4.0` - Self-discovery filtering, black Android widgets, separate Sending/Receiving widgets, startup update notices, and tag-only release builds.
 - 📲 `v3.5.0` - v2rayNG SOCKS QR links for Xray, Windows relay backpressure, throttled traffic stats, and C++/WinRT build reliability.
-- 🐞 `v3.5.4` - Active Debug Mode, saveable device-detail log exports, Nearby retry, iPhone hotspot guidance, native Android logging, and universal APK releases.
+- 🧯 `v3.5.4` - Active Debug Mode, `debug.log` on Windows, startup crash diagnostics, saveable device-detail log exports, Nearby retry, iPhone hotspot guidance, native Android logging, safer Internal VPN proxy handling, and universal APK releases.
 
 ## Repository Layout
 
@@ -246,6 +250,7 @@ Logs:
 
 - Copy exports the current in-memory log text.
 - Save log opens the Android or Windows save dialog and writes a full debug report with app version, build mode, device details, runtime details, network interfaces, and application logs.
+- On Windows, Active Debug Mode also writes a live `debug.log` beside `Localist.exe`; if the previous run crashed, Localist shows a native Windows message and either enables debug mode or asks the user to send the saved log.
 
 ## Android Permissions, Updater, Widget, and Crash Reports
 

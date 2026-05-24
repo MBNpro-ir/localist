@@ -34,6 +34,10 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 
 - 🐞 حالت Active Debug Mode سطح لاگ DEBUG را برای اکشن‌های برنامه، تنظیمات، native bridge، چرخه سرویس‌ها و مسیرهای شبکه اضافه می‌کند.
 - 💾 در اندروید و ویندوز می‌توانید لاگ را با جزئیات کامل برنامه، پلتفرم، دستگاه، runtime و کارت‌های شبکه روی مسیر دلخواه ذخیره کنید.
+- 🪵 ویندوز وقتی debug mode فعال باشد لاگ زنده را در `debug.log` کنار `Localist.exe` می‌نویسد و با خاموش شدن debug mode فایل را حذف می‌کند.
+- 🧯 تشخیص کرش startup در ویندوز debug mode را خودکار فعال می‌کند و حتی قبل از بالا آمدن UI پیام native ویندوزی نشان می‌دهد.
+- 🚫 تنظیمات Internal VPN proxy دیگر اجازه نمی‌دهد پورت‌های خود Localist به عنوان پورت داخلی انتخاب شوند.
+- ⚠️ اگر Internal VPN proxy در ویندوز در دسترس نباشد، Sharing ادامه پیدا می‌کند و فقط هشدار نمایش داده می‌شود.
 - 📡 لاگ‌های native اندروید برای proxy، VPN و discovery وقتی debug mode فعال است داخل صفحه Logs نمایش داده می‌شوند.
 - 🔁 بخش Nearby Devices دکمه Retry دارد و حتی وسط جست‌وجو می‌تواند discovery را از اول شروع کند.
 - 📱 در Sharing اگر IP داخل محدوده iPhone Personal Hotspot باشد، برنامه هشدار می‌دهد که آیفون میزبان معمولاً نمی‌تواند به دستگاه وصل‌شده برگردد.
@@ -76,7 +80,7 @@ Localist یک برنامه Flutter برای اشتراک‌گذاری و دری�
 - 📱 `v3.3.0` - QR کانفیگ iOS برای Xray/sing-box، حالت system proxy ویندوز، اصلاح Wintun و آماده‌سازی بهتر release.
 - 🧭 `v3.4.0` - فیلتر self-discovery، ویجت‌های مشکی اندروید، ویجت جدا برای Sending/Receiving، اعلان آپدیت هنگام شروع، و release build فقط با tag.
 - 📲 `v3.5.0` - لینک SOCKS سازگار با v2rayNG برای QRهای Xray، backpressure ویندوز، throttle آمار ترافیک و پایداری build C++/WinRT.
-- 🐞 `v3.5.4` - Active Debug Mode، ذخیره لاگ همراه جزئیات دستگاه، Retry در Nearby، راهنمایی iPhone hotspot، لاگ native اندروید و universal APK.
+- 🧯 `v3.5.4` - Active Debug Mode، فایل `debug.log` ویندوز، تشخیص کرش startup، ذخیره لاگ همراه جزئیات دستگاه، Retry در Nearby، راهنمایی iPhone hotspot، لاگ native اندروید، مدیریت امن‌تر Internal VPN proxy و universal APK.
 
 ## ساختار پروژه
 
@@ -246,6 +250,7 @@ Logs:
 
 - Copy متن فعلی لاگ‌های داخل حافظه را کپی می‌کند.
 - Save log دیالوگ ذخیره اندروید یا ویندوز را باز می‌کند و گزارش کامل شامل نسخه برنامه، build mode، جزئیات دستگاه، runtime، کارت‌های شبکه و لاگ‌های برنامه را می‌نویسد.
+- در ویندوز، Active Debug Mode یک `debug.log` زنده کنار `Localist.exe` هم می‌سازد؛ اگر اجرای قبلی کرش کرده باشد، Localist با پیام native ویندوز debug mode را فعال می‌کند یا از کاربر می‌خواهد لاگ ذخیره‌شده را برای توسعه‌دهنده بفرستد.
 
 ## Permission، آپدیتر، ویجت و گزارش کرش اندروید
 
