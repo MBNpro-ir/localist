@@ -43,6 +43,7 @@ class LogService extends ChangeNotifier {
 
   List<LogEntry> get entries => List.unmodifiable(_entries.reversed);
   bool get debugModeEnabled => _debugModeEnabled;
+  String? get debugLogFilePath => _windowsDebugFile?.path;
 
   void debug(String message, {Object? error, StackTrace? stack}) {
     if (!_debugModeEnabled) {
@@ -131,15 +132,19 @@ class LogService extends ChangeNotifier {
     }
     _debugFileWarningShown = false;
     try {
+      final mode = file.existsSync() && file.lengthSync() > 0
+          ? FileMode.append
+          : FileMode.write;
       file.writeAsStringSync(
         [
+          if (mode == FileMode.append) '',
           'Localist debug log',
           '===================',
           'Started: ${DateTime.now().toIso8601String()}',
           'Executable: ${Platform.resolvedExecutable}',
           '',
         ].join('\n'),
-        mode: FileMode.write,
+        mode: mode,
         flush: true,
       );
     } catch (error) {

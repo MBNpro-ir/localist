@@ -481,10 +481,13 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
     if (parsed < 1024 || parsed > 65535) {
       return context.l10n.portRange1024To65535;
     }
-    for (final protocol in widget.settings.enabledProtocols) {
-      if (widget.settings.portFor(protocol) == parsed) {
-        return context.l10n.useDifferentPort;
-      }
+    final localistPorts = {
+      for (final protocol in ProxyProtocol.values)
+        widget.settings.portFor(protocol),
+      3781,
+    };
+    if (localistPorts.contains(parsed)) {
+      return context.l10n.portBelongsToLocalist;
     }
     return null;
   }

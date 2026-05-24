@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_update_service.dart';
 import 'log_service.dart';
@@ -58,7 +59,10 @@ class CrashReporterService {
     String? library,
   }) async {
     try {
+      final debugWasActive = LogService.instance.debugModeEnabled;
+      await _enableDebugModeAfterCrash();
       LogService.instance.error('$title: $error');
+      await _showWindowsCrashNotice(debugWasActive: debugWasActive);
       final body = await _buildBody(
         title: title,
         error: error,
@@ -74,6 +78,43 @@ class CrashReporterService {
       await NativeBridgeService.instance.openUri(uri.toString());
     } catch (_) {
       // Crash reporting must never create a second crash.
+    }
+  }
+
+  Future<void> _enableDebugModeAfterCrash() async {
+    try {
+      LogService.instance.setDebugMode(true, announce: false);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_debugModePreferenceKey, true);
+      LogService.instance.warning(
+        'Crash detected. Active debug mode was enabled automatically.',
+      );
+    } catch (_) {
+      // Crash reporting must keep going even when preferences are unavailable.
+    }
+  }
+
+  Future<void> _showWindowsCrashNotice({required bool debugWasActive}) async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    final logPath = LogService.instance.debugLogFilePath ?? 'debug.log';
+    final message = debugWasActive
+        ? 'Localist crashed while debug mode was active.\n\n'
+              'The debug log was saved here:\n$logPath\n\n'
+              'Send debug.log to the developer so the crash can be traced.'
+        : 'Localist crashed.\n\n'
+              'Debug mode was enabled automatically.\n'
+              'Open Localist again so startup and runtime logs are saved here:\n'
+              '$logPath';
+    try {
+      await NativeBridgeService.instance.showWindowsMessage(
+        title: 'Localist crash detected',
+        message: message,
+        warning: true,
+      );
+    } catch (_) {
+      // If the native bridge is gone, the native runner crash marker handles it.
     }
   }
 
@@ -129,3 +170,5 @@ class CrashReporterService {
     return buffer.toString();
   }
 }
+
+const _debugModePreferenceKey = 'debug.activeMode';

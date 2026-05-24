@@ -412,6 +412,10 @@ class AppLocalizations {
     'اول یک پورت معتبر برای پروکسی VPN وارد کنید.',
     'Enter a valid VPN proxy port first.',
   );
+  String get portBelongsToLocalist => _s(
+    'این پورت متعلق به خود Localist است. برای پروکسی داخلی VPN یک پورت دیگر وارد کنید.',
+    'This port belongs to Localist. Use a different port for the internal VPN proxy.',
+  );
   String get vpnProxySaved => _s('پروکسی VPN ذخیره شد', 'VPN proxy saved');
   String get localProxyIps => _s('IPهای پروکسی محلی', 'Local proxy IPs');
   String get hotspot => _s('Hotspot', 'Hotspot');

@@ -456,6 +456,20 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     return;
   }
 
+  if (method == "showWindowsMessage") {
+    const std::string title = GetStringArgument(arguments, "title").empty()
+                                  ? "Localist"
+                                  : GetStringArgument(arguments, "title");
+    const std::string message = GetStringArgument(arguments, "message");
+    const bool warning = GetBoolArgument(arguments, "warning", true);
+    ::MessageBoxW(window, Utf8ToWide(message).c_str(),
+                  Utf8ToWide(title).c_str(),
+                  MB_OK | (warning ? MB_ICONWARNING : MB_ICONINFORMATION) |
+                      MB_SETFOREGROUND);
+    result->Success(EncodableValue(true));
+    return;
+  }
+
   if (method == "getDeviceDetails") {
     result->Success(GetWindowsDeviceDetails());
     return;

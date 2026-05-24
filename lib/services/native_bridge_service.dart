@@ -247,6 +247,22 @@ class NativeBridgeService {
     return await _invoke<bool>('openHotspotSettings') ?? false;
   }
 
+  Future<bool> showWindowsMessage({
+    required String title,
+    required String message,
+    bool warning = true,
+  }) async {
+    if (!Platform.isWindows) {
+      return false;
+    }
+    return await _invoke<bool>('showWindowsMessage', {
+          'title': title,
+          'message': message,
+          'warning': warning,
+        }) ??
+        false;
+  }
+
   Future<SavedTextFileResult> saveTextFile({
     required String text,
     required String suggestedName,
