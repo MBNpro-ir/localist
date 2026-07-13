@@ -159,11 +159,15 @@ class SmartProxyPayload {
     required this.hotspotSsid,
     required this.hotspotPassword,
     required this.endpoints,
+    this.deviceId = '',
+    this.deviceName = '',
   });
 
   final String hotspotSsid;
   final String hotspotPassword;
   final List<SmartProxyEndpoint> endpoints;
+  final String deviceId;
+  final String deviceName;
 
   String encode() {
     final encodedEndpoints = endpoints
@@ -175,7 +179,12 @@ class SmartProxyPayload {
           ].join(',');
         })
         .join(';');
-    return 'localist://smart?e=$encodedEndpoints';
+    final identity = [
+      if (deviceId.isNotEmpty) 'd=${Uri.encodeQueryComponent(deviceId)}',
+      if (deviceName.isNotEmpty) 'n=${Uri.encodeQueryComponent(deviceName)}',
+    ];
+    return 'localist://smart?e=$encodedEndpoints'
+        '${identity.isEmpty ? '' : '&${identity.join('&')}'}';
   }
 
   static SmartProxyPayload? tryParse(String value) {
@@ -192,6 +201,8 @@ class SmartProxyPayload {
               hotspotSsid: '',
               hotspotPassword: '',
               endpoints: endpoints,
+              deviceId: uri.queryParameters['d'] ?? '',
+              deviceName: uri.queryParameters['n'] ?? '',
             );
           }
         }
@@ -225,6 +236,8 @@ class SmartProxyPayload {
         hotspotSsid: (hotspot['ssid'] as String?) ?? '',
         hotspotPassword: (hotspot['password'] as String?) ?? '',
         endpoints: endpoints,
+        deviceId: (decoded['deviceId'] as String?) ?? '',
+        deviceName: (decoded['deviceName'] as String?) ?? '',
       );
     } catch (_) {
       return null;
@@ -279,6 +292,8 @@ class LocalistDiscoveredDevice {
     hotspotSsid: '',
     hotspotPassword: '',
     endpoints: endpoints,
+    deviceId: id,
+    deviceName: name,
   );
 
   String get endpointSummary {

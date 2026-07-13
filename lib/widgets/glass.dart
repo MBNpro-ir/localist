@@ -84,7 +84,10 @@ class GlassPanel extends StatelessWidget {
             border: Border.all(color: scheme.outlineVariant),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Padding(padding: padding, child: child),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Padding(padding: padding, child: child),
+          ),
         ),
       );
     }
@@ -108,7 +111,10 @@ class GlassPanel extends StatelessWidget {
               ),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Padding(padding: padding, child: child),
+            child: Material(
+              type: MaterialType.transparency,
+              child: Padding(padding: padding, child: child),
+            ),
           ),
         ),
       ),

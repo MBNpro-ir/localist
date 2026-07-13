@@ -16,6 +16,7 @@ import 'models/app_settings.dart';
 import 'models/service_state.dart';
 import 'screens/android_permission_gate.dart';
 import 'screens/logs_page.dart';
+import 'screens/quick_send_page.dart';
 import 'screens/receiving_page.dart';
 import 'screens/settings_page.dart';
 import 'screens/sharing_page.dart';
@@ -25,7 +26,9 @@ import 'services/app_update_service.dart';
 import 'services/crash_reporter_service.dart';
 import 'services/log_service.dart';
 import 'services/localist_discovery_service.dart';
+import 'services/localist_peer_service.dart';
 import 'services/native_bridge_service.dart';
+import 'services/quick_send_service.dart';
 import 'widgets/glass.dart';
 
 const _onboardingSeenKey = 'localist.onboarding.v2.seen';
@@ -205,6 +208,8 @@ class _LocalistShellState extends State<LocalistShell>
     with WindowListener, tray.TrayListener {
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final LocalistDiscoveryService _discovery = LocalistDiscoveryService.instance;
+  final LocalistPeerService _peerService = LocalistPeerService.instance;
+  final QuickSendService _quickSend = QuickSendService.instance;
   final AppUpdateService _updates = AppUpdateService();
   final LogService _logs = LogService.instance;
   late final PageController _pageController;
@@ -225,6 +230,7 @@ class _LocalistShellState extends State<LocalistShell>
   bool _startupUpdateChecked = false;
   List<LocalistDiscoveredDevice> _discoveredDevices = const [];
   bool _discoveryScanning = false;
+  List<LocalistConnectedPeer> _connectedPeers = const [];
   final Set<String> _announcedDeviceIds = {};
 
   @override
@@ -238,6 +244,8 @@ class _LocalistShellState extends State<LocalistShell>
     }
     widget.settings.addListener(_handleSettingsChanged);
     _discovery.addListener(_handleDiscoveryChanged);
+    _peerService.addListener(_handlePeersChanged);
+    unawaited(_quickSend.initialize());
     _refreshState();
     _refreshTimer = Timer.periodic(
       const Duration(seconds: 3),
@@ -257,7 +265,10 @@ class _LocalistShellState extends State<LocalistShell>
     }
     widget.settings.removeListener(_handleSettingsChanged);
     _discovery.removeListener(_handleDiscoveryChanged);
+    _peerService.removeListener(_handlePeersChanged);
     unawaited(_discovery.stop());
+    unawaited(_peerService.stop());
+    unawaited(_quickSend.disposeService());
     _refreshTimer?.cancel();
     _pageController.dispose();
     super.dispose();
@@ -586,6 +597,15 @@ class _LocalistShellState extends State<LocalistShell>
         return;
       }
       setState(() => _snapshot = snapshot);
+      unawaited(
+        _peerService.update(
+          sharing:
+              snapshot.proxyRunning ||
+              (!Platform.isWindows && snapshot.root.active),
+          receiving: snapshot.receivingRunning || snapshot.localProxyRunning,
+          remote: snapshot.remoteProxy,
+        ),
+      );
       _logs.debug(
         'Native state refresh completed proxy=${snapshot.proxyRunning} receiving=${snapshot.receivingRunning} localProxy=${snapshot.localProxyRunning} vpn=${snapshot.deviceVpnActive}',
       );
@@ -628,6 +648,13 @@ class _LocalistShellState extends State<LocalistShell>
         }
       });
     }
+  }
+
+  void _handlePeersChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() => _connectedPeers = _peerService.peers);
   }
 
   bool get _shouldRunDiscovery {
@@ -707,7 +734,7 @@ class _LocalistShellState extends State<LocalistShell>
         duration: const Duration(seconds: 9),
         actionLabel: context.l10n.installUpdate,
         actionIcon: Icons.arrow_forward,
-        onTap: () => _setPage(2, force: true),
+        onTap: () => _setPage(3, force: true),
       );
     } catch (error) {
       _logs.warning('Startup update check failed: $error');
@@ -1290,6 +1317,7 @@ class _LocalistShellState extends State<LocalistShell>
         child: SharingPage(
           settings: widget.settings,
           snapshot: _snapshot,
+          connectedPeers: _connectedPeers,
           busy: _busy,
           controlsLocked: _receivingActive,
           lockMessage: l10n.receivingActiveLock,
@@ -1314,6 +1342,7 @@ class _LocalistShellState extends State<LocalistShell>
           onRefreshDiscovery: _refreshDiscovery,
         ),
       ),
+      KeepAlivePage(child: const QuickSendPage()),
       KeepAlivePage(
         child: SettingsPage(
           settings: widget.settings,
@@ -1498,6 +1527,7 @@ class _LocalistShellState extends State<LocalistShell>
     return [
       _NavItem(l10n.sharing, Icons.share_outlined, Icons.share),
       _NavItem(l10n.receiving, Icons.qr_code_scanner, Icons.qr_code_2),
+      const _NavItem('Quick Send', Icons.send_outlined, Icons.send),
       _NavItem(l10n.settings, Icons.tune_outlined, Icons.tune),
     ];
   }

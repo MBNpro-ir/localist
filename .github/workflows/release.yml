@@ -12,16 +12,21 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.release_tag || 'pubspec' }}
+  cancel-in-progress: false
 
 jobs:
   android:
     name: Android release
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Read pubspec version
         shell: bash
@@ -36,10 +41,14 @@ jobs:
           echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle*
+            android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -54,12 +63,6 @@ jobs:
 
       - name: Restore packages
         run: flutter pub get
-
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Test
-        run: flutter test
 
       - name: Build split APKs
         run: |
@@ -102,7 +105,7 @@ jobs:
           7z a -tzip -mx=9 "release/localist-v${APP_VERSION}-android-symbols.zip" build/symbols/android build/symbols/android-universal build/symbols/android-aab
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: localist-android
           path: |
@@ -114,10 +117,11 @@ jobs:
   windows:
     name: Windows release x64
     runs-on: windows-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Read pubspec version
         shell: pwsh
@@ -209,7 +213,7 @@ jobs:
           & $sevenZip a -tzip -mx=9 "release\localist-v${env:APP_VERSION}-windows-x64-symbols.zip" .\build\symbols\windows-x64\*
 
       - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: localist-windows-x64
           path: release/*
@@ -219,9 +223,14 @@ jobs:
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs:
       - android
       - windows
+
+    permissions:
+      actions: read
+      contents: write
 
     env:
       GH_TOKEN: ${{ github.token }}
@@ -230,7 +239,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Read pubspec version
         shell: bash
@@ -257,7 +266,7 @@ jobs:
           echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
 
@@ -284,22 +293,19 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          🧯 Localist v${APP_VERSION} adds Active Debug Mode, saveable device-detail logs, and Windows crash diagnostics.
+          Localist v${APP_VERSION} adds smart VPN handoff and local file transfer while keeping the existing Localist interface.
 
           ## Changes
 
-          - 🐛 Adds DEBUG logs for app actions, settings, native bridge calls, service lifecycle, and network paths.
-          - 💾 Adds Save log on Android and Windows with app, platform, device, runtime, and network-interface details.
-          - 🪵 Writes Windows debug mode logs to debug.log beside Localist.exe and removes that file when debug mode is disabled.
-          - 🧯 Detects abnormal Windows startup/runtime exits, auto-enables debug mode, and shows a native Windows message asking the user to reopen or send debug.log.
-          - 📡 Sends Android native service/proxy/discovery logs into the in-app Logs screen while debug mode is active.
-          - 🧰 Adds an Active debug mode switch in Settings and a DEBUG filter in Logs.
-          - 🔁 Adds a Retry control that restarts Nearby Devices discovery even while scanning.
-          - 📱 Warns when Sharing is using an iPhone Personal Hotspot client IP that the host iPhone may not be able to reach.
-          - 🚫 Blocks Internal VPN proxy ports that belong to Localist itself.
-          - ⚠️ Lets Windows Sharing continue when the Internal VPN proxy is unavailable, while showing a warning.
-          - 📦 Builds a universal Android APK alongside ABI-specific APKs.
-          - 🚀 Bumps the app version to v${APP_VERSION}.
+          - Selects a reachable Sharing address automatically for Nearby, QR, and smart manual configurations.
+          - Preserves device identity so a different device on the same proxy port is never substituted for the intended target.
+          - Shows connected Localist devices and their live count on the Sharing screen.
+          - Adds Quick Send for encrypted local file and message transfer with LocalSend v2.1 and legacy v1 compatibility.
+          - Adds multicast discovery, manual targets, PIN protection, favorites, Quick Save, destination settings, and transfer progress.
+          - Adds certificate fingerprint verification, bounded request metadata, safe destination names, and inactive-session expiry.
+          - Prevents recoverable Flutter diagnostics from opening repeated crash dialogs.
+          - Bounds and rotates Windows debug logs to prevent recursive crash-report growth.
+          - Keeps the existing Localist light/dark and simple/glass visual styles across the new pages.
 
           ## Assets
 

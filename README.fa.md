@@ -5,7 +5,7 @@
 <h1 align="center">Localist</h1>
 
 <p align="center" dir="rtl">
-  اشتراک‌گذاری و دریافت پروکسی محلی بین اندروید و ویندوز با QR، کشف دستگاه‌های نزدیک، آپدیتر، گزارش کرش و ویجت اندروید.
+  اشتراک‌گذاری هوشمند VPN و انتقال سریع فایل بین اندروید و ویندوز.
 </p>
 
 <p align="center">
@@ -16,120 +16,123 @@
   <a href="https://flutter.dev"><img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white"></a>
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
-  <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.5-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.6.0-blue"></a>
 </p>
 
-## معرفی
+## راهنمای کاربران
 
-Localist یک برنامه Flutter برای اشتراک‌گذاری و دریافت دسترسی پروکسی محلی روی اندروید و ویندوز است.
+### Localist چه کاری انجام می‌دهد؟
 
-- اندروید می‌تواند endpointهای HTTP/SOCKS5 را share کند، endpoint ریموت را به صورت VPN یا local proxy دریافت کند، QR را اسکن کند، دستگاه‌های نزدیک را پیدا کند، آپدیت‌های GitHub release را نصب کند و با ویجت صفحه اصلی Sending/Receiving را کنترل کند.
-- ویندوز می‌تواند endpointها را share کند، آن‌ها را برای local discovery تبلیغ کند، QR نشان دهد، با webcam اسکن کند، در UI جمع‌وجور و tray اجرا شود، از رنگ accent ویندوز پیروی کند و در صورت وجود Wintun/tun2socks حالت Receiving VPN را اجرا کند.
-- در ورود اولیه فقط permissionهای ضروری شروع برنامه درخواست می‌شوند. permission دوربین فقط هنگام باز کردن QR scanner درخواست می‌شود.
-- گزارش کرش، email client کاربر را با اطلاعات کرش، لاگ برنامه، اطلاعات پلتفرم، مدل دستگاه و stack trace باز می‌کند.
-- تنظیمات در محل استاندارد هر پلتفرم ذخیره می‌شود تا بعد از نصب مجدد، preferenceها باقی بمانند.
+Localist به دستگاه‌های داخل یک شبکه محلی اجازه می‌دهد دسترسی VPN/Proxy را به اشتراک بگذارند و بدون ارسال اطلاعات به سرویس ابری، فایل منتقل کنند.
 
-## تغییرات جدید
+- اتصال هوشمند VPN دستگاه Shareکننده را پیدا می‌کند، آدرس‌های مجاز آن را آزمایش می‌کند و خودکار از IP قابل دسترس استفاده می‌کند.
+- QR و کانفیگ هوشمند همه endpointهای موجود را همراه دارند و کاربر مجبور نیست IP درست را حدس بزند.
+- صفحه Sharing تعداد و مشخصات دستگاه‌های Localist متصل را نشان می‌دهد.
+- Quick Send چند فایل یا پیام متنی را منتقل می‌کند و با پروتکل LocalSend v2.1 و مسیرهای قدیمی v1 سازگار است.
+- زبان فارسی و انگلیسی، تم روشن و تیره، رنگ پویا در اندروید و رنگ Accent ویندوز پشتیبانی می‌شوند.
 
-- 🐞 حالت Active Debug Mode سطح لاگ DEBUG را برای اکشن‌های برنامه، تنظیمات، native bridge، چرخه سرویس‌ها و مسیرهای شبکه اضافه می‌کند.
-- 💾 در اندروید و ویندوز می‌توانید لاگ را با جزئیات کامل برنامه، پلتفرم، دستگاه، runtime و کارت‌های شبکه روی مسیر دلخواه ذخیره کنید.
-- 🪵 ویندوز وقتی debug mode فعال باشد لاگ زنده را در `debug.log` کنار `Localist.exe` می‌نویسد و با خاموش شدن debug mode فایل را حذف می‌کند.
-- 🧯 تشخیص کرش startup در ویندوز debug mode را خودکار فعال می‌کند و حتی قبل از بالا آمدن UI پیام native ویندوزی نشان می‌دهد.
-- 🚫 تنظیمات Internal VPN proxy دیگر اجازه نمی‌دهد پورت‌های خود Localist به عنوان پورت داخلی انتخاب شوند.
-- ⚠️ اگر Internal VPN proxy در ویندوز در دسترس نباشد، Sharing ادامه پیدا می‌کند و فقط هشدار نمایش داده می‌شود.
-- 📡 لاگ‌های native اندروید برای proxy، VPN و discovery وقتی debug mode فعال است داخل صفحه Logs نمایش داده می‌شوند.
-- 🔁 بخش Nearby Devices دکمه Retry دارد و حتی وسط جست‌وجو می‌تواند discovery را از اول شروع کند.
-- 📱 در Sharing اگر IP داخل محدوده iPhone Personal Hotspot باشد، برنامه هشدار می‌دهد که آیفون میزبان معمولاً نمی‌تواند به دستگاه وصل‌شده برگردد.
-- 📦 GitHub Actions حالا کنار APKهای جداشده و AAB، یک Android universal APK هم منتشر می‌کند.
-- 📲 QRهای Xray به جای JSON حالا لینک سازگار با v2rayNG با فرمت `socks://Og@host:port#name` می‌سازند.
-- 🧯 relay پروکسی ویندوز حالا backpressure دارد و ذخیره آمار ترافیک throttle شده تا هنگام انتقال سریع، RAM/CPU از کنترل خارج نشود.
-- 🛠️ build ویندوز از C++/WinRT projection تولیدشده استفاده می‌کند تا `webview_windows` روی این toolchain پایدار کامپایل شود.
-- 🧭 Nearby discovery دیگر اعلان Sharing خود همان گوشی را در Receiving نشان نمی‌دهد.
-- 🖤 ویجت‌های اندروید با طراحی مشکی بازطراحی شدند و ویجت‌های جدا برای Sending و Receiving اضافه شد.
-- 🔔 اندروید هنگام باز شدن برنامه آپدیت را بررسی می‌کند و فقط وقتی نسخه جدید قابل نصب باشد اعلان داخلی نشان می‌دهد.
-- 🏷️ اکشن انتشار GitHub فقط با تگ‌های `v*` کامپایل می‌کند، نه با هر push روی branch.
+### دانلود و نصب
 
-- 📱 FA: تب iOS برای همه IPهای فعال Sharing کانفیگ SOCKS مخصوص Xray و sing-box می‌سازد.
-  EN: iOS QR tab now generates Xray and sing-box SOCKS configs for every active Sharing IP.
-- 🧭 FA: بخش Proxy QR codes حالا تب‌های جدا برای Proxy و iOS دارد و QRها فقط با کلیک روی کارت باز می‌شوند.
-  EN: Proxy QR codes now keep Proxy and iOS flows in separate tabs with click-to-open cards.
-- 🪟 FA: در Receiving ویندوز گزینه Start as system proxy اضافه شد و حالت دستی به Start as local proxy تغییر نام داد.
-  EN: Windows Receiving adds Start as system proxy and renames the manual mode to Start as local proxy.
-- 🧹 FA: با توقف system proxy، تنظیمات پروکسی ویندوز به صورت خودکار پاک می‌شود.
-  EN: Stopping Windows system proxy clears the Windows proxy settings automatically.
-- 🛠️ FA: راه‌اندازی Wintun/tun2socks دسترسی ادمین را چک می‌کند، سطح لاگ درست `warn` را می‌فرستد و خطاهای مفید را نگه می‌دارد.
-  EN: Wintun/tun2socks startup now checks administrator access, uses the correct `warn` log level, and preserves useful failure logs.
-- 🚀 FA: اکشن انتشار GitHub خروجی‌های کامپایل‌شده را قبل از انتشار داخل `compiled` آماده می‌کند.
-  EN: GitHub Actions release packaging keeps compiled assets staged in `compiled` before publishing.
+جدیدترین بسته را از [GitHub Releases](https://github.com/MBNpro-ir/localist/releases/latest) دانلود کنید.
 
-## تاریخچه نسخه‌ها
+- اندروید: اگر معماری دستگاه را نمی‌دانید از Universal APK استفاده کنید. APKهای مخصوص هر ABI حجم کمتری دارند.
+- ویندوز: فایل ZIP نسخه x64 را کامل Extract کنید و سپس `Localist.exe` را اجرا کنید. همه DLLها و ابزارهای کنار فایل اجرایی باید حفظ شوند.
+- هر دو دستگاه باید به یک Wi-Fi، Ethernet یا Hotspot مشترک وصل باشند. قابلیت Client Isolation در شبکه مهمان می‌تواند discovery و اتصال محلی را مسدود کند.
 
-- 🚀 `v1.0.0` - راه‌اندازی release workflow و خروجی‌های بسته‌بندی‌شده اندروید/ویندوز.
-- 🧰 `v1.0.2` - `v1.0.5` - اصلاحات بسته‌بندی release، badgeهای README و تمیزکاری pipeline.
-- ⚡ `v1.1.0` - بهبود کارایی روی دستگاه‌های اندرویدی قدیمی‌تر.
-- 🪟 `v1.1.2` - اصلاح اندازه پنجره portrait در ویندوز.
-- 📦 `v1.5.0` - بهبود بسته‌بندی release و polish برنامه.
-- 🌉 `v1.6.0` - اضافه شدن Receiving VPN ویندوز با Wintun/tun2socks.
-- 🛠️ `v1.6.4` - اصلاح Android VPN و portهای تنظیمات.
-- 📡 `v2.0.0` - کشف دستگاه‌های نزدیک، اصلاحات Wintun و بهبود publish release.
-- 🔋 `v2.1.0` - بهبود مصرف باتری scanner و noticeهای theme شده.
-- 🌐 `v3.0.0` - onboarding زبان و updater هوشمند GitHub.
-- ✅ `v3.1.0` - اصلاح navigation onboarding، localization فارسی و badge نسخه.
-- 🧩 `v3.2.0` - پاک‌سازی permissionها، تعمیر updater، ویجت، crash reporter، پرچم‌ها، رنگ‌ها و به‌روزرسانی README.
-- 📱 `v3.3.0` - QR کانفیگ iOS برای Xray/sing-box، حالت system proxy ویندوز، اصلاح Wintun و آماده‌سازی بهتر release.
-- 🧭 `v3.4.0` - فیلتر self-discovery، ویجت‌های مشکی اندروید، ویجت جدا برای Sending/Receiving، اعلان آپدیت هنگام شروع، و release build فقط با tag.
-- 📲 `v3.5.0` - لینک SOCKS سازگار با v2rayNG برای QRهای Xray، backpressure ویندوز، throttle آمار ترافیک و پایداری build C++/WinRT.
-- 🐞 `v3.5.4` - Active Debug Mode، ذخیره لاگ همراه جزئیات دستگاه، Retry در Nearby، راهنمایی iPhone hotspot، لاگ native اندروید و universal APK.
-- 🧯 `v3.5.5` - فایل `debug.log` ویندوز، تشخیص کرش startup، پیام native برای crash، اعتبارسنجی امن‌تر پورت Internal VPN proxy و ادامه Sharing با هشدار وقتی Internal VPN proxy در دسترس نیست.
+### اشتراک‌گذاری VPN یا Proxy
 
-## ساختار پروژه
+روی دستگاهی که اینترنت یا VPN موردنظر روی آن فعال است:
+
+1. بخش **Sharing** را باز کنید.
+2. پروتکل‌ها و آدرس‌های شبکه مجاز را انتخاب کنید.
+3. Sharing را شروع کنید.
+4. در همین صفحه می‌توانید تعداد و نام دستگاه‌های Localist متصل را ببینید.
+
+روی دستگاه دریافت‌کننده:
+
+1. بخش **Receiving** را باز کنید.
+2. دستگاه را از Nearby Devices انتخاب کنید، QR آن را اسکن کنید یا کانفیگ هوشمند را Paste کنید.
+3. Localist مسیرهای مجاز را آزمایش کرده و IP قابل دسترس را خودکار انتخاب می‌کند.
+4. یکی از حالت‌های VPN، System Proxy یا Local Proxy موجود را شروع کنید.
+
+کانفیگ خام `http://` و `socks5://` نیز پذیرفته می‌شود. کانفیگ خام فقط از همان Host واردشده استفاده می‌کند و Localist هیچ‌وقت دستگاه دیگری را صرفاً به‌دلیل پورت یکسان جایگزین مقصد نمی‌کند.
+
+### انتقال فایل با Quick Send
+
+1. روی هر دو دستگاه **Quick Send** را باز کنید.
+2. یک یا چند فایل انتخاب کنید یا **Send message** را بزنید.
+3. دستگاه مقصد پیدا‌شده در شبکه محلی را انتخاب کنید.
+4. اگر Quick Save فعال نیست، درخواست را روی دستگاه دریافت‌کننده تأیید کنید.
+
+تنظیمات Quick Send شامل موارد زیر است:
+
+- نام دستگاه، پورت دریافت و گروه Multicast.
+- پوشه مقصد و رفتار جایگزینی فایل تکراری.
+- رمزنگاری HTTPS همراه تطبیق Fingerprint گواهی.
+- PIN اختیاری برای دستگاه دریافت‌کننده.
+- دستگاه‌های موردعلاقه و Quick Save عمومی یا فقط برای Favorites.
+- مقصد دستی با IP یا Hostname برای شبکه‌هایی که Multicast در آن‌ها کار نمی‌کند.
+
+Quick Save فایل‌ها را بدون سؤال می‌پذیرد؛ آن را فقط در شبکه‌های قابل اعتماد فعال کنید. دریافت پیام متنی همیشه نیازمند تأیید صریح است.
+
+### حالت‌های هر پلتفرم
+
+| پلتفرم | Sharing | Receiving | Quick Send |
+| --- | --- | --- | --- |
+| Android | پروکسی HTTP/SOCKS5، مسیر Hotspot/Manual و Root Routing اختیاری | Android VPN یا Local Proxy | ارسال و دریافت فایل/پیام |
+| Windows | پروکسی HTTP/SOCKS5 و Upstream اختیاری v2rayN | VPN با Wintun، System Proxy یا Local Proxy | ارسال و دریافت فایل/پیام |
+
+حالت VPN ویندوز به دسترسی Administrator و فایل‌های `tun2socks.exe` و `wintun.dll` نیاز دارد. بدون این ابزارها همچنان می‌توان از System Proxy یا Local Proxy استفاده کرد.
+
+### Permission و اطلاعات محلی
+
+- اندروید برای ادامه سرویس‌های VPN/Proxy در پس‌زمینه، Notification و Battery Optimization access درخواست می‌کند.
+- دسترسی دوربین فقط هنگام باز کردن QR Scanner درخواست می‌شود.
+- مجوز Android VPN فقط هنگام شروع VPN در Receiving درخواست می‌شود.
+- فایل‌های Quick Send داخل شبکه محلی باقی می‌مانند و حالت HTTPS اثرانگشت گواهی مقصد را بررسی می‌کند.
+- تنظیمات، Favorites، هویت گواهی و تنظیمات انتقال در پوشه App Data همان پلتفرم ذخیره می‌شوند.
+
+### لاگ و رفع مشکل
+
+- صفحه **Logs** امکان مشاهده، Copy و ذخیره گزارش تشخیصی را می‌دهد.
+- Active Debug Mode رویدادهای دقیق سرویس، Native Bridge و شبکه را ثبت می‌کند.
+- در ویندوز فایل `debug.log` کنار `Localist.exe` ساخته می‌شود. اندازه پیام‌ها و فایل محدود است و لاگ بزرگ خودکار Rotate می‌شود.
+- خطاهای قابل‌بازیابی UI فقط ثبت می‌شوند و دیگر پنجره Crash را پشت‌سرهم باز نمی‌کنند. گزارش خطای Fatal نیز تکراری نمایش داده نمی‌شود.
+- اگر Nearby Devices خالی است، یکسان بودن Subnet، خاموش بودن Guest/Client Isolation و دکمه Retry را بررسی کنید یا مقصد را دستی وارد کنید.
+- اگر VPN ویندوز شروع نمی‌شود، دسترسی Administrator و باقی‌ماندن فایل‌های Wintun داخل بسته Extractشده را بررسی کنید.
+
+## راهنمای توسعه‌دهندگان
+
+### ساختار مخزن
 
 ```text
-lib/                       UI فلاتر، تنظیمات، QR، وضعیت پروکسی، crash reporting و سرویس‌های Dart ویندوز
-android/                   bridge اندروید برای VPN/proxy، نصب updater، ویجت، crash reporter و Gradle
-windows/                   runner ویندوز، bridge Win32 MethodChannel و resource/icon
-test/                      تست‌های Flutter
-.github/workflows/         pipeline انتشار GitHub Actions
+lib/                       رابط Flutter، کشف هوشمند VPN، Quick Send، تنظیمات و سرویس‌ها
+android/                   Bridge اندروید، VPN/Proxy، آپدیتر، ویجت و Gradle
+windows/                   Runner ویندوز، Win32 Bridge، بسته‌بندی Wintun و منابع
+test/                      بررسی‌های رگرسیون و پروتکل
+.github/workflows/         Build اندروید/ویندوز و انتشار GitHub Release
 ico/                       آیکن‌های برنامه
 ```
 
-## پیش‌نیازها
+### ابزارهای لازم
 
-برای build از clone تازه این ابزارها را نصب کنید:
+- Flutter Stable با Windows Desktop Support.
+- Android SDK Platform 35 یا جدیدتر و JDK 17.
+- Visual Studio 2022 با **Desktop development with C++**.
+- WebView2 Runtime روی Windows 10/11 برای QR Scanner وب‌کم.
+- 7-Zip برای بسته‌بندی محلی نسخه ویندوز.
 
-- Flutter stable SDK با desktop support.
-- Android Studio یا Android command-line tools همراه Android SDK Platform 35+.
-- JDK 17.
-- Visual Studio 2022 با workload مربوط به "Desktop development with C++" برای build ویندوز.
-- Windows 10/11 WebView2 Runtime برای scanner ویندوز.
-- 7-Zip برای ساخت ZIP فشرده ویندوز.
-
-بررسی ابزارها:
+آماده‌سازی Clone تازه:
 
 ```powershell
 flutter doctor -v
 flutter config --enable-windows-desktop
 flutter pub get
-```
-
-در صورت نیاز licenseهای اندروید را قبول کنید:
-
-```powershell
 flutter doctor --android-licenses
 ```
 
-## چک‌های توسعه
-
-قبل از publish تغییرات:
-
-```powershell
-flutter pub get
-flutter analyze
-flutter test
-```
-
-## دستورهای Build اندروید
+### Build اندروید
 
 Debug APK:
 
@@ -137,7 +140,7 @@ Debug APK:
 flutter build apk --debug
 ```
 
-APKهای release کوچک و جداشده بر اساس CPU:
+APKهای Release جدا برای هر ABI:
 
 ```powershell
 flutter build apk --release `
@@ -148,7 +151,7 @@ flutter build apk --release `
   --tree-shake-icons
 ```
 
-Universal release APK:
+Universal APK و Android App Bundle:
 
 ```powershell
 flutter build apk --release `
@@ -156,30 +159,14 @@ flutter build apk --release `
   --obfuscate `
   --split-debug-info=build\symbols\android-universal `
   --tree-shake-icons
-```
 
-Android App Bundle:
-
-```powershell
 flutter build appbundle --release `
   --obfuscate `
   --split-debug-info=build\symbols\android-aab `
   --tree-shake-icons
 ```
 
-خروجی‌های اندروید:
-
-```text
-build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-build/app/outputs/flutter-apk/app-x86_64-release.apk
-build/app/outputs/flutter-apk/app-release.apk
-build/app/outputs/bundle/release/app-release.aab
-```
-
-## دستورهای Build ویندوز
-
-Build نسخه release:
+### Build ویندوز
 
 ```powershell
 flutter build windows --release `
@@ -188,34 +175,20 @@ flutter build windows --release `
   --tree-shake-icons
 ```
 
-پوشه خروجی:
+خروجی داخل `build/windows/x64/runner/Release/` قرار می‌گیرد. بسته قابل انتشار باید تمام این پوشه، Flutter Runtime و ابزارهای Wintun را همراه داشته باشد.
 
-```text
-build/windows/x64/runner/Release/
-```
+### Workflow انتشار
 
-ساخت ZIP با فشرده‌سازی بالا:
+فایل `.github/workflows/release.yml` با اجرای دستی یا Push تگ `v*` شروع می‌شود. نسخه را از `pubspec.yaml` می‌خواند، Android و Windows را هم‌زمان Build می‌کند، فایل‌های کامپایل‌شده را Stage می‌کند و GitHub Release متناظر را می‌سازد یا به‌روزرسانی می‌کند.
 
-```powershell
-$version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value -split '\+')[0]
-New-Item -ItemType Directory -Force "release\v$version" | Out-Null
-& "$env:ProgramFiles\7-Zip\7z.exe" a -tzip -mx=9 `
-  "release\v$version\localist-v$version-windows-x64.zip" `
-  .\build\windows\x64\runner\Release\*
-```
+خروجی‌های انتشار:
 
-## انتشار با GitHub Actions
+- Universal، armeabi-v7a، arm64-v8a و x86_64 APK.
+- Universal Android AAB.
+- ZIP نسخه Windows x64.
+- آرشیوهای جداگانه Symbol برای Android و Windows.
 
-workflow انتشار فقط با push تگ‌های `v*` یا اجرای دستی شروع می‌شود، مقدار `version:` را از `pubspec.yaml` می‌خواند و این فایل‌ها را upload می‌کند:
-
-- `localist-v<version>-android-armeabi-v7a.apk`
-- `localist-v<version>-android-arm64-v8a.apk`
-- `localist-v<version>-android-x86_64.apk`
-- `localist-v<version>-android-universal.apk`
-- `localist-v<version>-android-universal.aab`
-- `localist-v<version>-windows-x64.zip`
-
-برای ساخت release، tag مطابق نسخه `pubspec.yaml` را push کنید:
+شروع Release با Tag:
 
 ```powershell
 $version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value -split '\+')[0]
@@ -223,57 +196,16 @@ git tag "v$version"
 git push origin "v$version"
 ```
 
-همچنین می‌توانید workflow را دستی از تب GitHub Actions اجرا کنید و `release_tag` را خالی بگذارید تا نسخه از `pubspec.yaml` خوانده شود.
+برای اجرای دستی، از صفحه Actions مخزن workflow با نام **Release** را اجرا کنید و `release_tag` را خالی بگذارید تا نسخه `pubspec.yaml` استفاده شود.
 
-## حالت‌های Localist
+### نکات معماری
 
-Sharing:
+- Discovery برنامه و Heartbeat دستگاه‌های متصل از پورت‌های UDP جدا از Endpointهای Proxy استفاده می‌کنند.
+- کانفیگ هوشمند یک Device Identity پایدار دارد. Receiver فقط اجازه دارد Host یک Endpoint را با Source Address همان دستگاه کشف‌شده بازنویسی کند.
+- بررسی SOCKS5 شامل Handshake پروتکل است و بررسی HTTP قبل از انتخاب مسیر، پاسخ Proxy-Form را اعتبارسنجی می‌کند.
+- Quick Send از Multicast و مسیرهای HTTP(S) پروتکل LocalSend استفاده می‌کند، Token و Source Address آپلود را بررسی می‌کند، اندازه Metadata را محدود می‌کند، نام مقصد را پاک‌سازی می‌کند و Session بدون فعالیت را منقضی می‌کند.
+- Job ویندوز قبل از Build، فایل‌های امضاشده Wintun و Runtime مربوط به tun2socks را دریافت می‌کند.
 
-- اندروید: سرویس پروکسی به همراه hotspot/manual network sharing.
-- ویندوز: فقط proxy service؛ بدون hotspot controls و بدون دکمه share APK.
-- Sharing ویندوز می‌تواند ترافیک share شده را از v2rayN SOCKS proxy محلی عبور دهد، به صورت پیش‌فرض `127.0.0.1:10808`.
+### مجوز و Attribution
 
-Receiving:
-
-- اندروید: discovery خودکار همراه Retry/Restart دستی، QR/manual config، draftهای ذخیره‌شده، اعتبارسنجی host/port، local proxy mode یا Android `VpnService`.
-- ویندوز: discovery خودکار همراه Retry/Restart دستی، QR/manual config، draftهای ذخیره‌شده، اعتبارسنجی host/port، local proxy mode یا VPN mode با Wintun در صورت وجود ابزارهای bundled.
-
-Settings:
-
-- root routing فقط اندروید است.
-- ویندوز برای VPN mode با administrator privileges شروع می‌شود، بنابراین toggle admin در Settings ندارد.
-- رفتار دکمه close ویندوز می‌تواند ask، رفتن به taskbar tray یا exit کامل باشد.
-- portهای proxy هنگام فعال بودن Sharing قفل می‌شوند.
-- theme از Android dynamic colors یا Windows accent colors پیروی می‌کند و palette رنگ سفارشی گسترده‌تر شده است.
-- Active Debug Mode فیلتر DEBUG را در Logs فعال می‌کند و trace دقیق سرویس‌ها، دکمه‌ها، native callها و شبکه را ثبت می‌کند.
-
-Logs:
-
-- Copy متن فعلی لاگ‌های داخل حافظه را کپی می‌کند.
-- Save log دیالوگ ذخیره اندروید یا ویندوز را باز می‌کند و گزارش کامل شامل نسخه برنامه، build mode، جزئیات دستگاه، runtime، کارت‌های شبکه و لاگ‌های برنامه را می‌نویسد.
-- در ویندوز، Active Debug Mode یک `debug.log` زنده کنار `Localist.exe` هم می‌سازد؛ اگر اجرای قبلی کرش کرده باشد، Localist با پیام native ویندوز debug mode را فعال می‌کند یا از کاربر می‌خواهد لاگ ذخیره‌شده را برای توسعه‌دهنده بفرستد.
-
-## Permission، آپدیتر، ویجت و گزارش کرش اندروید
-
-در ورود اولیه اندروید فقط permissionهای ضروری شروع برنامه درخواست می‌شود:
-
-- Notifications برای foreground serviceهای VPN/proxy.
-- Battery optimization exemption برای جلوگیری از توقف انتقال طولانی هنگام خاموش شدن صفحه.
-
-permission دوربین فقط هنگام باز کردن QR scanner در Receiving درخواست می‌شود. permission VPN فقط هنگام شروع حالت Android VPN Receiving درخواست می‌شود.
-
-آپدیتر اندروید releaseهای GitHub را بررسی می‌کند، APK مناسب ABI دستگاه را انتخاب می‌کند، آن را در cache برنامه دانلود می‌کند، اندازه دانلود را اعتبارسنجی می‌کند و نصب‌کننده اندروید را باز می‌کند.
-
-ویجت‌های اندروید در اندازه‌های کوچک و بزرگ home screen کار می‌کنند. ویجت کامل وضعیت سرویس را همراه کنترل‌های Sending و Receiving نشان می‌دهد و ویجت‌های تک‌دکمه‌ای برای Sending-only و Receiving-only اضافه شده‌اند. اگر Receiving تنظیمات remote proxy ذخیره‌شده نداشته باشد، ویجت برنامه را باز می‌کند. بررسی آپدیت هنگام شروع برنامه در صورت خطا چیزی نمایش نمی‌دهد و فقط وقتی آپدیت قابل نصب وجود داشته باشد اعلان داخلی نشان می‌دهد.
-
-گزارش کرش شامل نوع کرش، زمان، نسخه semantic، پلتفرم، Android SDK/ABI، stack trace و لاگ‌های Localist است و email client را با متن آماده ارسال به پشتیبانی باز می‌کند.
-
-## Windows VPN و Wintun
-
-حالت Windows Receiving VPN وقتی `tun2socks.exe` و `wintun.dll` کنار `Localist.exe` باشند آن‌ها را اجرا می‌کند. workflow انتشار هر دو ابزار را برای بسته Windows x64 دانلود می‌کند و برنامه interface مربوط به Wintun، DNS، routeهای default split و bypass route برای upstream proxy انتخاب‌شده را تنظیم می‌کند.
-
-اگر `tun2socks.exe` یا `wintun.dll` موجود نباشد، Windows Receiving به مسیر قبلی system-proxy fallback می‌کند تا buildهای development از checkout تمیز هم قابل استفاده باشند.
-
-## نکته‌ها
-
-حالت Windows TUN driver نیاز به administrator privileges و runtime امضاشده Wintun دارد. هنگام بسته‌بندی خارج از GitHub Actions، فایل‌های `tun2socks.exe` و `wintun.dll` را کنار executable ویندوز نگه دارید.
+Quick Send بر پایه پروژه LocalSend با مجوز Apache-2.0 ساخته شده است. Attribution و متن کامل مجوز داخل `THIRD_PARTY_NOTICES.md` قرار دارد و همراه Assetهای برنامه بسته‌بندی می‌شود.

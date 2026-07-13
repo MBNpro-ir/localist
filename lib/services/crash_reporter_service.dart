@@ -16,6 +16,11 @@ class CrashReporterService {
   static final CrashReporterService instance = CrashReporterService._();
 
   bool _installed = false;
+  bool _fatalReportInProgress = false;
+  String? _lastFatalSignature;
+  DateTime? _lastFatalReportAt;
+  String? _lastFrameworkSignature;
+  DateTime? _lastFrameworkLogAt;
 
   Future<void> initialize() async {
     if (_installed) {
@@ -33,22 +38,53 @@ class CrashReporterService {
     };
   }
 
-  Future<void> reportFlutterError(FlutterErrorDetails details) {
-    return _sendReport(
-      title: 'Flutter framework crash',
-      error: details.exception,
-      stack: details.stack,
-      context: details.context?.toDescription(),
-      library: details.library,
+  Future<void> reportFlutterError(FlutterErrorDetails details) async {
+    // Flutter framework errors are often recoverable rendering/build errors.
+    // They must be logged for diagnosis, but reporting them as process crashes
+    // causes modal-dialog loops when the same widget rebuilds repeatedly.
+    final now = DateTime.now();
+    final signature = [
+      details.exceptionAsString(),
+      details.library ?? '',
+      details.context?.toDescription() ?? '',
+    ].join('|');
+    if (_lastFrameworkSignature == signature &&
+        _lastFrameworkLogAt != null &&
+        now.difference(_lastFrameworkLogAt!) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastFrameworkSignature = signature;
+    _lastFrameworkLogAt = now;
+    LogService.instance.error(
+      'Flutter framework error: ${details.exceptionAsString()}',
     );
+    final stack = details.stack;
+    if (stack != null) {
+      LogService.instance.debug('Flutter framework error stack', stack: stack);
+    }
   }
 
-  Future<void> reportFatalError(Object error, StackTrace stack) {
-    return _sendReport(
-      title: 'Unhandled Dart crash',
-      error: error,
-      stack: stack,
-    );
+  Future<void> reportFatalError(Object error, StackTrace stack) async {
+    final now = DateTime.now();
+    final signature = '${error.runtimeType}|$error';
+    if (_fatalReportInProgress ||
+        (_lastFatalSignature == signature &&
+            _lastFatalReportAt != null &&
+            now.difference(_lastFatalReportAt!) < const Duration(minutes: 5))) {
+      return;
+    }
+    _fatalReportInProgress = true;
+    _lastFatalSignature = signature;
+    _lastFatalReportAt = now;
+    try {
+      await _sendReport(
+        title: 'Unhandled Dart crash',
+        error: error,
+        stack: stack,
+      );
+    } finally {
+      _fatalReportInProgress = false;
+    }
   }
 
   Future<void> _sendReport({
@@ -150,6 +186,7 @@ class CrashReporterService {
     if (context != null && context.isNotEmpty) {
       buffer.writeln('Context: $context');
     }
+    final applicationLogs = LogService.instance.dump(maxCharacters: 80000);
     buffer
       ..writeln()
       ..writeln('Error')
@@ -163,9 +200,7 @@ class CrashReporterService {
       ..writeln('Application logs')
       ..writeln('----------------')
       ..writeln(
-        LogService.instance.dump().isEmpty
-            ? 'No logs recorded.'
-            : LogService.instance.dump(),
+        applicationLogs.isEmpty ? 'No logs recorded.' : applicationLogs,
       );
     return buffer.toString();
   }

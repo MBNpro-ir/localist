@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 import 'dart:io';
@@ -10,6 +11,8 @@ import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import '../services/log_service.dart';
+import '../services/localist_discovery_protocol.dart';
+import '../services/localist_peer_service.dart';
 import '../services/native_bridge_service.dart';
 import '../services/v2rayng_socks_uri.dart';
 import '../widgets/glass.dart';
@@ -21,6 +24,7 @@ class SharingPage extends StatelessWidget {
     super.key,
     required this.settings,
     required this.snapshot,
+    required this.connectedPeers,
     required this.busy,
     required this.controlsLocked,
     required this.lockMessage,
@@ -32,6 +36,7 @@ class SharingPage extends StatelessWidget {
 
   final AppSettings settings;
   final ServiceSnapshot snapshot;
+  final List<LocalistConnectedPeer> connectedPeers;
   final bool busy;
   final bool controlsLocked;
   final String lockMessage;
@@ -84,6 +89,7 @@ class SharingPage extends StatelessWidget {
           onStopSharing: onStopSharing,
           onRefresh: onRefresh,
         ),
+        if (running) _ConnectedDevicesPanel(peers: connectedPeers),
         if (running && !Platform.isWindows)
           _HotspotPanel(
             hotspot: hotspot,
@@ -98,6 +104,66 @@ class SharingPage extends StatelessWidget {
             portFor: snapshot.portFor,
           ),
       ],
+    );
+  }
+}
+
+class _ConnectedDevicesPanel extends StatelessWidget {
+  const _ConnectedDevicesPanel({required this.peers});
+
+  final List<LocalistConnectedPeer> peers;
+
+  @override
+  Widget build(BuildContext context) {
+    final persian = context.l10n.isPersian;
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.devices_outlined),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  persian ? 'دستگاه‌های متصل' : 'Connected devices',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Badge(
+                label: Text('${peers.length}'),
+                child: const Icon(Icons.people_alt_outlined),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (peers.isEmpty)
+            Text(
+              persian
+                  ? 'هنوز هیچ دستگاه Localist به اشتراک VPN متصل نشده است.'
+                  : 'No Localist device is connected to VPN Sharing yet.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            )
+          else
+            for (final peer in peers)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  child: Icon(Icons.devices_other_outlined),
+                ),
+                title: Text(peer.name),
+                subtitle: Text('${peer.platform} • ${peer.address}'),
+                trailing: Tooltip(
+                  message: persian ? 'اتصال زنده' : 'Live connection',
+                  child: const Icon(
+                    Icons.circle,
+                    size: 12,
+                    color: Colors.green,
+                  ),
+                ),
+              ),
+        ],
+      ),
     );
   }
 }
@@ -715,7 +781,27 @@ enum _ProxyQrMode { proxy, ios }
 class _ProxyQrSectionState extends State<_ProxyQrSection> {
   String? _selectedId;
   String? _selectedIosId;
+  String _deviceId = '';
+  String _deviceName = '';
   _ProxyQrMode _mode = _ProxyQrMode.proxy;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadIdentity());
+  }
+
+  Future<void> _loadIdentity() async {
+    final id = await localistDiscoveryDeviceId();
+    final name = await localistDiscoveryDeviceName();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _deviceId = id;
+      _deviceName = name;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -866,6 +952,8 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
       hotspotSsid: '',
       hotspotPassword: '',
       endpoints: proxyEndpoints,
+      deviceId: _deviceId,
+      deviceName: _deviceName,
     );
     return [
       _QrEndpoint(

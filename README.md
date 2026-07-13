@@ -5,7 +5,7 @@
 <h1 align="center">Localist</h1>
 
 <p align="center">
-  Share a local proxy between Android and Windows with QR handoff, nearby discovery, updater support, crash reporting, and home-screen controls.
+  Smart local VPN sharing and fast file transfer between Android and Windows.
 </p>
 
 <p align="center">
@@ -16,120 +16,123 @@
   <a href="https://flutter.dev"><img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white"></a>
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
-  <a href="https://github.com/MBNpro-ir/localist/actions"><img alt="Release workflow" src="https://img.shields.io/badge/release-passing-brightgreen?logo=github"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.5.5-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.6.0-blue"></a>
 </p>
 
-## Overview
+## User Guide
 
-Localist is a Flutter app for sharing and receiving local proxy access across Android and Windows.
+### What Localist does
 
-- Android can share HTTP/SOCKS5 proxy endpoints, receive a remote endpoint as VPN or local proxy, scan QR codes, discover nearby Localist devices without listing itself, install GitHub release updates, and expose full or single-action home-screen widgets for Sending/Receiving controls.
-- Windows can share proxy endpoints, advertise them for local discovery, show and scan QR codes with a webcam, run compactly with tray behavior, follow Windows accent colors, and use bundled Wintun/tun2socks tools for Receiving VPN mode when available.
-- First-run setup now asks only for permissions needed at startup. Camera permission is requested only when the QR scanner is opened.
-- Crash reporting opens the user's email client with crash details, app logs, platform data, device information, and stack traces.
-- Settings are persisted in each platform's standard app-support storage so reinstalling the app keeps user preferences.
+Localist lets devices on the same local network share VPN/proxy access and transfer files without sending data through a cloud service.
 
-## What's New
+- Smart VPN handoff discovers the sharing device, checks its advertised network addresses, and connects through a reachable address automatically.
+- QR and manual smart configurations carry all available endpoints, so the receiver does not need to guess which IP works.
+- The Sharing screen shows the number and identity of connected Localist devices.
+- Quick Send transfers multiple files or text messages and is compatible with the LocalSend v2.1 protocol and legacy v1 routes.
+- English and Persian, light/dark themes, Android dynamic colors, and Windows accent colors are supported.
 
-- 🐞 Active Debug Mode adds a DEBUG log level for app actions, settings, native bridge calls, service lifecycle, and network paths.
-- 💾 Logs can now be saved from Android and Windows with full app, platform, device, runtime, and network-interface details for troubleshooting.
-- 🪵 Windows now writes active debug logs to `debug.log` beside `Localist.exe` and deletes the file when debug mode is disabled.
-- 🧯 Windows startup crash detection auto-enables debug mode and shows native crash messages before the Flutter UI is available.
-- 🚫 Internal VPN proxy settings now reject ports that belong to Localist itself.
-- ⚠️ Windows Sharing continues without the Internal VPN proxy when that upstream is unavailable and shows a warning instead of failing.
-- 📡 Android native proxy, VPN, and discovery logs are forwarded into the in-app Logs screen while debug mode is active.
-- 🔁 Nearby Devices has a Retry control that restarts discovery even while a scan is already running.
-- 📱 Sharing warns when a proxy IP is in the iPhone Personal Hotspot client range that the host iPhone usually cannot reach.
-- 📦 GitHub Actions now publishes a universal Android APK alongside split APKs and the universal AAB.
-- 📲 Xray QR codes now use v2rayNG-compatible `socks://Og@host:port#name` links instead of raw JSON.
-- 🧯 Windows proxy relays now apply socket backpressure and throttle traffic-stat saves to prevent high-speed transfer RAM/CPU runaway.
-- 🛠️ Windows release builds prefer the generated C++/WinRT projection so `webview_windows` compiles reliably on this toolchain.
-- 🧭 Nearby discovery now ignores the current phone's own Sharing announcements.
-- 🖤 Android widgets now use a darker redesigned style with separate Sending and Receiving widgets.
-- 🔔 Android checks for updates on startup and shows an in-app notice only when a newer installable release exists.
-- 🏷️ GitHub Actions release builds now run from `v*` tags, not every branch push.
+### Download and install
 
-- 📱 EN: iOS QR tab now generates Xray and sing-box SOCKS configs for every active Sharing IP.
-  FA: تب iOS برای همه IPهای فعال Sharing کانفیگ SOCKS مخصوص Xray و sing-box می‌سازد.
-- 🧭 EN: Proxy QR codes now keep Proxy and iOS flows in separate tabs with click-to-open cards.
-  FA: بخش Proxy QR codes حالا تب‌های جدا برای Proxy و iOS دارد و QRها فقط با کلیک روی کارت باز می‌شوند.
-- 🪟 EN: Windows Receiving adds Start as system proxy and renames the manual mode to Start as local proxy.
-  FA: در Receiving ویندوز گزینه Start as system proxy اضافه شد و حالت دستی به Start as local proxy تغییر نام داد.
-- 🧹 EN: Stopping Windows system proxy clears the Windows proxy settings automatically.
-  FA: با توقف system proxy، تنظیمات پروکسی ویندوز به صورت خودکار پاک می‌شود.
-- 🛠️ EN: Wintun/tun2socks startup now checks administrator access, uses the correct `warn` log level, and preserves useful failure logs.
-  FA: راه‌اندازی Wintun/tun2socks دسترسی ادمین را چک می‌کند، سطح لاگ درست `warn` را می‌فرستد و خطاهای مفید را نگه می‌دارد.
-- 🚀 EN: GitHub Actions release packaging keeps compiled assets staged in `compiled` before publishing.
-  FA: اکشن انتشار GitHub خروجی‌های کامپایل‌شده را قبل از انتشار داخل `compiled` آماده می‌کند.
+Download the latest package from [GitHub Releases](https://github.com/MBNpro-ir/localist/releases/latest).
 
-## Version History
+- Android: use the universal APK when you do not know the device architecture. ABI-specific APKs are available for smaller downloads.
+- Windows: extract the complete x64 ZIP before running `Localist.exe`. Keep all DLL and tool files beside the executable.
+- Put both devices on the same Wi-Fi, Ethernet, or hotspot network. Client isolation on guest Wi-Fi can prevent local discovery and connections.
 
-- 🚀 `v1.0.0` - Initial release workflow and packaged Android/Windows builds.
-- 🧰 `v1.0.2` - `v1.0.5` - Release packaging fixes, README badges, and early build pipeline cleanup.
-- ⚡ `v1.1.0` - Performance improvements for older Android devices.
-- 🪟 `v1.1.2` - Windows portrait window sizing fixes.
-- 📦 `v1.5.0` - Broader Localist release packaging and app polish.
-- 🌉 `v1.6.0` - Windows Receiving VPN support through Wintun/tun2socks.
-- 🛠️ `v1.6.4` - Android VPN and settings port fixes.
-- 📡 `v2.0.0` - Nearby discovery, Wintun fixes, and release publishing improvements.
-- 🔋 `v2.1.0` - QR scanner battery behavior and themed in-app notices.
-- 🌐 `v3.0.0` - Language onboarding and smart GitHub updater.
-- ✅ `v3.1.0` - Onboarding navigation, Persian localization, and version badge updates.
-- 🧩 `v3.2.0` - Permission cleanup, updater repair, widgets, crash reporting, flags, color settings, and README refresh.
-- 📱 `v3.3.0` - iOS Xray/sing-box QR configs, Windows system proxy mode, Wintun startup fixes, and release staging polish.
-- 🧭 `v3.4.0` - Self-discovery filtering, black Android widgets, separate Sending/Receiving widgets, startup update notices, and tag-only release builds.
-- 📲 `v3.5.0` - v2rayNG SOCKS QR links for Xray, Windows relay backpressure, throttled traffic stats, and C++/WinRT build reliability.
-- 🐞 `v3.5.4` - Active Debug Mode, saveable device-detail log exports, Nearby retry, iPhone hotspot guidance, native Android logging, and universal APK releases.
-- 🧯 `v3.5.5` - Windows `debug.log`, startup crash diagnostics, native crash notices, safer Internal VPN proxy port validation, and soft fallback when the Internal VPN proxy is unavailable.
+### Share VPN or proxy access
 
-## Repository Layout
+On the device that already has the desired internet/VPN connection:
+
+1. Open **Sharing**.
+2. Select the proxy protocols and allowed local network addresses.
+3. Start Sharing.
+4. Keep this screen available to see connected Localist devices and their count.
+
+On the receiving device:
+
+1. Open **Receiving**.
+2. Select the sharing device under Nearby Devices, scan its QR code, or paste its smart configuration.
+3. Localist tests the allowed routes and selects a reachable IP automatically.
+4. Start the available VPN, system proxy, or local proxy mode.
+
+Raw `http://` and `socks5://` configurations are still accepted. A raw configuration can only use the exact host entered by the user; Localist never substitutes an unrelated nearby device merely because it uses the same port.
+
+### Transfer files with Quick Send
+
+1. Open **Quick Send** on both devices.
+2. Choose one or more files, or select **Send message**.
+3. Tap the destination device discovered on the local network.
+4. Accept the request on the receiving device unless Quick Save is enabled.
+
+Quick Send settings include:
+
+- Device name, receive port, and multicast group.
+- Destination folder and duplicate-file overwrite behavior.
+- HTTPS encryption with certificate fingerprint verification.
+- Optional receiver PIN.
+- Favorite devices and Quick Save for all devices or favorites only.
+- Manual IP/hostname targets when multicast discovery is unavailable.
+
+Quick Save accepts files without asking. Enable it only on trusted local networks. Text messages always require an explicit acceptance.
+
+### Platform modes
+
+| Platform | Sharing | Receiving | Quick Send |
+| --- | --- | --- | --- |
+| Android | HTTP/SOCKS5 proxy, hotspot/manual network flow, optional root routing | Android VPN or local proxy | Send and receive files/messages |
+| Windows | HTTP/SOCKS5 proxy, optional local v2rayN upstream | Windows VPN with Wintun, system proxy, or local proxy | Send and receive files/messages |
+
+Windows VPN mode requires administrator access plus `tun2socks.exe` and `wintun.dll`. If those tools are absent, development packages can still use system/local proxy modes.
+
+### Permissions and local data
+
+- Android asks for notifications and battery-optimization access so long-running VPN/proxy transfers can continue in the background.
+- Camera access is requested only when the QR scanner is opened.
+- Android VPN permission is requested only when VPN Receiving is started.
+- Files sent through Quick Send stay on the local network. HTTPS mode verifies the destination certificate fingerprint.
+- Preferences, favorites, certificate identity, and transfer settings are stored in the platform app-data directory.
+
+### Logs and troubleshooting
+
+- Open **Logs** to inspect, copy, or save a diagnostic report.
+- Active Debug Mode records detailed service, native bridge, and network events.
+- On Windows, Debug Mode writes `debug.log` beside `Localist.exe`. Individual messages and the file itself are size-limited and oversized logs are rotated.
+- Recoverable Flutter UI diagnostics are logged without being reported as repeated process crashes. Fatal errors are de-duplicated before showing a crash notice.
+- If Nearby Devices is empty, confirm both devices are on the same subnet, disable guest/client isolation, and use Retry or a manual target.
+- If Windows VPN cannot start, verify that Localist is elevated and the Wintun files from the release package were not removed by extraction or antivirus software.
+
+## Developer Guide
+
+### Repository layout
 
 ```text
-lib/                       Flutter UI, settings, QR, proxy state, crash reporting, Windows Dart services
-android/                   Android Kotlin VPN/proxy bridge, updater install bridge, widget, crash reporter, Gradle project
-windows/                   Windows runner, Win32 MethodChannel bridge, app icon/resource setup
-test/                      Flutter unit tests
-.github/workflows/         GitHub Actions release pipeline
-ico/                       Localist app icon assets
+lib/                       Flutter UI, smart VPN discovery, Quick Send, settings and services
+android/                   Android VPN/proxy bridge, updater, widgets and Gradle project
+windows/                   Windows runner, Win32 bridge, Wintun packaging and resources
+test/                      Flutter regression and protocol-focused checks
+.github/workflows/         Android/Windows release and GitHub publishing workflow
+ico/                       Application icons
 ```
 
-## Requirements
+### Toolchain
 
-Install these tools before building from a fresh clone:
+- Flutter stable with Windows desktop support.
+- Android SDK Platform 35 or newer and JDK 17.
+- Visual Studio 2022 with **Desktop development with C++**.
+- Windows 10/11 WebView2 Runtime for webcam QR scanning.
+- 7-Zip for local Windows release packaging.
 
-- Flutter stable SDK with desktop support enabled.
-- Android Studio or Android command-line tools with Android SDK Platform 35+.
-- JDK 17.
-- Visual Studio 2022 with "Desktop development with C++" for Windows builds.
-- Windows 10/11 WebView2 Runtime for the Windows QR scanner.
-- 7-Zip if you want the smallest local Windows ZIP package.
-
-Verify the toolchain:
+Prepare a fresh checkout:
 
 ```powershell
 flutter doctor -v
 flutter config --enable-windows-desktop
 flutter pub get
-```
-
-Accept Android licenses when needed:
-
-```powershell
 flutter doctor --android-licenses
 ```
 
-## Development Checks
-
-Run these before publishing changes:
-
-```powershell
-flutter pub get
-flutter analyze
-flutter test
-```
-
-## Android Build Commands
+### Android builds
 
 Debug APK:
 
@@ -137,7 +140,7 @@ Debug APK:
 flutter build apk --debug
 ```
 
-Smallest release APKs split by Android CPU architecture:
+ABI-specific release APKs:
 
 ```powershell
 flutter build apk --release `
@@ -148,7 +151,7 @@ flutter build apk --release `
   --tree-shake-icons
 ```
 
-Universal release APK:
+Universal APK and App Bundle:
 
 ```powershell
 flutter build apk --release `
@@ -156,30 +159,14 @@ flutter build apk --release `
   --obfuscate `
   --split-debug-info=build\symbols\android-universal `
   --tree-shake-icons
-```
 
-Release Android App Bundle:
-
-```powershell
 flutter build appbundle --release `
   --obfuscate `
   --split-debug-info=build\symbols\android-aab `
   --tree-shake-icons
 ```
 
-Android release outputs:
-
-```text
-build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-build/app/outputs/flutter-apk/app-x86_64-release.apk
-build/app/outputs/flutter-apk/app-release.apk
-build/app/outputs/bundle/release/app-release.aab
-```
-
-## Windows Build Commands
-
-Release build with Dart symbol splitting and icon tree-shaking:
+### Windows build
 
 ```powershell
 flutter build windows --release `
@@ -188,34 +175,20 @@ flutter build windows --release `
   --tree-shake-icons
 ```
 
-Windows release output folder:
+The compiled application is written to `build/windows/x64/runner/Release/`. A distributable package must include the entire directory, including the Flutter runtime and Wintun tools.
 
-```text
-build/windows/x64/runner/Release/
-```
+### Release workflow
 
-Create a maximum-compression ZIP package:
+`.github/workflows/release.yml` can be started manually or by pushing a `v*` tag. It reads the application version from `pubspec.yaml`, builds Android and Windows in parallel, stages compiled files, and publishes or updates the matching GitHub Release.
 
-```powershell
-$version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value -split '\+')[0]
-New-Item -ItemType Directory -Force "release\v$version" | Out-Null
-& "$env:ProgramFiles\7-Zip\7z.exe" a -tzip -mx=9 `
-  "release\v$version\localist-v$version-windows-x64.zip" `
-  .\build\windows\x64\runner\Release\*
-```
+Published assets include:
 
-## GitHub Actions Release
+- Android universal, armeabi-v7a, arm64-v8a, and x86_64 APKs.
+- Android universal AAB.
+- Windows x64 ZIP.
+- Separate Android and Windows symbol archives.
 
-The release workflow runs only for `v*` tag pushes or manual dispatch. It reads `version:` from `pubspec.yaml`, then builds and uploads:
-
-- `localist-v<version>-android-armeabi-v7a.apk`
-- `localist-v<version>-android-arm64-v8a.apk`
-- `localist-v<version>-android-x86_64.apk`
-- `localist-v<version>-android-universal.apk`
-- `localist-v<version>-android-universal.aab`
-- `localist-v<version>-windows-x64.zip`
-
-Create a release by pushing a tag that matches the `pubspec.yaml` version:
+Start a tag-based release:
 
 ```powershell
 $version = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$').Matches[0].Groups[1].Value -split '\+')[0]
@@ -223,57 +196,16 @@ git tag "v$version"
 git push origin "v$version"
 ```
 
-You can also run the workflow manually from the GitHub Actions tab and leave `release_tag` empty to use the `pubspec.yaml` version.
+For a manual release, open the repository Actions page, run **Release**, and leave `release_tag` empty to use the version from `pubspec.yaml`.
 
-## Localist Modes
+### Architecture notes
 
-Sharing:
+- Localist discovery and connected-device heartbeats use separate UDP ports from the shared proxy endpoints.
+- Smart configurations include a stable device identity. The receiver may rewrite an advertised endpoint only with the source address of that same discovered device.
+- SOCKS5 probes perform a protocol handshake; HTTP probes verify a proxy-form HTTP response before a route is selected.
+- Quick Send uses LocalSend multicast discovery and HTTP(S) upload routes, validates upload tokens and source addresses, bounds request metadata, sanitizes destination names, and expires inactive receive sessions.
+- The Windows release job downloads signed Wintun and tun2socks runtime files before compiling the package.
 
-- Android: proxy service plus Android hotspot/manual network sharing flow.
-- Windows: proxy service only; no hotspot controls and no APK share button.
-- Windows Sharing can optionally route shared traffic through a local v2rayN SOCKS proxy, defaulting to `127.0.0.1:10808`.
+### License and attribution
 
-Receiving:
-
-- Android: automatic nearby-device discovery with manual retry/restart, QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Android `VpnService` receiving mode.
-- Windows: automatic nearby-device discovery with manual retry/restart, QR/manual config, persisted receiving drafts, validated manual host/port input, local proxy mode, or Windows VPN mode through Wintun when bundled tools are available.
-
-Settings:
-
-- Android root routing is still Android-only.
-- Windows starts with administrator privileges for VPN mode, so there is no admin toggle in Settings.
-- Windows close behavior can ask each time, move the window to the taskbar tray, or fully exit.
-- Proxy ports are locked while Sharing is active.
-- Theme follows Android dynamic colors or Windows accent colors, with an expanded custom seed-color palette.
-- Active Debug Mode enables DEBUG filtering in Logs and captures detailed service, button, native, and network traces.
-
-Logs:
-
-- Copy exports the current in-memory log text.
-- Save log opens the Android or Windows save dialog and writes a full debug report with app version, build mode, device details, runtime details, network interfaces, and application logs.
-- On Windows, Active Debug Mode also writes a live `debug.log` beside `Localist.exe`; if the previous run crashed, Localist shows a native Windows message and either enables debug mode or asks the user to send the saved log.
-
-## Android Permissions, Updater, Widget, and Crash Reports
-
-On first launch, Android asks only for startup-critical permissions:
-
-- Notifications, so VPN/proxy services can remain foreground services.
-- Battery optimization exemption, so long proxy/VPN transfers are not paused when the screen turns off.
-
-Camera permission is requested only when the user opens QR scanning in Receiving. VPN permission is requested only when the user starts Android VPN Receiving mode.
-
-The Android updater checks GitHub releases, chooses the matching APK for the device ABI, downloads it to the app cache, validates the download length, and opens the Android package installer.
-
-The Android widgets support small and larger home-screen sizes. The full widget shows service status with Sending and Receiving controls, while the single-action widgets provide dedicated Sending-only and Receiving-only buttons. If Receiving has no saved remote proxy config, the widget opens the app. Startup update checks stay quiet on errors and only show an in-app notice when an installable update is available.
-
-Crash reporting collects the crash type, time, semantic version, platform, Android SDK/ABIs, stack trace, and Localist app logs, then opens the user's email client with a ready-to-send support report.
-
-## Windows VPN and Wintun
-
-Windows Receiving VPN mode starts `tun2socks.exe` with `wintun.dll` when those tools are bundled next to `Localist.exe`. The release workflow downloads both tools for the Windows x64 package, and the app configures the Wintun interface, DNS, split default routes, and a bypass route for the selected upstream proxy before marking VPN mode active.
-
-If `tun2socks.exe` or `wintun.dll` is missing, Windows Receiving falls back to the previous system-proxy route so development builds remain usable from a clean Flutter checkout.
-
-## Notes
-
-Windows TUN driver mode requires administrator privileges and the signed Wintun runtime. Keep `tun2socks.exe` and `wintun.dll` beside the Windows executable when packaging outside GitHub Actions.
+Quick Send is based on the Apache-2.0-licensed LocalSend project. Attribution and the complete license are included in `THIRD_PARTY_NOTICES.md` and bundled with application assets.

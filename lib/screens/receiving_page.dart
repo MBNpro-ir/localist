@@ -13,6 +13,7 @@ import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
+import '../services/proxy_endpoint_resolver.dart';
 import '../widgets/glass.dart';
 
 const _receivingDraftConfigKey = 'receiving.draft.config';
@@ -55,6 +56,7 @@ class ReceivingPage extends StatefulWidget {
 class _ReceivingPageState extends State<ReceivingPage> {
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final LogService _logs = LogService.instance;
+  final ProxyEndpointResolver _resolver = ProxyEndpointResolver();
   final MobileScannerController _scannerController = MobileScannerController(
     autoStart: false,
     detectionTimeoutMs: 750,
@@ -71,6 +73,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
   bool _scanning = false;
   bool _handledScan = false;
   bool _restoringDraft = false;
+  bool _resolvingEndpoint = false;
 
   @override
   void initState() {
@@ -135,7 +138,10 @@ class _ReceivingPageState extends State<ReceivingPage> {
     final portError = _portError(_portController.text);
     final config = _currentConfig();
     final configFieldEnabled =
-        !running && !widget.busy && !oppositeServiceActive;
+        !running &&
+        !widget.busy &&
+        !_resolvingEndpoint &&
+        !oppositeServiceActive;
     final proxyFieldEnabled = !running && !oppositeServiceActive;
 
     return PageSurface(
@@ -162,6 +168,17 @@ class _ReceivingPageState extends State<ReceivingPage> {
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 14),
+              if (_resolvingEndpoint) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 10),
+                Text(
+                  l10n.isPersian
+                      ? 'در حال پیدا کردن IP مجاز و تست اتصال…'
+                      : 'Finding an allowed IP and testing the connection…',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+              ],
               _NearbyDevicesView(
                 devices: widget.discoveredDevices,
                 scanning: widget.discoveryScanning,
@@ -683,13 +700,27 @@ class _ReceivingPageState extends State<ReceivingPage> {
     final smart = SmartProxyPayload.tryParse(trimmed);
     if (smart != null) {
       _logs.debug('Smart config parsed endpoints=${smart.endpoints.length}');
-      await _showSmartProxyPicker(smart);
+      await _resolveAndConnect(
+        endpoints: smart.endpoints,
+        deviceId: smart.deviceId,
+        configText: trimmed,
+      );
       return;
     }
     final config = RemoteProxyConfig.tryParse(trimmed);
     if (config != null) {
       _logs.debug('Remote proxy config parsed ${config.url}');
-      _loadConfig(config);
+      await _resolveAndConnect(
+        endpoints: [
+          SmartProxyEndpoint(
+            protocol: config.protocol,
+            host: config.host,
+            port: config.port,
+          ),
+        ],
+        configText: trimmed,
+        preferredProtocol: config.protocol,
+      );
       return;
     }
     if (!mounted) {
@@ -732,60 +763,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
     );
   }
 
-  Future<void> _showSmartProxyPicker(SmartProxyPayload payload) async {
-    _logs.debug(
-      'Smart proxy picker opened endpoints=${payload.endpoints.length}',
-    );
-    final selected = await showModalBottomSheet<SmartProxyEndpoint>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.l10n.chooseProxyEndpoint,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: [
-                      for (final endpoint in _sortedEndpoints(
-                        payload.endpoints,
-                      ))
-                        ListTile(
-                          leading: const Icon(Icons.route_outlined),
-                          title: Text(endpoint.label),
-                          subtitle: Text(
-                            endpoint.protocol == ProxyProtocol.http
-                                ? '${endpoint.config.url} - ${context.l10n.vpnCompatible}'
-                                : '${endpoint.config.url} - ${context.l10n.manualProxyEndpoint}',
-                          ),
-                          onTap: () => Navigator.of(context).pop(endpoint),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-    if (selected == null || !mounted) {
-      _logs.debug('Smart proxy picker dismissed');
-      return;
-    }
-    _logs.debug('Smart proxy endpoint selected ${selected.config.url}');
-    _loadConfig(selected.config, configText: _configController.text.trim());
-  }
-
   Future<void> _showDiscoveredDevicePicker(
     LocalistDiscoveredDevice device,
   ) async {
@@ -799,57 +776,59 @@ class _ReceivingPageState extends State<ReceivingPage> {
       _logs.debug('Discovered device picker blocked by current state');
       return;
     }
-    final selected = await showModalBottomSheet<SmartProxyEndpoint>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  device.name,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${device.platform} - ${device.sourceAddress}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                Flexible(
-                  child: ListView(
-                    shrinkWrap: true,
-                    children: [
-                      for (final endpoint in _sortedEndpoints(device.endpoints))
-                        ListTile(
-                          leading: const Icon(Icons.route_outlined),
-                          title: Text(endpoint.label),
-                          subtitle: Text(
-                            endpoint.protocol == ProxyProtocol.http
-                                ? '${endpoint.config.url} - ${context.l10n.vpnCompatible}'
-                                : '${endpoint.config.url} - ${context.l10n.manualProxyEndpoint}',
-                          ),
-                          onTap: () => Navigator.of(context).pop(endpoint),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    await _resolveAndConnect(
+      endpoints: device.endpoints,
+      deviceId: device.id,
+      sourceAddress: device.sourceAddress,
+      configText: device.payload.encode(),
     );
-    if (selected == null || !mounted) {
-      _logs.debug('Discovered device picker dismissed');
+  }
+
+  Future<void> _resolveAndConnect({
+    required List<SmartProxyEndpoint> endpoints,
+    required String configText,
+    String deviceId = '',
+    String sourceAddress = '',
+    ProxyProtocol? preferredProtocol,
+  }) async {
+    if (_resolvingEndpoint || endpoints.isEmpty) {
       return;
     }
-    _logs.debug('Discovered endpoint selected ${selected.config.url}');
-    _loadConfig(selected.config, configText: device.payload.encode());
+    setState(() {
+      _resolvingEndpoint = true;
+      _configTip = context.l10n.isPersian
+          ? 'Localist بهترین مسیر قابل دسترس را خودکار انتخاب می‌کند.'
+          : 'Localist is automatically choosing the best reachable route.';
+    });
+    try {
+      final selected = await _resolver.resolve(
+        advertisedEndpoints: endpoints,
+        discoveredDevices: widget.discoveredDevices,
+        deviceId: deviceId,
+        sourceAddress: sourceAddress,
+        preferredProtocol: preferredProtocol,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (selected == null) {
+        showLocalistNotice(
+          context,
+          message: context.l10n.isPersian
+              ? 'هیچ IP مجاز و قابل دسترسی برای این دستگاه پیدا نشد.'
+              : 'No allowed and reachable IP was found for this device.',
+          tone: InAppNoticeTone.warning,
+        );
+        return;
+      }
+      _loadConfig(selected, configText: configText);
+      _logs.info('Automatic VPN connection requested via ${selected.url}');
+      widget.onStartReceiving(selected);
+    } finally {
+      if (mounted) {
+        setState(() => _resolvingEndpoint = false);
+      }
+    }
   }
 
   Future<void> _restoreDraft() async {
@@ -946,20 +925,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
       return context.l10n.portRange1To65535;
     }
     return null;
-  }
-
-  List<SmartProxyEndpoint> _sortedEndpoints(
-    List<SmartProxyEndpoint> endpoints,
-  ) {
-    return [...endpoints]..sort((first, second) {
-      final protocolOrder = first.protocol.index.compareTo(
-        second.protocol.index,
-      );
-      if (protocolOrder != 0) {
-        return protocolOrder;
-      }
-      return first.host.compareTo(second.host);
-    });
   }
 }
 

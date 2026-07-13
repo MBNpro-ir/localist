@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -35,6 +36,8 @@ class LogService extends ChangeNotifier {
 
   static final LogService instance = LogService._();
   static const _maxEntries = 1200;
+  static const _maxMessageCharacters = 12000;
+  static const _maxDebugFileBytes = 5 * 1024 * 1024;
   static const _debugLogFileName = 'debug.log';
 
   final List<LogEntry> _entries = [];
@@ -63,10 +66,21 @@ class LogService extends ChangeNotifier {
   void warning(String message) => _add(LogSeverity.warning, message);
   void error(String message) => _add(LogSeverity.error, message);
 
-  String dump({bool includeDebug = true}) => _entries
-      .where((entry) => includeDebug || entry.severity != LogSeverity.debug)
-      .map((entry) => entry.line)
-      .join('\n');
+  String dump({bool includeDebug = true, int? maxCharacters}) {
+    final result = _entries
+        .where((entry) => includeDebug || entry.severity != LogSeverity.debug)
+        .map((entry) => entry.line)
+        .join('\n');
+    if (maxCharacters == null || result.length <= maxCharacters) {
+      return result;
+    }
+    const notice = '[Earlier log entries were omitted]\n';
+    final available = maxCharacters - notice.length;
+    if (available <= 0) {
+      return notice.substring(0, maxCharacters);
+    }
+    return '$notice${result.substring(result.length - available)}';
+  }
 
   void setDebugMode(bool enabled, {bool announce = true}) {
     if (_debugModeEnabled == enabled) {
@@ -105,8 +119,13 @@ class LogService extends ChangeNotifier {
     if (severity == LogSeverity.debug && !_debugModeEnabled) {
       return;
     }
+    final boundedMessage = _boundedMessage(message);
     _entries.add(
-      LogEntry(timestamp: DateTime.now(), severity: severity, message: message),
+      LogEntry(
+        timestamp: DateTime.now(),
+        severity: severity,
+        message: boundedMessage,
+      ),
     );
     if (_entries.length > _maxEntries) {
       _entries.removeRange(0, _entries.length - _maxEntries);
@@ -132,18 +151,16 @@ class LogService extends ChangeNotifier {
     }
     _debugFileWarningShown = false;
     try {
-      final mode = file.existsSync() && file.lengthSync() > 0
+      final existingLength = file.existsSync() ? file.lengthSync() : 0;
+      final rotate = existingLength >= _maxDebugFileBytes;
+      final mode = existingLength > 0 && !rotate
           ? FileMode.append
           : FileMode.write;
       file.writeAsStringSync(
-        [
-          if (mode == FileMode.append) '',
-          'Localist debug log',
-          '===================',
-          'Started: ${DateTime.now().toIso8601String()}',
-          'Executable: ${Platform.resolvedExecutable}',
-          '',
-        ].join('\n'),
+        _debugHeader(
+          leadingBlankLine: mode == FileMode.append,
+          rotated: rotate,
+        ),
         mode: mode,
         flush: true,
       );
@@ -169,11 +186,17 @@ class LogService extends ChangeNotifier {
       return;
     }
     try {
-      file.writeAsStringSync(
-        '${entry.line}\n',
-        mode: FileMode.append,
-        flush: true,
-      );
+      final line = '${entry.line}\n';
+      final incomingBytes = utf8.encode(line).length;
+      if (file.existsSync() &&
+          file.lengthSync() + incomingBytes > _maxDebugFileBytes) {
+        file.writeAsStringSync(
+          _debugHeader(rotated: true),
+          mode: FileMode.write,
+          flush: true,
+        );
+      }
+      file.writeAsStringSync(line, mode: FileMode.append, flush: true);
     } catch (error) {
       if (_debugFileWarningShown) {
         return;
@@ -187,6 +210,27 @@ class LogService extends ChangeNotifier {
         ),
       );
     }
+  }
+
+  String _debugHeader({bool leadingBlankLine = false, bool rotated = false}) {
+    return [
+      if (leadingBlankLine) '',
+      'Localist debug log',
+      '===================',
+      'Started: ${DateTime.now().toIso8601String()}',
+      'Executable: ${Platform.resolvedExecutable}',
+      if (rotated) 'Previous oversized debug log content was rotated.',
+      '',
+    ].join('\n');
+  }
+
+  String _boundedMessage(String message) {
+    if (message.length <= _maxMessageCharacters) {
+      return message;
+    }
+    final omitted = message.length - _maxMessageCharacters;
+    return '${message.substring(0, _maxMessageCharacters)}\n'
+        '...[truncated $omitted characters]';
   }
 
   void _deleteWindowsDebugFile() {

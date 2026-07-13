@@ -301,7 +301,11 @@ class WindowsLocalistService {
   }
 
   Future<bool> openUri(String uri) async {
-    _logs.debug('Windows open URI requested uri=$uri');
+    final parsed = Uri.tryParse(uri);
+    _logs.debug(
+      'Windows open URI requested scheme=${parsed?.scheme ?? 'unknown'} '
+      'characters=${uri.length}',
+    );
     return await _channel.invokeMethod<bool>('openUri', {'uri': uri}) ?? false;
   }
 
