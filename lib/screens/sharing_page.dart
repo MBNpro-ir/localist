@@ -816,6 +816,7 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
         break;
       }
     }
+    selected ??= endpoints.length == 1 ? endpoints.single : null;
     _QrConfig? selectedIosConfig;
     for (final config in iosConfigs) {
       if (config.id == _selectedIosId) {
@@ -845,7 +846,7 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
                 segments: [
                   ButtonSegment(
                     value: _ProxyQrMode.proxy,
-                    label: Text(l10n.proxyQr),
+                    label: const Text('Android'),
                     icon: const Icon(Icons.qr_code_2),
                   ),
                   ButtonSegment(
@@ -964,15 +965,6 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
         icon: Icons.auto_awesome_outlined,
         isSmart: true,
       ),
-      for (final endpoint in proxyEndpoints)
-        _QrEndpoint(
-          id: '${endpoint.protocol.name}-${endpoint.host}-${endpoint.port}',
-          title: endpoint.protocol.label,
-          subtitle: '${endpoint.host}:${endpoint.port}',
-          data: endpoint.config.url,
-          icon: Icons.route_outlined,
-          isSmart: false,
-        ),
     ];
   }
 

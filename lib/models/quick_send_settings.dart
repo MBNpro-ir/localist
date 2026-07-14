@@ -8,6 +8,7 @@ class QuickSendSettings {
     required this.port,
     required this.multicastGroup,
     required this.destinationDirectory,
+    required this.destinationCustomized,
     required this.receiveEnabled,
     required this.encryption,
     required this.quickSave,
@@ -22,6 +23,7 @@ class QuickSendSettings {
   final int port;
   final String multicastGroup;
   final String destinationDirectory;
+  final bool destinationCustomized;
   final bool receiveEnabled;
   final bool encryption;
   final bool quickSave;
@@ -31,18 +33,37 @@ class QuickSendSettings {
   final String pin;
   final Set<String> favoriteFingerprints;
 
-  static Future<QuickSendSettings> load() async {
+  static Future<bool> hasDestinationCustomizationMarker() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.containsKey(_destinationCustomizedKey);
+  }
+
+  static Future<QuickSendSettings> load({
+    String? defaultAlias,
+    bool forceDefaultAlias = false,
+    String legacyDefaultDestination = '',
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final hostname = Platform.localHostname.trim();
+    final savedAlias = prefs.getString(_aliasKey)?.trim() ?? '';
+    final savedDestination = prefs.getString(_destinationKey)?.trim() ?? '';
+    final destinationCustomized = prefs.containsKey(_destinationCustomizedKey)
+        ? prefs.getBool(_destinationCustomizedKey) ?? false
+        : savedDestination.isNotEmpty &&
+              _pathKey(savedDestination) != _pathKey(legacyDefaultDestination);
+    final resolvedDefaultAlias = defaultAlias?.trim().isNotEmpty == true
+        ? defaultAlias!.trim()
+        : hostname.isEmpty || hostname.toLowerCase() == 'localhost'
+        ? 'Localist device'
+        : hostname;
     return QuickSendSettings(
-      alias: prefs.getString(_aliasKey)?.trim().isNotEmpty == true
-          ? prefs.getString(_aliasKey)!.trim()
-          : hostname.isEmpty
-          ? 'Localist device'
-          : hostname,
+      alias: forceDefaultAlias || savedAlias.isEmpty
+          ? resolvedDefaultAlias
+          : savedAlias,
       port: _safePort(prefs.getInt(_portKey) ?? 53317),
       multicastGroup: prefs.getString(_multicastKey) ?? '224.0.0.167',
-      destinationDirectory: prefs.getString(_destinationKey) ?? '',
+      destinationDirectory: savedDestination,
+      destinationCustomized: destinationCustomized,
       receiveEnabled: prefs.getBool(_receiveKey) ?? true,
       encryption: prefs.getBool(_encryptionKey) ?? true,
       quickSave: prefs.getBool(_quickSaveKey) ?? false,
@@ -62,6 +83,7 @@ class QuickSendSettings {
       prefs.setInt(_portKey, port),
       prefs.setString(_multicastKey, multicastGroup),
       prefs.setString(_destinationKey, destinationDirectory),
+      prefs.setBool(_destinationCustomizedKey, destinationCustomized),
       prefs.setBool(_receiveKey, receiveEnabled),
       prefs.setBool(_encryptionKey, encryption),
       prefs.setBool(_quickSaveKey, quickSave),
@@ -78,6 +100,7 @@ class QuickSendSettings {
     int? port,
     String? multicastGroup,
     String? destinationDirectory,
+    bool? destinationCustomized,
     bool? receiveEnabled,
     bool? encryption,
     bool? quickSave,
@@ -92,6 +115,8 @@ class QuickSendSettings {
       port: _safePort(port ?? this.port),
       multicastGroup: multicastGroup ?? this.multicastGroup,
       destinationDirectory: destinationDirectory ?? this.destinationDirectory,
+      destinationCustomized:
+          destinationCustomized ?? this.destinationCustomized,
       receiveEnabled: receiveEnabled ?? this.receiveEnabled,
       encryption: encryption ?? this.encryption,
       quickSave: quickSave ?? this.quickSave,
@@ -111,10 +136,20 @@ class QuickSendSettings {
     return value >= 1024 && value <= 65535 ? value : 53317;
   }
 
+  static String _pathKey(String value) {
+    return value
+        .trim()
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp('/+'), '/')
+        .replaceFirst(RegExp(r'/$'), '')
+        .toLowerCase();
+  }
+
   static const _aliasKey = 'quickSend.alias';
   static const _portKey = 'quickSend.port';
   static const _multicastKey = 'quickSend.multicastGroup';
   static const _destinationKey = 'quickSend.destinationDirectory';
+  static const _destinationCustomizedKey = 'quickSend.destinationCustomized';
   static const _receiveKey = 'quickSend.receiveEnabled';
   static const _encryptionKey = 'quickSend.encryption';
   static const _quickSaveKey = 'quickSend.quickSave';

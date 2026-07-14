@@ -8,8 +8,10 @@ import android.content.ClipData
 import android.content.IntentFilter
 import android.net.Uri
 import android.net.VpnService
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.content.FileProvider
@@ -26,6 +28,7 @@ class MainActivity : FlutterActivity() {
     private var pendingSaveFileResult: MethodChannel.Result? = null
     private var pendingSaveFileText: String = ""
     private var methodChannel: MethodChannel? = null
+    private var quickSendMulticastLock: WifiManager.MulticastLock? = null
     private var nativeLogReceiverRegistered = false
     private val nativeLogReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -86,6 +89,13 @@ class MainActivity : FlutterActivity() {
                 "openHotspotSettings" -> openHotspotSettings(result)
                 "saveTextFile" -> saveTextFile(call, result)
                 "getDeviceDetails" -> result.success(deviceDetails())
+                "setQuickSendMulticastLock" -> {
+                    result.success(setQuickSendMulticastLock(call.argument<Boolean>("enabled") == true))
+                }
+                "getPublicStorageRoot" -> {
+                    @Suppress("DEPRECATION")
+                    result.success(Environment.getExternalStorageDirectory().absolutePath)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -93,9 +103,33 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        setQuickSendMulticastLock(false)
         unregisterNativeLogReceiver()
         methodChannel = null
         super.onDestroy()
+    }
+
+    private fun setQuickSendMulticastLock(enabled: Boolean): Boolean {
+        if (enabled) {
+            val lock = quickSendMulticastLock ?: run {
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                wifiManager.createMulticastLock("localist-quick-send").also {
+                    it.setReferenceCounted(false)
+                    quickSendMulticastLock = it
+                }
+            }
+            if (!lock.isHeld) {
+                lock.acquire()
+            }
+            return lock.isHeld
+        }
+        quickSendMulticastLock?.let { lock ->
+            if (lock.isHeld) {
+                lock.release()
+            }
+        }
+        quickSendMulticastLock = null
+        return false
     }
 
     private fun registerNativeLogReceiver() {

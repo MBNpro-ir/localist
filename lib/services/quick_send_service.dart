@@ -10,10 +10,12 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/quick_send_settings.dart';
 import 'log_service.dart';
+import 'native_bridge_service.dart';
 
 const quickSendProtocolVersion = '2.1';
 
@@ -212,8 +214,8 @@ class QuickSendService extends ChangeNotifier {
   final LogService _logs = LogService.instance;
   final Map<String, QuickSendDevice> _devices = {};
   final List<QuickSendTransfer> _transfers = [];
+  final List<RawDatagramSocket> _discoverySockets = [];
   HttpServer? _server;
-  RawDatagramSocket? _discoverySocket;
   Timer? _announceTimer;
   Timer? _pruneTimer;
   QuickSendSettings? _settings;
@@ -224,12 +226,16 @@ class QuickSendService extends ChangeNotifier {
   bool _scanning = false;
   String _lastError = '';
   _QuickSendSecurity? _security;
+  String _deviceAlias = 'Localist device';
+  String _deviceModel = '';
+  bool _storageAccessGranted = true;
 
   bool get initialized => _settings != null;
   bool get serverRunning => _server != null;
   bool get scanning => _scanning;
   bool get restarting => _restarting;
   String get lastError => _lastError;
+  bool get storageAccessGranted => _storageAccessGranted;
   QuickSendSettings? get settings => _settings;
   QuickSendPendingRequest? get pendingRequest => _pendingRequest;
   List<QuickSendDevice> get devices {
@@ -244,35 +250,72 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> _initialize() async {
-    _settings = await QuickSendSettings.load();
+    await _loadDeviceIdentity();
+    final legacyDefaultDestination =
+        await QuickSendSettings.hasDestinationCustomizationMarker()
+        ? ''
+        : await _legacyDefaultDestinationDirectory();
+    _settings = await QuickSendSettings.load(
+      defaultAlias: _deviceAlias,
+      forceDefaultAlias: Platform.isAndroid,
+      legacyDefaultDestination: legacyDefaultDestination,
+    );
     _security = await _loadSecurity();
-    if (_settings!.destinationDirectory.isEmpty) {
-      final downloads = await getDownloadsDirectory();
-      final fallback = await getApplicationDocumentsDirectory();
+    if (_settings!.destinationDirectory.isEmpty ||
+        !_settings!.destinationCustomized) {
       _settings = _settings!.copyWith(
-        destinationDirectory: (downloads ?? fallback).path,
+        alias: Platform.isAndroid ? _deviceAlias : _settings!.alias,
+        destinationDirectory: await _defaultDestinationDirectory(),
+        destinationCustomized: false,
       );
       await _settings!.save();
     }
+    await ensureReceiveStorageAccess(request: false);
     await _startNetwork();
     notifyListeners();
   }
 
   Future<void> updateSettings(QuickSendSettings value) async {
     final old = _settings;
-    _settings = value;
-    await value.save();
+    final normalized = Platform.isAndroid
+        ? value.copyWith(alias: _deviceAlias)
+        : value;
+    _settings = normalized;
+    await normalized.save();
     notifyListeners();
     final networkChanged =
         old == null ||
-        old.port != value.port ||
-        old.multicastGroup != value.multicastGroup ||
-        old.receiveEnabled != value.receiveEnabled ||
-        old.encryption != value.encryption ||
-        old.alias != value.alias;
+        old.port != normalized.port ||
+        old.multicastGroup != normalized.multicastGroup ||
+        old.receiveEnabled != normalized.receiveEnabled ||
+        old.encryption != normalized.encryption ||
+        old.alias != normalized.alias;
     if (networkChanged) {
       await restart();
     }
+  }
+
+  Future<bool> ensureReceiveStorageAccess({bool request = true}) async {
+    if (!Platform.isAndroid) {
+      _storageAccessGranted = true;
+      return true;
+    }
+    try {
+      final sdk = await NativeBridgeService.instance.getAndroidSdkInt() ?? 0;
+      final permission = sdk >= 30
+          ? Permission.manageExternalStorage
+          : Permission.storage;
+      var status = await permission.status;
+      if (!status.isGranted && request) {
+        status = await permission.request();
+      }
+      _storageAccessGranted = status.isGranted;
+    } catch (error) {
+      _storageAccessGranted = false;
+      _logs.warning('Quick Send storage permission check failed: $error');
+    }
+    notifyListeners();
+    return _storageAccessGranted;
   }
 
   Future<void> toggleFavorite(QuickSendDevice device) async {
@@ -311,10 +354,17 @@ class QuickSendService extends ChangeNotifier {
   Future<void> refresh() async {
     await initialize();
     _scanning = true;
+    _devices.clear();
     notifyListeners();
     try {
-      await _sendDiscoveryPacket(announce: true);
-      await Future<void>.delayed(const Duration(milliseconds: 900));
+      final routes = await _networkRoutes();
+      _logs.info(
+        'Quick Send refresh is scanning ${routes.map((route) => route.address.address).join(', ')}',
+      );
+      await Future.wait([
+        _sendAnnouncementBurst(routes),
+        _scanLocalSubnets(routes),
+      ]);
     } finally {
       _scanning = false;
       notifyListeners();
@@ -345,8 +395,47 @@ class QuickSendService extends ChangeNotifier {
     required bool https,
   }) async {
     await initialize();
+    final device = await _discoverTarget(
+      host: host,
+      port: port,
+      https: https,
+      timeout: const Duration(seconds: 7),
+      suppressErrors: false,
+    );
+    if (device == null) {
+      throw StateError('The target is this Localist device.');
+    }
+    _devices[device.id] = device;
+    notifyListeners();
+    return device;
+  }
+
+  Future<QuickSendDevice?> _registerWithDevice(QuickSendDevice device) async {
+    final discovered = await _discoverTarget(
+      host: device.ip,
+      port: device.port,
+      https: device.https,
+      timeout: const Duration(seconds: 3),
+      expectedFingerprint: device.fingerprint,
+      suppressErrors: false,
+    );
+    if (discovered != null) {
+      _devices[discovered.id] = discovered;
+      notifyListeners();
+    }
+    return discovered;
+  }
+
+  Future<QuickSendDevice?> _discoverTarget({
+    required String host,
+    required int port,
+    required bool https,
+    required Duration timeout,
+    String expectedFingerprint = '',
+    bool suppressErrors = true,
+  }) async {
     String certificateHash = '';
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    final client = HttpClient()..connectionTimeout = timeout;
     client.badCertificateCallback = (certificate, _, _) {
       certificateHash = sha256.convert(certificate.der).toString();
       return true;
@@ -356,48 +445,60 @@ class QuickSendService extends ChangeNotifier {
         scheme: https ? 'https' : 'http',
         host: host,
         port: port,
-        path: '/api/localsend/v2/info',
+        path: '/api/localsend/v2/register',
       );
-      final request = await client.getUrl(uri);
-      final response = await request.close().timeout(
-        const Duration(seconds: 7),
-      );
+      final request = await client.postUrl(uri);
+      request.headers.contentType = ContentType.json;
+      request.add(utf8.encode(jsonEncode(_registerInfo())));
+      final response = await request.close().timeout(timeout);
+      final certificate = response.certificate;
+      if (certificate != null) {
+        certificateHash = sha256.convert(certificate.der).toString();
+      }
       if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('Quick Send info failed (${response.statusCode})');
+        await response.drain<void>();
+        throw HttpException(
+          'Quick Send registration failed (${response.statusCode})',
+          uri: uri,
+        );
       }
       final map = await _readResponseMap(response);
-      final device = QuickSendDevice.fromWire(
+      var device = QuickSendDevice.fromWire(
         map,
         ip: host,
         fallbackPort: port,
         fallbackHttps: https,
       );
-      final pinned = certificateHash.isEmpty || device.fingerprint.isNotEmpty
-          ? device
-          : QuickSendDevice(
-              ip: device.ip,
-              alias: device.alias,
-              version: device.version,
-              deviceModel: device.deviceModel,
-              deviceType: device.deviceType,
-              fingerprint: certificateHash,
-              port: device.port,
-              https: device.https,
-              download: device.download,
-              lastSeen: device.lastSeen,
-            );
-      if (https &&
-          certificateHash.isNotEmpty &&
-          pinned.fingerprint.isNotEmpty &&
-          _normalizeFingerprint(certificateHash) !=
-              _normalizeFingerprint(pinned.fingerprint)) {
-        throw const HandshakeException(
-          'The advertised fingerprint does not match the HTTPS certificate.',
+      if (https && certificateHash.isNotEmpty) {
+        if (expectedFingerprint.isNotEmpty &&
+            _normalizeFingerprint(expectedFingerprint) !=
+                _normalizeFingerprint(certificateHash)) {
+          throw const HandshakeException(
+            'The HTTPS certificate does not match the discovered device.',
+          );
+        }
+        device = QuickSendDevice(
+          ip: device.ip,
+          alias: device.alias,
+          version: device.version,
+          deviceModel: device.deviceModel,
+          deviceType: device.deviceType,
+          fingerprint: certificateHash,
+          port: device.port,
+          https: true,
+          download: device.download,
+          lastSeen: device.lastSeen,
         );
       }
-      _devices[pinned.id] = pinned;
-      notifyListeners();
-      return pinned;
+      if (device.fingerprint == _ownFingerprint) {
+        return null;
+      }
+      return device;
+    } catch (error) {
+      if (!suppressErrors) {
+        rethrow;
+      }
+      return null;
     } finally {
       client.close(force: true);
     }
@@ -406,6 +507,7 @@ class QuickSendService extends ChangeNotifier {
   Future<void> sendFiles(
     QuickSendDevice device,
     List<String> paths, {
+    Map<String, String> offeredNames = const {},
     String? pin,
   }) async {
     await initialize();
@@ -418,9 +520,12 @@ class QuickSendService extends ChangeNotifier {
       }
       final id = _randomToken();
       final length = await file.length();
+      final offeredName = sanitizeRelativeFilePath(
+        offeredNames[file.path] ?? p.basename(file.path),
+      ).replaceAll('\\', '/');
       final offer = QuickSendOfferedFile(
         id: id,
-        fileName: p.basename(file.path),
+        fileName: offeredName,
         size: length,
         fileType: _mimeFor(file.path),
         preview: '',
@@ -626,28 +731,55 @@ class QuickSendService extends ChangeNotifier {
       }
     }
     try {
-      _discoverySocket = await RawDatagramSocket.bind(
-        InternetAddress.anyIPv4,
-        current.port,
-        reuseAddress: true,
-      );
-      _discoverySocket!
-        ..broadcastEnabled = true
-        ..multicastLoopback = false
-        ..listen(_handleDiscoveryEvent, onError: _handleNetworkError);
-      final interfaces = await NetworkInterface.list(
-        includeLoopback: false,
-        type: InternetAddressType.IPv4,
-      );
-      for (final interface in interfaces) {
+      await NativeBridgeService.instance.setQuickSendMulticastLock(true);
+      final routes = await _networkRoutes();
+      final joinedInterfaces = <String>{};
+      for (final route in routes) {
+        if (!joinedInterfaces.add(route.interface.name)) {
+          continue;
+        }
         try {
-          _discoverySocket!.joinMulticast(
-            InternetAddress(current.multicastGroup),
-            interface,
+          final socket = await RawDatagramSocket.bind(
+            InternetAddress.anyIPv4,
+            current.port,
+            reuseAddress: true,
+          );
+          socket
+            ..broadcastEnabled = true
+            ..multicastLoopback = false
+            ..joinMulticast(
+              InternetAddress(current.multicastGroup),
+              route.interface,
+            )
+            ..listen(
+              (event) => _handleDiscoveryEvent(socket, event),
+              onError: _handleNetworkError,
+            );
+          _discoverySockets.add(socket);
+          _logs.debug(
+            'Quick Send UDP listener joined ${route.interface.name} '
+            '(${route.address.address})',
           );
         } catch (error) {
-          _logs.debug('Quick Send multicast join skipped: $error');
+          _logs.debug(
+            'Quick Send multicast join skipped for '
+            '${route.interface.name}: $error',
+          );
         }
+      }
+      if (_discoverySockets.isEmpty) {
+        final socket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          current.port,
+          reuseAddress: true,
+        );
+        socket
+          ..broadcastEnabled = true
+          ..listen(
+            (event) => _handleDiscoveryEvent(socket, event),
+            onError: _handleNetworkError,
+          );
+        _discoverySockets.add(socket);
       }
     } catch (error) {
       _lastError = _lastError.isEmpty
@@ -671,8 +803,11 @@ class QuickSendService extends ChangeNotifier {
     _announceTimer = null;
     _pruneTimer?.cancel();
     _pruneTimer = null;
-    _discoverySocket?.close();
-    _discoverySocket = null;
+    for (final socket in _discoverySockets) {
+      socket.close();
+    }
+    _discoverySockets.clear();
+    await NativeBridgeService.instance.setQuickSendMulticastLock(false);
     await _server?.close(force: true);
     _server = null;
     if (_pendingRequest != null && !_pendingRequest!.decision.isCompleted) {
@@ -682,12 +817,12 @@ class QuickSendService extends ChangeNotifier {
     _session = null;
   }
 
-  void _handleDiscoveryEvent(RawSocketEvent event) {
+  void _handleDiscoveryEvent(RawDatagramSocket socket, RawSocketEvent event) {
     if (event != RawSocketEvent.read) {
       return;
     }
     Datagram? datagram;
-    while ((datagram = _discoverySocket?.receive()) != null) {
+    while ((datagram = socket.receive()) != null) {
       _handleDiscoveryPacket(datagram!);
     }
   }
@@ -711,17 +846,52 @@ class QuickSendService extends ChangeNotifier {
       notifyListeners();
       if ((decoded['announce'] == true || decoded['announcement'] == true) &&
           serverRunning) {
-        unawaited(_sendDiscoveryPacket(announce: false));
+        unawaited(_answerAnnouncement(device));
       }
     } catch (error) {
       _logs.debug('Ignored invalid Quick Send discovery packet: $error');
     }
   }
 
-  Future<void> _sendDiscoveryPacket({required bool announce}) async {
-    final socket = _discoverySocket;
+  Future<void> _answerAnnouncement(QuickSendDevice device) async {
+    try {
+      await _registerWithDevice(device);
+    } catch (error) {
+      _logs.debug(
+        'Quick Send TCP discovery response to ${device.ip} failed: $error',
+      );
+      await _sendDiscoveryPacket(
+        announce: false,
+        directAddress: device.ip,
+        directPort: device.port,
+      );
+    }
+  }
+
+  Future<void> _sendAnnouncementBurst(
+    List<_QuickSendNetworkRoute> routes,
+  ) async {
+    for (final delay in const [0, 350, 1100]) {
+      if (delay > 0) {
+        await Future<void>.delayed(Duration(milliseconds: delay));
+      }
+      await _sendDiscoveryPacket(announce: true, routes: routes);
+    }
+  }
+
+  Future<void> _sendDiscoveryPacket({
+    required bool announce,
+    List<_QuickSendNetworkRoute>? routes,
+    String? directAddress,
+    int? directPort,
+  }) async {
     final current = _settings;
-    if (socket == null || current == null) {
+    if (current == null) {
+      return;
+    }
+    final activeRoutes = routes ?? await _networkRoutes();
+    if (activeRoutes.isEmpty) {
+      _logs.debug('Quick Send announcement skipped: no LAN interface.');
       return;
     }
     final bytes = utf8.encode(
@@ -731,11 +901,136 @@ class QuickSendService extends ChangeNotifier {
         'announcement': announce,
       }),
     );
-    try {
-      socket.send(bytes, InternetAddress(current.multicastGroup), current.port);
-    } catch (error) {
-      _logs.debug('Quick Send multicast announcement failed: $error');
+    var sent = 0;
+    for (final route in activeRoutes) {
+      RawDatagramSocket? socket;
+      try {
+        socket = await RawDatagramSocket.bind(route.address, 0);
+        socket
+          ..broadcastEnabled = true
+          ..multicastHops = 1
+          ..multicastLoopback = false;
+        if (directAddress != null) {
+          sent += socket.send(
+            bytes,
+            InternetAddress(directAddress),
+            directPort ?? current.port,
+          );
+        } else {
+          sent += socket.send(
+            bytes,
+            InternetAddress(current.multicastGroup),
+            current.port,
+          );
+          sent += socket.send(
+            bytes,
+            InternetAddress(route.broadcastAddress),
+            current.port,
+          );
+        }
+      } catch (error) {
+        _logs.debug(
+          'Quick Send announcement failed on ${route.address.address}: $error',
+        );
+      } finally {
+        socket?.close();
+      }
     }
+    if (sent == 0) {
+      _logs.warning('Quick Send could not send on any LAN interface.');
+    }
+  }
+
+  Future<void> _scanLocalSubnets(List<_QuickSendNetworkRoute> routes) async {
+    final current = _settings;
+    if (current == null || routes.isEmpty) {
+      return;
+    }
+    final targets = buildSubnetTargets(
+      routes.map((route) => route.address.address),
+    );
+    _logs.info(
+      'Quick Send active discovery is querying ${targets.length} LAN targets.',
+    );
+    var cursor = 0;
+    final workerCount = min(48, targets.length);
+    await Future.wait(
+      List.generate(workerCount, (_) async {
+        while (cursor < targets.length) {
+          final target = targets[cursor++];
+          if (_devices.values.any((device) => device.ip == target)) {
+            continue;
+          }
+          for (final https in [current.encryption, !current.encryption]) {
+            final device = await _discoverTarget(
+              host: target,
+              port: current.port,
+              https: https,
+              timeout: const Duration(milliseconds: 850),
+            );
+            if (device != null) {
+              _devices[device.id] = device;
+              notifyListeners();
+              break;
+            }
+          }
+        }
+      }),
+    );
+  }
+
+  Future<List<_QuickSendNetworkRoute>> _networkRoutes() async {
+    final routes = <_QuickSendNetworkRoute>[];
+    final seen = <String>{};
+    final interfaces = await NetworkInterface.list(
+      includeLoopback: false,
+      type: InternetAddressType.IPv4,
+    );
+    for (final interface in interfaces) {
+      if (_isIgnoredInterface(interface.name)) {
+        continue;
+      }
+      for (final address in interface.addresses) {
+        if (!isUsableLanAddress(address.address) ||
+            !seen.add(address.address)) {
+          continue;
+        }
+        routes.add(_QuickSendNetworkRoute(interface, address));
+      }
+    }
+    routes.sort((a, b) => a.priority.compareTo(b.priority));
+    return routes.take(8).toList(growable: false);
+  }
+
+  @visibleForTesting
+  static bool isUsableLanAddress(String value) {
+    return _isUsableLanAddress(value);
+  }
+
+  @visibleForTesting
+  static List<String> buildSubnetTargets(
+    Iterable<String> localAddresses, {
+    int maxSubnets = 4,
+  }) {
+    final ownAddresses = localAddresses.toSet();
+    final prefixes = <String>[];
+    for (final address in ownAddresses) {
+      if (!isUsableLanAddress(address)) {
+        continue;
+      }
+      final prefix = address.split('.').take(3).join('.');
+      if (!prefixes.contains(prefix)) {
+        prefixes.add(prefix);
+      }
+      if (prefixes.length == maxSubnets) {
+        break;
+      }
+    }
+    return [
+      for (final prefix in prefixes)
+        for (var host = 1; host < 255; host++)
+          if (!ownAddresses.contains('$prefix.$host')) '$prefix.$host',
+    ];
   }
 
   Future<void> _handleHttpRequest(HttpRequest request) async {
@@ -956,7 +1251,7 @@ class QuickSendService extends ChangeNotifier {
       return;
     }
     final offer = session.files[fileId]!;
-    final destination = await _destinationFile(offer.fileName);
+    final destination = await _destinationFile(offer.fileName, offer.fileType);
     final transferId = 'receive-${session.id}-$fileId';
     _putTransfer(
       QuickSendTransfer(
@@ -1100,12 +1395,69 @@ class QuickSendService extends ChangeNotifier {
     );
   }
 
+  Future<void> _loadDeviceIdentity() async {
+    var alias = Platform.localHostname.trim();
+    var model = Platform.operatingSystem;
+    try {
+      final details = await NativeBridgeService.instance.getDeviceDetails();
+      if (Platform.isAndroid) {
+        final androidModel = details['model']?.toString().trim() ?? '';
+        final manufacturer = details['manufacturer']?.toString().trim() ?? '';
+        if (androidModel.isNotEmpty) {
+          alias = androidModel;
+          model =
+              manufacturer.isEmpty ||
+                  androidModel.toLowerCase().startsWith(
+                    manufacturer.toLowerCase(),
+                  )
+              ? androidModel
+              : '$manufacturer $androidModel';
+        }
+      } else if (Platform.isWindows) {
+        final computerName = details['computerName']?.toString().trim() ?? '';
+        if (computerName.isNotEmpty) {
+          alias = computerName;
+        }
+        model = 'Windows';
+      }
+    } catch (error) {
+      _logs.debug('Quick Send device identity fallback: $error');
+    }
+    if (alias.isEmpty || alias.toLowerCase() == 'localhost') {
+      alias = Platform.isAndroid ? 'Android device' : 'Localist device';
+    }
+    _deviceAlias = alias;
+    _deviceModel = model;
+  }
+
+  Future<String> _defaultDestinationDirectory() async {
+    if (Platform.isAndroid) {
+      final root = await NativeBridgeService.instance.getPublicStorageRoot();
+      if (root.trim().isNotEmpty) {
+        return p.join(root.trim(), 'Localist');
+      }
+    }
+    final downloads = await getDownloadsDirectory();
+    final fallback = await getApplicationDocumentsDirectory();
+    return p.join((downloads ?? fallback).path, 'Localist');
+  }
+
+  Future<String> _legacyDefaultDestinationDirectory() async {
+    try {
+      final downloads = await getDownloadsDirectory();
+      return downloads?.path ?? '';
+    } catch (error) {
+      _logs.debug('Quick Send legacy destination lookup skipped: $error');
+      return '';
+    }
+  }
+
   Map<String, Object?> _registerInfo() {
     final current = _settings!;
     return {
       'alias': current.alias,
       'version': quickSendProtocolVersion,
-      'deviceModel': Platform.operatingSystem,
+      'deviceModel': _deviceModel,
       'deviceType': Platform.isAndroid || Platform.isIOS ? 'mobile' : 'desktop',
       'fingerprint': _ownFingerprint,
       'port': current.port,
@@ -1146,19 +1498,34 @@ class QuickSendService extends ChangeNotifier {
     return generated;
   }
 
-  Future<File> _destinationFile(String unsafeName) async {
+  Future<File> _destinationFile(String unsafeName, String fileType) async {
     final current = _settings!;
-    final directory = Directory(current.destinationDirectory);
+    if (Platform.isAndroid &&
+        !current.destinationCustomized &&
+        !await ensureReceiveStorageAccess(request: false)) {
+      throw const FileSystemException(
+        'Storage access is required to save files in /Localist.',
+      );
+    }
+    final baseDirectory = current.destinationDirectory;
+    final directory = Directory(
+      current.destinationCustomized
+          ? baseDirectory
+          : p.join(baseDirectory, receiveCategoryFor(unsafeName, fileType)),
+    );
     await directory.create(recursive: true);
-    final safeName = sanitizeFileName(unsafeName);
-    var destination = File(p.join(directory.path, safeName));
+    final safeRelativePath = sanitizeRelativeFilePath(unsafeName);
+    var destination = File(p.join(directory.path, safeRelativePath));
+    await destination.parent.create(recursive: true);
     if (current.overwrite || !await destination.exists()) {
       return destination;
     }
-    final extension = p.extension(safeName);
-    final stem = p.basenameWithoutExtension(safeName);
+    final extension = p.extension(destination.path);
+    final stem = p.basenameWithoutExtension(destination.path);
     for (var index = 1; index < 10000; index++) {
-      destination = File(p.join(directory.path, '$stem ($index)$extension'));
+      destination = File(
+        p.join(destination.parent.path, '$stem ($index)$extension'),
+      );
       if (!await destination.exists()) {
         return destination;
       }
@@ -1175,6 +1542,103 @@ class QuickSendService extends ChangeNotifier {
       return 'received-file';
     }
     return safe;
+  }
+
+  @visibleForTesting
+  static String sanitizeRelativeFilePath(String value) {
+    final normalized = value.replaceAll('\\', '/');
+    final segments = <String>[];
+    for (final rawSegment in normalized.split('/')) {
+      final segment = rawSegment.trim();
+      if (segment.isEmpty || segment == '.' || segment == '..') {
+        continue;
+      }
+      final safe = sanitizeFileName(segment);
+      if (safe != 'received-file') {
+        segments.add(safe);
+      }
+    }
+    return segments.isEmpty ? 'received-file' : p.joinAll(segments);
+  }
+
+  @visibleForTesting
+  static String receiveCategoryFor(String fileName, String mimeType) {
+    final mime = mimeType.toLowerCase();
+    final extension = p.extension(fileName).toLowerCase();
+    if (mime.startsWith('image/') ||
+        const {
+          '.jpg',
+          '.jpeg',
+          '.png',
+          '.gif',
+          '.webp',
+          '.heic',
+          '.svg',
+        }.contains(extension)) {
+      return 'Images';
+    }
+    if (mime.startsWith('video/') ||
+        const {
+          '.mp4',
+          '.mkv',
+          '.mov',
+          '.avi',
+          '.webm',
+          '.m4v',
+        }.contains(extension)) {
+      return 'Videos';
+    }
+    if (mime.startsWith('audio/') ||
+        const {
+          '.mp3',
+          '.wav',
+          '.flac',
+          '.aac',
+          '.ogg',
+          '.m4a',
+        }.contains(extension)) {
+      return 'Audio';
+    }
+    if (const {
+      '.apk',
+      '.aab',
+      '.xapk',
+      '.apks',
+      '.exe',
+      '.msi',
+      '.appx',
+    }.contains(extension)) {
+      return 'Apps';
+    }
+    if (const {
+      '.zip',
+      '.rar',
+      '.7z',
+      '.tar',
+      '.gz',
+      '.bz2',
+      '.xz',
+    }.contains(extension)) {
+      return 'Archives';
+    }
+    if (mime.startsWith('text/') ||
+        mime == 'application/pdf' ||
+        const {
+          '.pdf',
+          '.doc',
+          '.docx',
+          '.xls',
+          '.xlsx',
+          '.ppt',
+          '.pptx',
+          '.txt',
+          '.csv',
+          '.md',
+          '.json',
+        }.contains(extension)) {
+      return 'Documents';
+    }
+    return 'Other';
   }
 
   void _pruneDevices() {
@@ -1230,6 +1694,69 @@ class QuickSendService extends ChangeNotifier {
     _logs.warning('Quick Send network error: $error');
     notifyListeners();
   }
+}
+
+class _QuickSendNetworkRoute {
+  const _QuickSendNetworkRoute(this.interface, this.address);
+
+  final NetworkInterface interface;
+  final InternetAddress address;
+
+  String get subnetPrefix {
+    final parts = address.address.split('.');
+    return parts.take(3).join('.');
+  }
+
+  String get broadcastAddress => '$subnetPrefix.255';
+
+  int get priority {
+    final name = interface.name.toLowerCase();
+    if (name.contains('usb') || name.contains('rndis')) {
+      return 0;
+    }
+    if (name.contains('wi-fi') ||
+        name.contains('wifi') ||
+        name.contains('wlan')) {
+      return 1;
+    }
+    if (name.contains('ethernet') ||
+        name.startsWith('eth') ||
+        name.startsWith('en')) {
+      return 2;
+    }
+    return 3;
+  }
+}
+
+bool _isIgnoredInterface(String value) {
+  final name = value.toLowerCase();
+  return name == 'lo' ||
+      name.startsWith('lo') ||
+      name.contains('loopback') ||
+      name.startsWith('tun') ||
+      name.startsWith('tap') ||
+      name.startsWith('utun') ||
+      name.startsWith('rmnet') ||
+      name.startsWith('ccmni') ||
+      name.startsWith('pdp_ip') ||
+      name.startsWith('ppp') ||
+      name.startsWith('wg');
+}
+
+bool _isUsableLanAddress(String value) {
+  final parts = value.split('.').map(int.tryParse).toList();
+  if (parts.length != 4 || parts.any((part) => part == null)) {
+    return false;
+  }
+  final first = parts[0]!;
+  final second = parts[1]!;
+  if (first == 10) {
+    return true;
+  }
+  if (first == 172 && second >= 16 && second <= 31) {
+    return true;
+  }
+  return first == 192 && second == 168;
 }
 
 class _QuickSendSession {
@@ -1352,9 +1879,11 @@ Map<String, String> _asStringMap(Object? value) {
 }
 
 Future<void> _writeJson(HttpResponse response, int status, Object value) async {
+  final bytes = utf8.encode(jsonEncode(value));
   response.statusCode = status;
   response.headers.contentType = ContentType.json;
-  response.write(jsonEncode(value));
+  response.contentLength = bytes.length;
+  response.add(bytes);
   await response.close();
 }
 
@@ -1363,8 +1892,10 @@ Future<void> _writeError(
   int status,
   String message,
 ) async {
+  final bytes = utf8.encode(message);
   response.statusCode = status;
-  response.write(message);
+  response.contentLength = bytes.length;
+  response.add(bytes);
   await response.close();
 }
 

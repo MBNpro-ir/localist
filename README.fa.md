@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.6.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.7.0-blue"></a>
 </p>
 
 ## راهنمای کاربران
@@ -27,9 +27,9 @@
 Localist به دستگاه‌های داخل یک شبکه محلی اجازه می‌دهد دسترسی VPN/Proxy را به اشتراک بگذارند و بدون ارسال اطلاعات به سرویس ابری، فایل منتقل کنند.
 
 - اتصال هوشمند VPN دستگاه Shareکننده را پیدا می‌کند، آدرس‌های مجاز آن را آزمایش می‌کند و خودکار از IP قابل دسترس استفاده می‌کند.
-- QR و کانفیگ هوشمند همه endpointهای موجود را همراه دارند و کاربر مجبور نیست IP درست را حدس بزند.
+- بخش Android فقط یک QR/کانفیگ هوشمند شامل همه endpointهای مجاز دارد تا Localist خودکار IP قابل دسترس را انتخاب کند؛ بخش iPhone/Xray برای هر IP کانفیگ جدا نگه می‌دارد.
 - صفحه Sharing تعداد و مشخصات دستگاه‌های Localist متصل را نشان می‌دهد.
-- Quick Send چند فایل یا پیام متنی را منتقل می‌کند و با پروتکل LocalSend v2.1 و مسیرهای قدیمی v1 سازگار است.
+- Quick Send فایل، رسانه، متن Clipboard، متن تایپی یا یک پوشه کامل را انتخاب و منتقل می‌کند و با پروتکل LocalSend v2.1 و مسیرهای قدیمی v1 سازگار است.
 - زبان فارسی و انگلیسی، تم روشن و تیره، رنگ پویا در اندروید و رنگ Accent ویندوز پشتیبانی می‌شوند.
 
 ### دانلود و نصب
@@ -61,14 +61,16 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 ### انتقال فایل با Quick Send
 
 1. روی هر دو دستگاه **Quick Send** را باز کنید.
-2. یک یا چند فایل انتخاب کنید یا **Send message** را بزنید.
-3. دستگاه مقصد پیدا‌شده در شبکه محلی را انتخاب کنید.
+2. یکی از گزینه‌های **File**، **Media**، **Paste**، **Text** یا **Folder** را انتخاب کنید.
+3. روی یک مقصد بزنید؛ یا روی دستگاه‌ها نگه دارید تا چند مقصد انتخاب شوند و انتقال هم‌زمان انجام شود.
 4. اگر Quick Save فعال نیست، درخواست را روی دستگاه دریافت‌کننده تأیید کنید.
+
+دکمه Refresh کشف Multicast، Broadcast مستقیم و اسکن فعال Subnet را روی رابط‌های مجاز Wi-Fi، Ethernet، Hotspot و USB Tethering تکرار می‌کند. کابل USB در حالت فقط شارژ شبکه IP ایجاد نمی‌کند؛ برای انتقال از کابل، USB Tethering را فعال کنید.
 
 تنظیمات Quick Send شامل موارد زیر است:
 
-- نام دستگاه، پورت دریافت و گروه Multicast.
-- پوشه مقصد و رفتار جایگزینی فایل تکراری.
+- نام دستگاه، پورت دریافت و گروه Multicast. در Android مدل واقعی گوشی به‌صورت خودکار جای `localhost` استفاده می‌شود.
+- پوشه مقصد و رفتار جایگزینی فایل تکراری. مسیر پیش‌فرض Android برابر `/storage/emulated/0/Localist` است و فایل‌ها داخل پوشه‌های `Images`، `Videos`، `Audio`، `Documents`، `Archives`، `Apps` و `Other` قرار می‌گیرند؛ با انتخاب مسیر سفارشی این دسته‌بندی خودکار غیرفعال می‌شود.
 - رمزنگاری HTTPS همراه تطبیق Fingerprint گواهی.
 - PIN اختیاری برای دستگاه دریافت‌کننده.
 - دستگاه‌های موردعلاقه و Quick Save عمومی یا فقط برای Favorites.
@@ -90,6 +92,7 @@ Quick Save فایل‌ها را بدون سؤال می‌پذیرد؛ آن را 
 - اندروید برای ادامه سرویس‌های VPN/Proxy در پس‌زمینه، Notification و Battery Optimization access درخواست می‌کند.
 - دسترسی دوربین فقط هنگام باز کردن QR Scanner درخواست می‌شود.
 - مجوز Android VPN فقط هنگام شروع VPN در Receiving درخواست می‌شود.
+- مجوز مدیریت فایل Android فقط برای استفاده از پوشه پیش‌فرض `/Localist` در ریشه حافظه مشترک درخواست می‌شود.
 - فایل‌های Quick Send داخل شبکه محلی باقی می‌مانند و حالت HTTPS اثرانگشت گواهی مقصد را بررسی می‌کند.
 - تنظیمات، Favorites، هویت گواهی و تنظیمات انتقال در پوشه App Data همان پلتفرم ذخیره می‌شوند.
 
@@ -99,7 +102,7 @@ Quick Save فایل‌ها را بدون سؤال می‌پذیرد؛ آن را 
 - Active Debug Mode رویدادهای دقیق سرویس، Native Bridge و شبکه را ثبت می‌کند.
 - در ویندوز فایل `debug.log` کنار `Localist.exe` ساخته می‌شود. اندازه پیام‌ها و فایل محدود است و لاگ بزرگ خودکار Rotate می‌شود.
 - خطاهای قابل‌بازیابی UI فقط ثبت می‌شوند و دیگر پنجره Crash را پشت‌سرهم باز نمی‌کنند. گزارش خطای Fatal نیز تکراری نمایش داده نمی‌شود.
-- اگر Nearby Devices خالی است، یکسان بودن Subnet، خاموش بودن Guest/Client Isolation و دکمه Retry را بررسی کنید یا مقصد را دستی وارد کنید.
+- اگر Nearby Devices خالی است، یکسان بودن Subnet یا فعال بودن USB Tethering، خاموش بودن Guest/Client Isolation و دکمه Refresh را بررسی کنید یا مقصد را دستی وارد کنید.
 - اگر VPN ویندوز شروع نمی‌شود، دسترسی Administrator و باقی‌ماندن فایل‌های Wintun داخل بسته Extractشده را بررسی کنید.
 
 ## راهنمای توسعه‌دهندگان
@@ -203,7 +206,9 @@ git push origin "v$version"
 - Discovery برنامه و Heartbeat دستگاه‌های متصل از پورت‌های UDP جدا از Endpointهای Proxy استفاده می‌کنند.
 - کانفیگ هوشمند یک Device Identity پایدار دارد. Receiver فقط اجازه دارد Host یک Endpoint را با Source Address همان دستگاه کشف‌شده بازنویسی کند.
 - بررسی SOCKS5 شامل Handshake پروتکل است و بررسی HTTP قبل از انتخاب مسیر، پاسخ Proxy-Form را اعتبارسنجی می‌کند.
-- Quick Send از Multicast و مسیرهای HTTP(S) پروتکل LocalSend استفاده می‌کند، Token و Source Address آپلود را بررسی می‌کند، اندازه Metadata را محدود می‌کند، نام مقصد را پاک‌سازی می‌کند و Session بدون فعالیت را منقضی می‌کند.
+- Quick Send برای هر رابط مجاز Listener جدا می‌سازد، اعلان را از IP واقعی همان رابط می‌فرستد، سپس از Broadcast مستقیم و اسکن هم‌زمان و محدود `/24` استفاده می‌کند؛ Discovery هیچ‌وقت از `0.0.0.0` ارسال نمی‌شود.
+- در اندروید، پردازش خود Localist از TUN خودش مستثنا می‌شود تا هنگام فعال بودن VPN نیز Discovery و انتقال Quick Send روی LAN اصلی انجام شود؛ ترافیک سایر برنامه‌ها همچنان از VPN عبور می‌کند.
+- Quick Send، Token و Source Address آپلود را بررسی می‌کند، اندازه Metadata را محدود می‌کند، ساختار امن پوشه را حفظ و تلاش برای Path Traversal را پاک‌سازی می‌کند و Session بدون فعالیت را منقضی می‌کند.
 - Job ویندوز قبل از Build، فایل‌های امضاشده Wintun و Runtime مربوط به tun2socks را دریافت می‌کند.
 
 ### مجوز و Attribution

@@ -301,19 +301,21 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          Localist v${APP_VERSION} adds smart VPN handoff and local file transfer while keeping the existing Localist interface.
+          Localist v${APP_VERSION} improves Smart VPN sharing and makes Quick Send discovery, selection, and multi-device delivery more reliable while keeping the existing Localist interface.
 
           ## Changes
 
-          - Selects a reachable Sharing address automatically for Nearby, QR, and smart manual configurations.
-          - Preserves device identity so a different device on the same proxy port is never substituted for the intended target.
-          - Shows connected Localist devices and their live count on the Sharing screen.
-          - Adds Quick Send for encrypted local file and message transfer with LocalSend v2.1 and legacy v1 compatibility.
-          - Adds multicast discovery, manual targets, PIN protection, favorites, Quick Save, destination settings, and transfer progress.
-          - Adds certificate fingerprint verification, bounded request metadata, safe destination names, and inactive-session expiry.
-          - Prevents recoverable Flutter diagnostics from opening repeated crash dialogs.
-          - Bounds and rotates Windows debug logs to prevent recursive crash-report growth.
-          - Keeps the existing Localist light/dark and simple/glass visual styles across the new pages.
+          - Uses one Smart QR/configuration for Android-to-Android and Android-to-Windows handoff; iPhone/Xray configurations remain separate for every advertised IP.
+          - Selects a reachable Sharing address automatically and keeps the intended device identity pinned.
+          - Adds File, Media, Paste, Text, and Folder choices to Quick Send.
+          - Adds long-press multi-device selection and concurrent delivery with an in-app tip.
+          - Improves discovery on Wi-Fi, Ethernet, hotspot, and USB tethering with per-interface multicast, directed broadcast, and active subnet registration scans.
+          - Keeps Localist's own discovery and transfer traffic on the underlying Android LAN while its VPN is active.
+          - Removes invalid 0.0.0.0 discovery sends and advertises the real Android phone model instead of localhost.
+          - Saves Android receives under /Localist by default, grouped into media/document/archive/app categories, while preserving custom destinations.
+          - Preserves safe relative folder paths and rejects path traversal during receive.
+          - Keeps LocalSend v2.1 and legacy v1 compatibility, HTTPS fingerprint checks, PIN protection, favorites, Quick Save, and transfer progress.
+          - Keeps the existing Localist light/dark and simple/glass visual styles.
 
           ## Assets
 

@@ -290,6 +290,23 @@ class NativeBridgeService {
     };
   }
 
+  Future<bool> setQuickSendMulticastLock(bool enabled) async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    return await _invoke<bool>('setQuickSendMulticastLock', {
+          'enabled': enabled,
+        }) ??
+        false;
+  }
+
+  Future<String> getPublicStorageRoot() async {
+    if (!Platform.isAndroid) {
+      return '';
+    }
+    return await _invoke<String>('getPublicStorageRoot') ?? '';
+  }
+
   Future<UsageStats> getStats() async {
     if (Platform.isWindows) {
       return WindowsLocalistService.instance.getStats();

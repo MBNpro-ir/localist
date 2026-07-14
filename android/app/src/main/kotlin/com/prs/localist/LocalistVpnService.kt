@@ -240,6 +240,13 @@ class LocalistVpnService : VpnService() {
             .addRoute("0.0.0.0", 0)
             .addDnsServer(PrsTunEngine.MAPPED_DNS_ADDRESS)
             .setMtu(1500)
+        runCatching {
+            // Localist's discovery and transfer sockets must stay on the
+            // underlying LAN instead of being routed back into its own TUN.
+            builder.addDisallowedApplication(packageName)
+        }.onFailure { error ->
+            debugLog("unable to exclude Localist from its own VPN: ${error.message}")
+        }
         vpnInterface = builder.establish()
         State.vpnConnected = vpnInterface != null
         debugLog("VPN interface established=${State.vpnConnected}")

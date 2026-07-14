@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
 import '../models/quick_send_settings.dart';
@@ -19,12 +21,25 @@ class QuickSendPage extends StatefulWidget {
 class _QuickSendPageState extends State<QuickSendPage> {
   final QuickSendService _service = QuickSendService.instance;
   final List<String> _selectedPaths = [];
+  final Map<String, String> _selectedFileNames = {};
+  final Set<String> _selectedDeviceIds = {};
+  String _selectedText = '';
   bool _sending = false;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_service.initialize());
+    unawaited(_initializeQuickSend());
+  }
+
+  Future<void> _initializeQuickSend() async {
+    await _service.initialize();
+    if (Platform.isAndroid &&
+        _service.settings?.receiveEnabled == true &&
+        !_service.storageAccessGranted) {
+      await _service.ensureReceiveStorageAccess();
+    }
+    await _service.refresh();
   }
 
   @override
@@ -47,8 +62,8 @@ class _QuickSendPageState extends State<QuickSendPage> {
             _statusPanel(settings),
             if (_service.pendingRequest case final pending?)
               _pendingPanel(pending),
-            _nearbyPanel(settings),
             _selectionPanel(),
+            _nearbyPanel(settings),
             if (_service.transfers.isNotEmpty) _transfersPanel(),
           ],
         );
@@ -135,6 +150,28 @@ class _QuickSendPageState extends State<QuickSendPage> {
               icon: Icons.warning_amber_outlined,
             ),
           ],
+          if (Platform.isAndroid && !_service.storageAccessGranted) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Icon(Icons.folder_off_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _t(
+                      'برای ذخیره فایل‌ها در پوشه /Localist دسترسی فایل لازم است.',
+                      'File access is required to save received files in /Localist.',
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _requestStorageAccess,
+                  child: Text(_t('اعطا', 'Grant')),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -203,6 +240,9 @@ class _QuickSendPageState extends State<QuickSendPage> {
 
   Widget _nearbyPanel(QuickSendSettings settings) {
     final devices = _service.devices;
+    final selectedDevices = devices
+        .where((device) => _selectedDeviceIds.contains(device.id))
+        .toList(growable: false);
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -234,7 +274,14 @@ class _QuickSendPageState extends State<QuickSendPage> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          Text(
+            _t(
+              'نکته: روی یک دستگاه نگه دارید تا چند مقصد را انتخاب و هم‌زمان ارسال کنید.',
+              'Tip: press and hold a device to select multiple recipients and send at the same time.',
+            ),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 10),
           if (devices.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 18),
@@ -257,6 +304,13 @@ class _QuickSendPageState extends State<QuickSendPage> {
           else
             for (final device in devices)
               ListTile(
+                selected: _selectedDeviceIds.contains(device.id),
+                selectedTileColor: Theme.of(
+                  context,
+                ).colorScheme.primaryContainer.withValues(alpha: 0.45),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
                   child: Icon(
@@ -269,50 +323,146 @@ class _QuickSendPageState extends State<QuickSendPage> {
                 subtitle: Text(
                   '${device.deviceModel.isEmpty ? device.deviceType : device.deviceModel} • ${device.ip}:${device.port}',
                 ),
-                trailing: IconButton(
-                  tooltip: settings.isFavorite(device.fingerprint)
-                      ? _t('حذف از علاقه‌مندی', 'Remove favorite')
-                      : _t('افزودن به علاقه‌مندی', 'Add favorite'),
-                  onPressed: device.fingerprint.isEmpty
-                      ? null
-                      : () => _service.toggleFavorite(device),
-                  icon: Icon(
-                    settings.isFavorite(device.fingerprint)
-                        ? Icons.star
-                        : Icons.star_border,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: settings.isFavorite(device.fingerprint)
+                          ? _t('حذف از علاقه‌مندی', 'Remove favorite')
+                          : _t('افزودن به علاقه‌مندی', 'Add favorite'),
+                      onPressed: device.fingerprint.isEmpty
+                          ? null
+                          : () => _service.toggleFavorite(device),
+                      icon: Icon(
+                        settings.isFavorite(device.fingerprint)
+                            ? Icons.star
+                            : Icons.star_border,
+                      ),
+                    ),
+                    if (_selectedDeviceIds.contains(device.id))
+                      const Icon(Icons.check_circle),
+                  ],
+                ),
+                onLongPress: _sending
+                    ? null
+                    : () => _toggleDeviceSelection(device),
+                onTap: _sending
+                    ? null
+                    : _selectedDeviceIds.isEmpty
+                    ? () => _sendToDevices([device])
+                    : () => _toggleDeviceSelection(device),
+              ),
+          if (selectedDevices.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _sending
+                    ? null
+                    : () => _sendToDevices(selectedDevices),
+                icon: const Icon(Icons.send_outlined),
+                label: Text(
+                  _t(
+                    'ارسال هم‌زمان به ${selectedDevices.length} دستگاه',
+                    'Send to ${selectedDevices.length} devices',
                   ),
                 ),
-                onTap: _sending ? null : () => _sendSelected(device),
               ),
+            ),
+          ],
         ],
       ),
     );
   }
 
   Widget _selectionPanel() {
+    final hasSelection = _selectedPaths.isNotEmpty || _selectedText.isNotEmpty;
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            _t('محتوای آماده ارسال', 'Ready to send'),
-            style: Theme.of(context).textTheme.titleLarge,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _t('انتخاب محتوا', 'Selection'),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              if (hasSelection)
+                IconButton(
+                  tooltip: _t('پاک کردن انتخاب‌ها', 'Clear selection'),
+                  onPressed: _sending ? null : _clearSelection,
+                  icon: const Icon(Icons.close),
+                ),
+            ],
           ),
           const SizedBox(height: 10),
-          if (_selectedPaths.isEmpty)
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _SelectionCard(
+                icon: Icons.description_outlined,
+                label: _t('فایل', 'File'),
+                onTap: _sending ? null : _pickFiles,
+              ),
+              _SelectionCard(
+                icon: Icons.image_outlined,
+                label: _t('رسانه', 'Media'),
+                onTap: _sending ? null : _pickMedia,
+              ),
+              _SelectionCard(
+                icon: Icons.content_paste_outlined,
+                label: _t('چسباندن', 'Paste'),
+                onTap: _sending ? null : _pasteClipboard,
+              ),
+              _SelectionCard(
+                icon: Icons.subject_outlined,
+                label: _t('متن', 'Text'),
+                onTap: _sending ? null : _composeText,
+              ),
+              _SelectionCard(
+                icon: Icons.folder_outlined,
+                label: _t('پوشه', 'Folder'),
+                onTap: _sending ? null : _pickFolder,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (!hasSelection)
             Text(
               _t(
-                'فایل‌ها را انتخاب کنید، سپس روی دستگاه مقصد بزنید.',
-                'Choose files, then tap the destination device.',
+                'یک یا چند مورد را انتخاب کنید، سپس روی دستگاه مقصد بزنید.',
+                'Choose one or more items, then tap the destination device.',
               ),
             )
-          else
+          else ...[
+            if (_selectedText.isNotEmpty)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.message_outlined),
+                title: Text(_t('پیام متنی', 'Text message')),
+                subtitle: Text(
+                  _selectedText,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: IconButton(
+                  tooltip: _t('حذف', 'Remove'),
+                  onPressed: () => setState(() => _selectedText = ''),
+                  icon: const Icon(Icons.close),
+                ),
+              ),
             for (final path in _selectedPaths)
               ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.insert_drive_file_outlined),
-                title: Text(path.split(RegExp(r'[/\\]')).last),
+                title: Text(
+                  _selectedFileNames[path] ?? path.split(RegExp(r'[/\\]')).last,
+                ),
                 subtitle: Text(
                   path,
                   maxLines: 1,
@@ -320,30 +470,21 @@ class _QuickSendPageState extends State<QuickSendPage> {
                 ),
                 trailing: IconButton(
                   tooltip: _t('حذف', 'Remove'),
-                  onPressed: () => setState(() => _selectedPaths.remove(path)),
+                  onPressed: () => setState(() {
+                    _selectedPaths.remove(path);
+                    _selectedFileNames.remove(path);
+                  }),
                   icon: const Icon(Icons.close),
                 ),
               ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: _sending ? null : _pickFiles,
-                  icon: const Icon(Icons.add_to_drive_outlined),
-                  label: Text(_t('انتخاب فایل', 'Choose files')),
-                ),
+            Text(
+              _t(
+                '${_selectedPaths.length} فایل آماده ارسال است.',
+                '${_selectedPaths.length} files ready to send.',
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: _sending ? null : _sendMessage,
-                  icon: const Icon(Icons.message_outlined),
-                  label: Text(_t('ارسال پیام', 'Send message')),
-                ),
-              ),
-            ],
-          ),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ],
       ),
     );
@@ -413,7 +554,15 @@ class _QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _pickFiles() async {
-    final result = await FilePicker.pickFiles(allowMultiple: true);
+    await _pickFilesOfType(FileType.any);
+  }
+
+  Future<void> _pickMedia() async {
+    await _pickFilesOfType(FileType.media);
+  }
+
+  Future<void> _pickFilesOfType(FileType type) async {
+    final result = await FilePicker.pickFiles(allowMultiple: true, type: type);
     if (result == null || !mounted) {
       return;
     }
@@ -427,42 +576,82 @@ class _QuickSendPageState extends State<QuickSendPage> {
     });
   }
 
-  Future<void> _sendSelected(QuickSendDevice device) async {
-    if (_selectedPaths.isEmpty) {
+  Future<void> _pickFolder() async {
+    final path = await FilePicker.getDirectoryPath();
+    if (path == null || !mounted) {
+      return;
+    }
+    try {
+      final files = <String>[];
+      final offeredNames = <String, String>{};
+      final folderName = p.basename(path);
+      await for (final entity in Directory(
+        path,
+      ).list(recursive: true, followLinks: false)) {
+        if (entity is File) {
+          files.add(entity.path);
+          final relative = p
+              .relative(entity.path, from: path)
+              .replaceAll('\\', '/');
+          offeredNames[entity.path] = p.posix.join(folderName, relative);
+          if (files.length >= 5000) {
+            break;
+          }
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        for (final file in files) {
+          if (!_selectedPaths.contains(file)) {
+            _selectedPaths.add(file);
+          }
+          _selectedFileNames[file] = offeredNames[file]!;
+        }
+      });
+      if (files.length >= 5000) {
+        _notice(
+          _t(
+            'برای حفظ پایداری، ۵۰۰۰ فایل اول پوشه انتخاب شد.',
+            'The first 5,000 folder files were selected for stability.',
+          ),
+          warning: true,
+        );
+      }
+    } catch (error) {
       _notice(
         _t(
-          'ابتدا حداقل یک فایل انتخاب کنید.',
-          'Choose at least one file first.',
+          'خواندن پوشه ناموفق بود: $error',
+          'Could not read the folder: $error',
         ),
         warning: true,
       );
-      return;
-    }
-    final sent = await _runSend(
-      device,
-      (pin) => _service.sendFiles(device, List.of(_selectedPaths), pin: pin),
-    );
-    if (sent && mounted) {
-      setState(_selectedPaths.clear);
     }
   }
 
-  Future<void> _sendMessage() async {
-    if (_service.devices.isEmpty) {
+  Future<void> _pasteClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (!mounted) {
+      return;
+    }
+    if (text.isEmpty) {
       _notice(
-        _t(
-          'ابتدا یک دستگاه مقصد پیدا کنید.',
-          'Find a destination device first.',
-        ),
+        _t('متنی در کلیپ‌بورد نیست.', 'There is no text in the clipboard.'),
         warning: true,
       );
       return;
     }
+    setState(() => _selectedText = text);
+  }
+
+  Future<void> _composeText() async {
     final messageController = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(_t('ارسال پیام', 'Send message')),
+        title: Text(_t('انتخاب متن', 'Select text')),
         content: TextField(
           controller: messageController,
           autofocus: true,
@@ -486,71 +675,114 @@ class _QuickSendPageState extends State<QuickSendPage> {
     if (result == null || result.trim().isEmpty || !mounted) {
       return;
     }
-    final device = await _chooseDevice();
-    if (device == null) {
+    setState(() => _selectedText = result.trim());
+  }
+
+  void _toggleDeviceSelection(QuickSendDevice device) {
+    setState(() {
+      if (!_selectedDeviceIds.add(device.id)) {
+        _selectedDeviceIds.remove(device.id);
+      }
+    });
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selectedPaths.clear();
+      _selectedFileNames.clear();
+      _selectedText = '';
+    });
+  }
+
+  Future<void> _sendContentToDevice(
+    QuickSendDevice device, {
+    String? pin,
+  }) async {
+    if (_selectedText.isNotEmpty) {
+      await _service.sendText(device, _selectedText, pin: pin);
+    }
+    if (_selectedPaths.isNotEmpty) {
+      await _service.sendFiles(
+        device,
+        List.of(_selectedPaths),
+        offeredNames: Map.of(_selectedFileNames),
+        pin: pin,
+      );
+    }
+  }
+
+  Future<void> _sendToDevices(List<QuickSendDevice> devices) async {
+    if (_sending || devices.isEmpty) {
       return;
     }
-    await _runSend(
-      device,
-      (pin) => _service.sendText(device, result, pin: pin),
-    );
-  }
-
-  Future<QuickSendDevice?> _chooseDevice() {
-    return showModalBottomSheet<QuickSendDevice>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 18),
-          children: [
-            for (final device in _service.devices)
-              ListTile(
-                leading: const Icon(Icons.devices_outlined),
-                title: Text(device.alias),
-                subtitle: Text(device.endpoint),
-                onTap: () => Navigator.of(context).pop(device),
-              ),
-          ],
+    if (_selectedPaths.isEmpty && _selectedText.isEmpty) {
+      _notice(
+        _t(
+          'ابتدا حداقل یک فایل، رسانه، پوشه یا متن انتخاب کنید.',
+          'Choose at least one file, media item, folder, or text first.',
         ),
-      ),
-    );
-  }
-
-  Future<bool> _runSend(
-    QuickSendDevice device,
-    Future<void> Function(String? pin) action,
-  ) async {
-    if (_sending) {
-      return false;
+        warning: true,
+      );
+      return;
     }
     setState(() => _sending = true);
+    final succeeded = <QuickSendDevice>[];
+    final pinRequired = <QuickSendDevice>[];
+    final failed = <QuickSendDevice, Object>{};
     try {
-      try {
-        await action(null);
-      } on QuickSendPinRequiredException {
+      await Future.wait(
+        devices.map((device) async {
+          try {
+            await _sendContentToDevice(device);
+            succeeded.add(device);
+          } on QuickSendPinRequiredException {
+            pinRequired.add(device);
+          } catch (error) {
+            failed[device] = error;
+          }
+        }),
+      );
+      for (final device in pinRequired) {
         if (!mounted) {
-          return false;
+          return;
         }
-        final pin = await _askForPin();
+        final pin = await _askForPin(device);
         if (pin == null) {
-          return false;
+          failed[device] = const QuickSendPinRequiredException();
+          continue;
         }
-        await action(pin);
+        try {
+          await _sendContentToDevice(device, pin: pin);
+          succeeded.add(device);
+        } catch (error) {
+          failed[device] = error;
+        }
       }
       if (mounted) {
-        _notice(_t('انتقال با موفقیت انجام شد.', 'Transfer completed.'));
+        if (failed.isEmpty) {
+          _notice(
+            _t(
+              'ارسال به ${succeeded.length} دستگاه با موفقیت انجام شد.',
+              'Transfer completed for ${succeeded.length} devices.',
+            ),
+          );
+          setState(() {
+            _selectedPaths.clear();
+            _selectedFileNames.clear();
+            _selectedText = '';
+            _selectedDeviceIds.clear();
+          });
+        } else {
+          final names = failed.keys.map((device) => device.alias).join(', ');
+          _notice(
+            _t(
+              'ارسال به ${succeeded.length} دستگاه انجام شد؛ ناموفق: $names',
+              'Sent to ${succeeded.length} devices; failed: $names',
+            ),
+            warning: true,
+          );
+        }
       }
-      return true;
-    } catch (error) {
-      if (mounted) {
-        _notice(
-          _t('انتقال ناموفق بود: $error', 'Transfer failed: $error'),
-          warning: true,
-        );
-      }
-      return false;
     } finally {
       if (mounted) {
         setState(() => _sending = false);
@@ -558,12 +790,14 @@ class _QuickSendPageState extends State<QuickSendPage> {
     }
   }
 
-  Future<String?> _askForPin() async {
+  Future<String?> _askForPin(QuickSendDevice device) async {
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(_t('PIN دستگاه مقصد', 'Receiver PIN')),
+        title: Text(
+          _t('PIN دستگاه ${device.alias}', '${device.alias} receiver PIN'),
+        ),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -667,6 +901,22 @@ class _QuickSendPageState extends State<QuickSendPage> {
     }
   }
 
+  Future<void> _requestStorageAccess() async {
+    final granted = await _service.ensureReceiveStorageAccess();
+    if (!mounted) {
+      return;
+    }
+    _notice(
+      granted
+          ? _t('دسترسی فایل فعال شد.', 'File access was enabled.')
+          : _t(
+              'دسترسی فایل داده نشد؛ مسیر پیش‌فرض /Localist قابل نوشتن نیست.',
+              'File access was not granted; the default /Localist path is not writable.',
+            ),
+      warning: !granted,
+    );
+  }
+
   void _notice(String message, {bool warning = false}) {
     showLocalistNotice(
       context,
@@ -687,6 +937,51 @@ class _QuickSendPageState extends State<QuickSendPage> {
       QuickSendTransferState.completed => _t('کامل شد', 'Completed'),
       QuickSendTransferState.failed => _t('ناموفق', 'Failed'),
     };
+  }
+}
+
+class _SelectionCard extends StatelessWidget {
+  const _SelectionCard({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 112,
+      height: 96,
+      child: Material(
+        color: colors.secondaryContainer.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 30),
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -712,6 +1007,7 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
   bool _quickSaveFavorites = true;
   bool _overwrite = false;
   bool _requirePin = false;
+  bool _destinationCustomized = false;
   bool _loaded = false;
   bool _saving = false;
 
@@ -732,6 +1028,7 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
       _port.text = value.port.toString();
       _multicast.text = value.multicastGroup;
       _destination.text = value.destinationDirectory;
+      _destinationCustomized = value.destinationCustomized;
       _pin.text = value.pin;
       _receiveEnabled = value.receiveEnabled;
       _encryption = value.encryption;
@@ -772,9 +1069,16 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
                       children: [
                         TextField(
                           controller: _alias,
+                          readOnly: Platform.isAndroid,
                           decoration: InputDecoration(
                             labelText: _t('نام دستگاه', 'Device name'),
                             prefixIcon: const Icon(Icons.badge_outlined),
+                            helperText: Platform.isAndroid
+                                ? _t(
+                                    'مدل واقعی گوشی به‌صورت خودکار استفاده می‌شود.',
+                                    'The phone model is used automatically.',
+                                  )
+                                : null,
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -886,6 +1190,22 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Text(
+                            _destinationCustomized
+                                ? _t(
+                                    'فایل‌ها مستقیم در مسیر انتخابی ذخیره می‌شوند.',
+                                    'Files are saved directly in the selected folder.',
+                                  )
+                                : _t(
+                                    'مسیر پیش‌فرض Localist است و فایل‌ها در پوشه‌های Images، Videos، Audio، Documents، Archives، Apps و Other دسته‌بندی می‌شوند.',
+                                    'The Localist default groups files into Images, Videos, Audio, Documents, Archives, Apps, and Other.',
+                                  ),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
                         const SizedBox(height: 12),
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
@@ -929,7 +1249,10 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
       initialDirectory: _destination.text,
     );
     if (path != null && mounted) {
-      setState(() => _destination.text = path);
+      setState(() {
+        _destination.text = path;
+        _destinationCustomized = true;
+      });
     }
   }
 
@@ -965,6 +1288,7 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
           port: port,
           multicastGroup: multicast,
           destinationDirectory: _destination.text.trim(),
+          destinationCustomized: _destinationCustomized,
           receiveEnabled: _receiveEnabled,
           encryption: _encryption,
           quickSave: _quickSave,
