@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -27,7 +28,11 @@ class AppUpdateService {
     _logs.debug('Update check started');
     final current = await AppVersion.current();
     final release = await _fetchLatestRelease();
-    final supportedAbis = await _bridge.getAndroidSupportedAbis();
+    final nativeAbis = await _bridge.getAndroidSupportedAbis();
+    final supportedAbis = <String>{
+      ...nativeAbis.map((abi) => abi.trim()).where((abi) => abi.isNotEmpty),
+      if (Platform.isAndroid) _runtimeAndroidAbi(),
+    }.where((abi) => abi.isNotEmpty).toList(growable: false);
     final androidAsset = release.pickAndroidAsset(supportedAbis);
     final windowsAsset = release.pickWindowsAsset();
     _logs.debug(
@@ -167,6 +172,16 @@ class AppUpdateService {
       client.close(force: true);
     }
   }
+
+  static String _runtimeAndroidAbi() {
+    return switch (Abi.current()) {
+      Abi.androidArm => 'armeabi-v7a',
+      Abi.androidArm64 => 'arm64-v8a',
+      Abi.androidIA32 => 'x86',
+      Abi.androidX64 => 'x86_64',
+      _ => '',
+    };
+  }
 }
 
 class AppUpdateCheck {
@@ -220,13 +235,21 @@ class AppRelease {
           AppVersion.tryParse(tagName) ??
           AppVersion.tryParse(name) ??
           AppVersion.zero,
-      assets:
-          (json['assets'] as List<Object?>?)
-              ?.whereType<Map<String, Object?>>()
-              .map(UpdateAsset.fromJson)
-              .where((asset) => asset.downloadUrl.isNotEmpty)
-              .toList(growable: false) ??
-          const [],
+      assets: (json['assets'] as List<Object?>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (asset) => UpdateAsset.fromJson({
+              for (final entry in asset.entries)
+                entry.key.toString(): entry.value,
+            }),
+          )
+          .where(
+            (asset) =>
+                asset.name.toLowerCase().endsWith('.apk') ||
+                asset.name.toLowerCase().endsWith('.zip'),
+          )
+          .where((asset) => asset.downloadUrl.isNotEmpty)
+          .toList(growable: false),
     );
   }
 
@@ -234,13 +257,18 @@ class AppRelease {
     final apkAssets = assets
         .where((asset) => asset.name.toLowerCase().endsWith('.apk'))
         .toList(growable: false);
-    for (final abi in supportedAbis) {
-      final tokens = switch (abi) {
-        'arm64-v8a' => const ['android-64bit', 'android-arm64-v8a'],
-        'armeabi-v7a' => const ['android-32bit', 'android-armeabi-v7a'],
-        'x86_64' => const ['android-x86_64'],
-        _ => const <String>[],
-      };
+    for (final rawAbi in supportedAbis) {
+      final abi = rawAbi.trim().toLowerCase().replaceAll('_', '-');
+      final tokens =
+          abi.contains('arm64') ||
+              abi.contains('aarch64') ||
+              abi.contains('armv8')
+          ? const ['android-64bit', 'android-arm64-v8a']
+          : abi.contains('armeabi') || abi.contains('armv7') || abi == 'arm'
+          ? const ['android-32bit', 'android-armeabi-v7a']
+          : abi.contains('x86-64') || abi == 'x64'
+          ? const ['android-x86-64', 'android-x86_64']
+          : const <String>[];
       if (tokens.isEmpty) {
         continue;
       }

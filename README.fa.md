@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.1-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.2-blue"></a>
 </p>
 
 ## راهنمای کاربران
@@ -68,7 +68,9 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 3. روی یک مقصد بزنید؛ یا روی دستگاه‌ها نگه دارید تا چند مقصد انتخاب شوند و انتقال هم‌زمان انجام شود.
 4. اگر Quick Save فعال نیست، درخواست را روی دستگاه دریافت‌کننده تأیید کنید.
 
-در Android می‌توانید از منوی Share برنامه‌های دیگر، **Localist** را انتخاب کنید تا فایل‌ها خودکار در Quick Send آماده شوند. در Windows نیز Drag & Drop پشتیبانی می‌شود. جلوی فایل‌های دریافت‌شده Android فقط گزینه **Share again** باقی می‌ماند و دکمه پوشه کنار عنوان **Transfers**، پوشه اصلی `/Localist` را باز می‌کند. گزینه Share again از کاربر می‌پرسد فایل دوباره داخل Localist انتخاب شود یا منوی Share سیستم Android برای برنامه‌های دیگر باز شود. در Windows گزینه‌های بازکردن پوشه و فایل هر انتقال همچنان در دسترس هستند.
+در Android می‌توانید از منوی Share برنامه‌های دیگر، **Localist** را انتخاب کنید تا فایل‌ها خودکار در Quick Send آماده شوند. در Windows نیز Drag & Drop پشتیبانی می‌شود. جلوی فایل‌های دریافت‌شده Android گزینه‌های **Share again** و **Open file** قرار دارند. دکمه پوشه کنار عنوان **Transfers**، پوشه اصلی `/Localist` را فقط برای مشاهده در فایل‌منیجر باز می‌کند و دیگر از کاربر نمی‌خواهد اجازه «Use this folder» بدهد. گزینه Share again از کاربر می‌پرسد فایل دوباره داخل Localist انتخاب شود یا منوی Share سیستم Android برای برنامه‌های دیگر باز شود. در Windows گزینه‌های بازکردن پوشه و فایل هر انتقال همچنان در دسترس هستند.
+
+برای اتصال دستی Quick Send، در دستگاه مقصد Quick Send را باز کنید و یکی از IPهای بخش **آدرس اتصال دستی این دستگاه** را کپی کنید. در دستگاه فرستنده کنار **Nearby devices** روی **+** بزنید و همان IP را همراه پورت و حالت HTTP/HTTPS نمایش‌داده‌شده در مقصد وارد کنید. هر دو دستگاه باید روی یک Wi-Fi یا Hotspot مشترک باشند و VPN آن‌ها خاموش باشد.
 
 برای iPhone، iPad یا Mac از کارت **Send to iPhone or Mac** بین Selection و Nearby Devices استفاده کنید:
 

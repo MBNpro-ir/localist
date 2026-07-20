@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/models/app_settings.dart';
 import 'package:localist/models/service_state.dart';
@@ -182,6 +184,67 @@ void main() {
       contains('android-64bit'),
     );
     expect(release.pickWindowsAsset()?.name, contains('windows-64bit.zip'));
+  });
+
+  test('update asset picker normalizes Android ABI aliases', () {
+    final release = AppRelease(
+      name: 'Localist v4.1.2',
+      tagName: 'v4.1.2',
+      htmlUrl: localistLatestReleaseUrl,
+      version: AppVersion.tryParse('v4.1.2')!,
+      assets: const [
+        UpdateAsset(
+          name: 'localist-v4.1.2-android-32bit.apk',
+          downloadUrl: 'https://example.com/android-32.apk',
+        ),
+        UpdateAsset(
+          name: 'localist-v4.1.2-android-64bit.apk',
+          downloadUrl: 'https://example.com/android-64.apk',
+        ),
+      ],
+    );
+
+    expect(
+      release.pickAndroidAsset([' ARM64_V8A '])?.name,
+      contains('android-64bit'),
+    );
+    expect(
+      release.pickAndroidAsset(['aarch64'])?.name,
+      contains('android-64bit'),
+    );
+    expect(
+      release.pickAndroidAsset(['ARMv7'])?.name,
+      contains('android-32bit'),
+    );
+  });
+
+  test('GitHub release JSON keeps downloadable updater assets', () {
+    final release = AppRelease.fromJson(
+      jsonDecode('''
+        {
+          "name": "Localist v4.1.2",
+          "tag_name": "v4.1.2",
+          "html_url": "$localistLatestReleaseUrl",
+          "assets": [
+            {
+              "name": "localist-v4.1.2-android-64bit.apk",
+              "browser_download_url": "https://example.com/android-64.apk"
+            },
+            {
+              "name": "release-notes.txt",
+              "browser_download_url": "https://example.com/notes.txt"
+            }
+          ]
+        }
+      ''')
+          as Map<String, Object?>,
+    );
+
+    expect(release.assets, hasLength(1));
+    expect(
+      release.pickAndroidAsset(['arm64-v8a'])?.name,
+      'localist-v4.1.2-android-64bit.apk',
+    );
   });
 
   test('update asset picker falls back to universal apk', () {

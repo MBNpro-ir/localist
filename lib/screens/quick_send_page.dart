@@ -494,6 +494,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
 
   Widget _statusPanel(QuickSendSettings settings) {
     final running = _service.serverRunning && !widget.deviceVpnActive;
+    final localAddresses = _service.localAddresses;
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -563,6 +564,48 @@ class _QuickSendPageState extends State<QuickSendPage> {
                 ),
             ],
           ),
+          if (running) ...[
+            const SizedBox(height: 12),
+            Text(
+              _t(
+                'آدرس اتصال دستی این دستگاه',
+                'Manual connection address for this device',
+              ),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            if (localAddresses.isEmpty)
+              Text(
+                _t(
+                  'هنوز IP شبکه محلی پیدا نشده است؛ پس از اتصال به Wi-Fi یا Hotspot دکمه Refresh را بزنید.',
+                  'No local-network IP is available yet. Connect to Wi-Fi or a hotspot, then tap Refresh.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              )
+            else ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final address in localAddresses)
+                    ActionChip(
+                      avatar: const Icon(Icons.copy_outlined, size: 17),
+                      label: Text(address),
+                      tooltip: _t('کپی IP', 'Copy IP'),
+                      onPressed: () => _copyManualAddress(address),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _t(
+                  'در دستگاه فرستنده، کنار Nearby devices روی + بزنید و یکی از این IPها را با پورت ${settings.port} و حالت ${settings.encryption ? 'HTTPS' : 'HTTP'} وارد کنید.',
+                  'On the sender, tap + beside Nearby devices and enter one of these IPs with port ${settings.port} and ${settings.encryption ? 'HTTPS' : 'HTTP'}.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
           if (_service.lastError.isNotEmpty) ...[
             const SizedBox(height: 10),
             ServiceLockNotice(
@@ -1032,18 +1075,17 @@ class _QuickSendPageState extends State<QuickSendPage> {
                               onPressed: () => _shareReceivedFile(transfer),
                               icon: const Icon(Icons.ios_share_outlined),
                             ),
-                            if (!Platform.isAndroid) ...[
+                            if (!Platform.isAndroid)
                               IconButton(
                                 tooltip: _t('باز کردن پوشه', 'Open folder'),
                                 onPressed: () => _openReceivedFolder(transfer),
                                 icon: const Icon(Icons.folder_open_outlined),
                               ),
-                              IconButton(
-                                tooltip: _t('باز کردن فایل', 'Open file'),
-                                onPressed: () => _openReceivedFile(transfer),
-                                icon: const Icon(Icons.open_in_new_outlined),
-                              ),
-                            ],
+                            IconButton(
+                              tooltip: _t('باز کردن فایل', 'Open file'),
+                              onPressed: () => _openReceivedFile(transfer),
+                              icon: const Icon(Icons.open_in_new_outlined),
+                            ),
                           ],
                         )
                       : transfer.path.isEmpty &&
@@ -1551,6 +1593,10 @@ class _QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _showManualDeviceDialog() async {
+    await _service.refreshLocalAddresses();
+    if (!mounted) {
+      return;
+    }
     final host = TextEditingController();
     final port = TextEditingController(text: '53317');
     var https = true;
@@ -1559,29 +1605,60 @@ class _QuickSendPageState extends State<QuickSendPage> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: Text(_t('افزودن دستگاه با IP', 'Add device by IP')),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: host,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: _t('IP یا میزبان', 'IP or host'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.secondaryContainer.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.help_outline, size: 20),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          _t(
+                            'در دستگاه مقصد Quick Send را باز کنید. IP زیر عنوان «آدرس اتصال دستی این دستگاه» را کپی کنید. هر دو دستگاه باید روی یک Wi-Fi یا Hotspot باشند و VPN خاموش باشد؛ سپس همان IP، پورت و HTTP/HTTPS را اینجا وارد کنید.',
+                            'On the destination device, open Quick Send and copy an IP shown under “Manual connection address for this device”. Both devices must use the same Wi-Fi or hotspot with VPN off. Enter that IP here and keep the port and HTTP/HTTPS mode identical.',
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: port,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(labelText: _t('پورت', 'Port')),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('HTTPS'),
-                value: https,
-                onChanged: (value) => setDialogState(() => https = value),
-              ),
-            ],
+                const SizedBox(height: 14),
+                TextField(
+                  controller: host,
+                  autofocus: true,
+                  keyboardType: TextInputType.url,
+                  decoration: InputDecoration(
+                    labelText: _t('IP دستگاه مقصد', 'Destination device IP'),
+                    hintText: '192.168.1.25',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: port,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(labelText: _t('پورت', 'Port')),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('HTTPS'),
+                  value: https,
+                  onChanged: (value) => setDialogState(() => https = value),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -1719,6 +1796,13 @@ class _QuickSendPageState extends State<QuickSendPage> {
     await Clipboard.setData(ClipboardData(text: url));
     if (mounted) {
       _notice(_t('آدرس کپی شد.', 'Address copied.'));
+    }
+  }
+
+  Future<void> _copyManualAddress(String address) async {
+    await Clipboard.setData(ClipboardData(text: address));
+    if (mounted) {
+      _notice(_t('IP کپی شد.', 'IP address copied.'));
     }
   }
 

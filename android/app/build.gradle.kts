@@ -57,6 +57,10 @@ android {
             keyPassword =
                 providers.environmentVariable("LOCALIST_KEY_PASSWORD").orNull
                     ?: "localist-update"
+            enableV1Signing = false
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = false
         }
     }
 

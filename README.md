@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.1-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.2-blue"></a>
 </p>
 
 ## User Guide
@@ -68,7 +68,9 @@ Turn off the device VPN before starting Quick Send. A red warning appears and al
 3. Tap a destination, or press and hold devices to select several recipients and send concurrently.
 4. Accept the request on the receiving device unless Quick Save is enabled.
 
-On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files can also be dragged onto the Quick Send window. Completed Android receives keep the **Share again** action, while the folder button beside **Transfers** opens the main `/Localist` folder. **Share again** asks whether to select the file inside Localist or open the Android system share sheet for other apps. Windows retains the per-file open-folder and open-file actions.
+On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files can also be dragged onto the Quick Send window. Completed Android receives offer **Share again** and **Open file**. The folder button beside **Transfers** opens the main `/Localist` folder in view mode without asking Localist to use that folder. **Share again** asks whether to select the file inside Localist or open the Android system share sheet for other apps. Windows retains the per-file open-folder and open-file actions.
+
+For a manual Quick Send connection, open Quick Send on the destination and copy one of the IP chips under **Manual connection address for this device**. On the sender, tap **+** beside **Nearby devices**, then enter that IP with the destination's displayed port and HTTP/HTTPS mode. Both devices must use the same Wi-Fi or hotspot and their VPN must be off.
 
 For an iPhone, iPad, or Mac, use the **Send to iPhone or Mac** card between Selection and Nearby Devices:
 

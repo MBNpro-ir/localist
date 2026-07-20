@@ -230,6 +230,7 @@ class QuickSendService extends ChangeNotifier {
   String _deviceAlias = 'Localist device';
   String _deviceModel = '';
   bool _storageAccessGranted = true;
+  List<String> _localAddresses = const [];
 
   bool get initialized => _settings != null;
   bool get serverRunning => _server != null;
@@ -238,6 +239,7 @@ class QuickSendService extends ChangeNotifier {
   bool get transferBlocked => _transferBlocked;
   String get lastError => _lastError;
   bool get storageAccessGranted => _storageAccessGranted;
+  List<String> get localAddresses => List.unmodifiable(_localAddresses);
   QuickSendSettings? get settings => _settings;
   QuickSendPendingRequest? get pendingRequest => _pendingRequest;
   List<QuickSendDevice> get devices {
@@ -383,6 +385,7 @@ class QuickSendService extends ChangeNotifier {
     notifyListeners();
     try {
       final routes = await _networkRoutes();
+      _setLocalAddresses(routes);
       _logs.info(
         'Quick Send refresh is scanning ${routes.map((route) => route.address.address).join(', ')}',
       );
@@ -394,6 +397,23 @@ class QuickSendService extends ChangeNotifier {
       _scanning = false;
       notifyListeners();
     }
+  }
+
+  Future<List<String>> refreshLocalAddresses() async {
+    await initialize();
+    if (_transferBlocked) {
+      if (_localAddresses.isNotEmpty) {
+        _localAddresses = const [];
+        notifyListeners();
+      }
+      return const [];
+    }
+    final routes = await _networkRoutes();
+    final changed = _setLocalAddresses(routes);
+    if (changed) {
+      notifyListeners();
+    }
+    return localAddresses;
   }
 
   void acceptPending({Set<String>? fileIds}) {
@@ -761,6 +781,7 @@ class QuickSendService extends ChangeNotifier {
     try {
       await NativeBridgeService.instance.setQuickSendMulticastLock(true);
       final routes = await _networkRoutes();
+      _setLocalAddresses(routes);
       final joinedInterfaces = <String>{};
       for (final route in routes) {
         if (!joinedInterfaces.add(route.interface.name)) {
@@ -843,6 +864,19 @@ class QuickSendService extends ChangeNotifier {
     }
     _pendingRequest = null;
     _session = null;
+    _localAddresses = const [];
+  }
+
+  bool _setLocalAddresses(Iterable<_QuickSendNetworkRoute> routes) {
+    final next = routes
+        .map((route) => route.address.address)
+        .toSet()
+        .toList(growable: false);
+    if (listEquals(next, _localAddresses)) {
+      return false;
+    }
+    _localAddresses = next;
+    return true;
   }
 
   void _handleDiscoveryEvent(RawDatagramSocket socket, RawSocketEvent event) {

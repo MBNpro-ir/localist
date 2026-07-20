@@ -631,37 +631,45 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun openFolder(folder: File, result: MethodChannel.Result) {
-        runCatching {
-            val initialUri = externalStorageDocumentUri(folder)
-            val viewed = initialUri != null && runCatching {
-                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(initialUri, DocumentsContract.Document.MIME_TYPE_DIR)
-                    addFlags(
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_ACTIVITY_NEW_TASK,
-                    )
-                }
-                startActivity(viewIntent)
-            }.isSuccess
-            if (!viewed) {
-                val treeIntent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                    addFlags(
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
-                    )
-                    if (initialUri != null) {
-                        putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
-                    }
-                }
-                startActivity(treeIntent)
+        val intents = mutableListOf<Intent>()
+        externalStorageDocumentUri(folder)?.let { uri ->
+            intents += Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+                addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_ACTIVITY_NEW_TASK,
+                )
             }
-        }.onSuccess {
-            result.success(true)
-        }.onFailure { error ->
-            result.error("open_folder_failed", error.message, null)
+            intents += Intent(Intent.ACTION_VIEW, uri).apply {
+                addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_ACTIVITY_NEW_TASK,
+                )
+            }
         }
+        runCatching {
+            FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                folder,
+            )
+        }.getOrNull()?.let { uri ->
+            intents += Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "resource/folder")
+                clipData = ClipData.newRawUri("Localist folder", uri)
+                addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_ACTIVITY_NEW_TASK,
+                )
+            }
+        }
+        for (intent in intents) {
+            if (runCatching { startActivity(intent) }.isSuccess) {
+                result.success(true)
+                return
+            }
+        }
+        result.success(false)
     }
 
     private fun externalStorageDocumentUri(folder: File): Uri? {

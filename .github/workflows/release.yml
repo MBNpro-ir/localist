@@ -72,6 +72,34 @@ jobs:
             --build-name="$APP_VERSION" \
             --build-number="$BUILD_NUMBER"
 
+      - name: Verify signed Android packages
+        shell: bash
+        run: |
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          apksigner="$build_tools/apksigner"
+          zipalign="$build_tools/zipalign"
+          test -x "$apksigner"
+          test -x "$zipalign"
+
+          for apk in \
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          do
+            verification="$("$apksigner" verify \
+              --verbose \
+              --print-certs \
+              --min-sdk-version 26 \
+              "$apk")"
+            echo "$verification"
+            echo "$verification" | grep -q "Verified using v2 scheme (APK Signature Scheme v2): true"
+            echo "$verification" | grep -q "Verified using v3 scheme (APK Signature Scheme v3): true"
+            if echo "$verification" | grep -qi "Android Debug"; then
+              echo "Refusing to publish a debug-signed APK."
+              exit 1
+            fi
+            "$zipalign" -c -P 16 -v 4 "$apk"
+          done
+
       - name: Stage Android assets
         run: |
           mkdir -p release
@@ -270,7 +298,7 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          Localist v${APP_VERSION} improves Android received-transfer actions and keeps Apple/Mac browser downloads synchronized without manual page refreshes.
+          Localist v${APP_VERSION} fixes Android updater compatibility, improves manual Quick Send guidance, and corrects received-file actions.
 
           ## Changes
 
@@ -281,7 +309,11 @@ jobs:
           - Adds an Android Apple/Mac transfer card with local-only hotspot setup, Wi-Fi and browser QR codes, and two-way Safari file transfer.
           - Adds a fallback for a user-managed hotspot or the current shared Wi-Fi network when Android cannot start a local-only hotspot.
           - Automatically updates the open Safari/Mac transfer page when Android files or shared text change.
-          - Moves Android access to the main Localist receive folder beside the Transfers heading and removes per-file open controls.
+          - Detects Android updater architecture through native and runtime ABI information and accepts normalized ARM ABI aliases.
+          - Verifies APK v2 signatures, rejects debug certificates, and validates ZIP alignment before publishing Android assets.
+          - Shows copyable destination IP addresses and an in-dialog guide for manual Quick Send connections.
+          - Restores the Android Open file action for completed receives.
+          - Opens the main Localist receive folder with view-only file-manager intents and never launches the folder-access permission picker.
           - Shows a red VPN warning and pauses Quick Send networking while an incompatible VPN connection is active.
           - Lets Android users either reselect a received file inside Quick Send or send it through the system share sheet.
           - Fixes opening the received-file folder through Android's document provider.
