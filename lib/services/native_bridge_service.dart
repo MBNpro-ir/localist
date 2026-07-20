@@ -19,9 +19,13 @@ class NativeBridgeService {
   final LogService _logs = LogService.instance;
   final StreamController<List<QuickSendSharedFile>> _sharedFilesController =
       StreamController<List<QuickSendSharedFile>>.broadcast();
+  final StreamController<void> _localOnlyHotspotStoppedController =
+      StreamController<void>.broadcast();
 
   Stream<List<QuickSendSharedFile>> get sharedQuickSendFiles =>
       _sharedFilesController.stream;
+  Stream<void> get localOnlyHotspotStopped =>
+      _localOnlyHotspotStoppedController.stream;
 
   Future<void> _handleNativeCall(MethodCall call) async {
     if (call.method == 'quickSendSharedFiles') {
@@ -32,6 +36,11 @@ class NativeBridgeService {
         );
         _sharedFilesController.add(files);
       }
+      return;
+    }
+    if (call.method == 'localOnlyHotspotStopped') {
+      _logs.info('Android local-only hotspot stopped.');
+      _localOnlyHotspotStoppedController.add(null);
       return;
     }
     if (call.method != 'nativeLog') {
@@ -263,6 +272,13 @@ class NativeBridgeService {
     return await _invoke<bool>('openFile', {'path': path}) ?? false;
   }
 
+  Future<bool> shareFileExternally(String path) async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return await _invoke<bool>('shareFileExternally', {'path': path}) ?? false;
+  }
+
   Future<bool> openContainingFolder(String path) async {
     if (!Platform.isAndroid && !Platform.isWindows) {
       return false;
@@ -306,6 +322,21 @@ class NativeBridgeService {
       return false;
     }
     return await _invoke<bool>('openHotspotSettings') ?? false;
+  }
+
+  Future<LocalOnlyHotspotInfo> startLocalOnlyHotspot() async {
+    if (!Platform.isAndroid) {
+      return const LocalOnlyHotspotInfo.unsupported();
+    }
+    final result = await _invokeMap<Object?, Object?>('startLocalOnlyHotspot');
+    return LocalOnlyHotspotInfo.fromMap(result ?? const {});
+  }
+
+  Future<bool> stopLocalOnlyHotspot() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    return await _invoke<bool>('stopLocalOnlyHotspot') ?? false;
   }
 
   Future<bool> showWindowsMessage({
@@ -479,6 +510,66 @@ class NativeBridgeService {
         .map(QuickSendSharedFile.fromMap)
         .where((file) => file.path.isNotEmpty)
         .toList(growable: false);
+  }
+}
+
+class LocalOnlyHotspotInfo {
+  const LocalOnlyHotspotInfo({
+    required this.supported,
+    required this.active,
+    required this.managed,
+    required this.ssid,
+    required this.password,
+    required this.addresses,
+    required this.primaryAddress,
+    required this.errorCode,
+    required this.message,
+    required this.permissionRequired,
+  });
+
+  const LocalOnlyHotspotInfo.unsupported()
+    : supported = false,
+      active = false,
+      managed = false,
+      ssid = '',
+      password = '',
+      addresses = const [],
+      primaryAddress = '',
+      errorCode = 'unsupported',
+      message = 'Local-only hotspot is unavailable on this platform.',
+      permissionRequired = false;
+
+  final bool supported;
+  final bool active;
+  final bool managed;
+  final String ssid;
+  final String password;
+  final List<String> addresses;
+  final String primaryAddress;
+  final String errorCode;
+  final String message;
+  final bool permissionRequired;
+
+  factory LocalOnlyHotspotInfo.fromMap(Map<Object?, Object?> map) {
+    final rawAddresses = map['addresses'];
+    return LocalOnlyHotspotInfo(
+      supported: map['supported'] == true,
+      active: map['active'] == true,
+      managed: map['managed'] == true,
+      ssid: map['ssid']?.toString().trim() ?? '',
+      password: map['password']?.toString() ?? '',
+      addresses: rawAddresses is Iterable
+          ? rawAddresses
+                .map((value) => value.toString().trim())
+                .where((value) => value.isNotEmpty)
+                .toSet()
+                .toList(growable: false)
+          : const [],
+      primaryAddress: map['primaryAddress']?.toString().trim() ?? '',
+      errorCode: map['errorCode']?.toString().trim() ?? '',
+      message: map['message']?.toString().trim() ?? '',
+      permissionRequired: map['permissionRequired'] == true,
+    );
   }
 }
 

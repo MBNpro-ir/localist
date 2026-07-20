@@ -22,6 +22,7 @@ import 'screens/settings_page.dart';
 import 'screens/sharing_page.dart';
 import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
+import 'services/apple_web_transfer_service.dart';
 import 'services/app_update_service.dart';
 import 'services/crash_reporter_service.dart';
 import 'services/log_service.dart';
@@ -210,6 +211,8 @@ class _LocalistShellState extends State<LocalistShell>
   final LocalistDiscoveryService _discovery = LocalistDiscoveryService.instance;
   final LocalistPeerService _peerService = LocalistPeerService.instance;
   final QuickSendService _quickSend = QuickSendService.instance;
+  final AppleWebTransferService _appleWebTransfer =
+      AppleWebTransferService.instance;
   final AppUpdateService _updates = AppUpdateService();
   final LogService _logs = LogService.instance;
   late final PageController _pageController;
@@ -277,6 +280,7 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(_discovery.stop());
     unawaited(_peerService.stop());
     unawaited(_quickSend.disposeService());
+    unawaited(_appleWebTransfer.disposeService());
     _refreshTimer?.cancel();
     _pageController.dispose();
     super.dispose();
@@ -1376,6 +1380,9 @@ class _LocalistShellState extends State<LocalistShell>
     final statsAvailable = _statsAvailable;
     final simpleVisuals = widget.useSimpleAndroidTheme;
     final navItems = _navItems(l10n);
+    final quickSendVpnActive = Platform.isWindows
+        ? _snapshot.receivingRunning && _snapshot.deviceVpnActive
+        : _snapshot.deviceVpnActive;
     final systemBarColor = simpleVisuals
         ? Theme.of(context).colorScheme.surface
         : Colors.transparent;
@@ -1421,7 +1428,7 @@ class _LocalistShellState extends State<LocalistShell>
           onRefreshDiscovery: _refreshDiscovery,
         ),
       ),
-      KeepAlivePage(child: const QuickSendPage()),
+      KeepAlivePage(child: QuickSendPage(deviceVpnActive: quickSendVpnActive)),
       KeepAlivePage(
         child: SettingsPage(
           settings: widget.settings,

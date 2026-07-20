@@ -5,15 +5,19 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/quick_send_settings.dart';
+import '../services/apple_web_transfer_service.dart';
 import '../services/native_bridge_service.dart';
 import '../services/quick_send_service.dart';
 import '../widgets/glass.dart';
 
 class QuickSendPage extends StatefulWidget {
-  const QuickSendPage({super.key});
+  const QuickSendPage({super.key, required this.deviceVpnActive});
+
+  final bool deviceVpnActive;
 
   @override
   State<QuickSendPage> createState() => _QuickSendPageState();
@@ -21,6 +25,8 @@ class QuickSendPage extends StatefulWidget {
 
 class _QuickSendPageState extends State<QuickSendPage> {
   final QuickSendService _service = QuickSendService.instance;
+  final AppleWebTransferService _appleWebTransfer =
+      AppleWebTransferService.instance;
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final List<String> _selectedPaths = [];
   final Map<String, String> _selectedFileNames = {};
@@ -40,12 +46,35 @@ class _QuickSendPageState extends State<QuickSendPage> {
 
   Future<void> _initializeQuickSend() async {
     await _service.initialize();
+    await _service.setTransferBlocked(widget.deviceVpnActive);
     if (Platform.isAndroid &&
         _service.settings?.receiveEnabled == true &&
         !_service.storageAccessGranted) {
       await _service.ensureReceiveStorageAccess();
     }
     await _loadExternallySharedFiles();
+    if (!widget.deviceVpnActive) {
+      await _service.refresh();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant QuickSendPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.deviceVpnActive != widget.deviceVpnActive) {
+      unawaited(_applyVpnTransferState());
+    }
+  }
+
+  Future<void> _applyVpnTransferState() async {
+    final blocked = widget.deviceVpnActive;
+    await _service.setTransferBlocked(blocked);
+    if (blocked) {
+      if (_appleWebTransfer.active || _appleWebTransfer.starting) {
+        await _appleWebTransfer.stop();
+      }
+      return;
+    }
     await _service.refresh();
   }
 
@@ -83,6 +112,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
         added++;
       }
     });
+    _syncAppleSharedContent();
     if (added > 0 && mounted) {
       if (context.l10n.isPersian) {
         _notice(
@@ -102,7 +132,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _service,
+      animation: Listenable.merge([_service, _appleWebTransfer]),
       builder: (context, _) {
         final settings = _service.settings;
         if (settings == null) {
@@ -116,10 +146,12 @@ class _QuickSendPageState extends State<QuickSendPage> {
         return PageSurface(
           key: const PageStorageKey<String>('quick-send-page'),
           children: [
+            if (widget.deviceVpnActive) _vpnWarningPanel(),
             _statusPanel(settings),
             if (_service.pendingRequest case final pending?)
               _pendingPanel(pending),
             _selectionPanel(),
+            if (Platform.isAndroid) _appleWebTransferPanel(),
             _nearbyPanel(settings),
             if (_service.transfers.isNotEmpty) _transfersPanel(),
           ],
@@ -128,8 +160,340 @@ class _QuickSendPageState extends State<QuickSendPage> {
     );
   }
 
+  Widget _vpnWarningPanel() {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.errorContainer,
+        border: Border.all(color: colors.error, width: 1.5),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.vpn_lock_outlined, color: colors.error),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _t('VPN دستگاه را خاموش کنید', 'Turn off the device VPN'),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: colors.onErrorContainer,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _t(
+                    'برای ارسال یا دریافت فایل باید VPN این دستگاه خاموش باشد. تا وقتی VPN روشن است انتقال فایل در Quick Send غیرفعال می‌ماند.',
+                    'Turn off this device VPN before sending or receiving files. Quick Send transfers remain unavailable while VPN is active.',
+                  ),
+                  style: TextStyle(color: colors.onErrorContainer),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _appleWebTransferPanel() {
+    final service = _appleWebTransfer;
+    final colors = Theme.of(context).colorScheme;
+    final blocked = widget.deviceVpnActive;
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: colors.secondaryContainer,
+                child: const Icon(Icons.phone_iphone_outlined),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _t('ارسال به iPhone یا Mac', 'Send to iPhone or Mac'),
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _t(
+                        'یک شبکه خصوصی و صفحه انتقال محلی می‌سازد؛ دستگاه اپل فقط به Safari نیاز دارد.',
+                        'Creates a private network and local transfer page; the Apple device only needs Safari.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (service.starting)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else if (!service.active)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: blocked ? null : _startAppleWebTransfer,
+                icon: const Icon(Icons.wifi_tethering),
+                label: Text(
+                  _t(
+                    'ساخت هات‌اسپات خصوصی و شروع',
+                    'Create private hotspot and start',
+                  ),
+                ),
+              ),
+            )
+          else ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Chip(
+                  avatar: const Icon(Icons.language_outlined, size: 18),
+                  label: Text(_t('وب‌سرویس فعال', 'Web service active')),
+                ),
+                Chip(
+                  avatar: Icon(
+                    service.managedHotspot
+                        ? Icons.wifi_tethering
+                        : Icons.settings_input_antenna,
+                    size: 18,
+                  ),
+                  label: Text(
+                    service.managedHotspot
+                        ? _t('هات‌اسپات خودکار', 'Automatic hotspot')
+                        : _t(
+                            'هات‌اسپات دستی / Wi-Fi',
+                            'Manual hotspot / Wi-Fi',
+                          ),
+                  ),
+                ),
+                Chip(
+                  avatar: const Icon(Icons.attach_file, size: 18),
+                  label: Text(
+                    _t(
+                      '${service.sharedFileCount} فایل اشتراکی',
+                      '${service.sharedFileCount} shared files',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (service.errorMessage.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              ServiceLockNotice(
+                message: service.errorMessage,
+                icon: Icons.warning_amber_outlined,
+              ),
+            ],
+            if (service.managedHotspot) ...[
+              const SizedBox(height: 14),
+              Text(
+                _t(
+                  '۱) ابتدا QR شبکه را با دوربین iPhone اسکن و به شبکه متصل کنید. پیام «بدون اینترنت» طبیعی است.',
+                  '1) Scan the Wi-Fi QR with the iPhone camera and join the network. A “No Internet” notice is expected.',
+                ),
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 10),
+              _credentialRow(
+                label: 'SSID',
+                value: service.hotspotSsid,
+                icon: Icons.wifi,
+              ),
+              if (service.hotspotPassword.isNotEmpty)
+                _credentialRow(
+                  label: _t('رمز', 'Password'),
+                  value: service.hotspotPassword,
+                  icon: Icons.password_outlined,
+                ),
+              const SizedBox(height: 10),
+              _qrPanel(
+                title: _t('QR اتصال Wi-Fi', 'Wi-Fi connection QR'),
+                data: service.wifiQrPayload,
+                caption: _t(
+                  'این QR فقط دستگاه اپل را به شبکه خصوصی وصل می‌کند.',
+                  'This QR only joins the Apple device to the private network.',
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 12),
+              Text(
+                _t(
+                  'هات‌اسپات خودکار روی این دستگاه شروع نشد. هات‌اسپات Android را روشن کنید یا هر دو دستگاه را روی یک Wi-Fi قرار دهید؛ آدرس‌ها خودکار به‌روزرسانی می‌شوند.',
+                  'The automatic hotspot could not start on this device. Turn on Android hotspot settings or put both devices on the same Wi-Fi; addresses update automatically.',
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _openWebTransferHotspotSettings,
+                icon: const Icon(Icons.settings_outlined),
+                label: Text(
+                  _t('باز کردن تنظیمات هات‌اسپات', 'Open hotspot settings'),
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Text(
+              service.managedHotspot
+                  ? _t(
+                      '۲) پس از اتصال، QR زیر را اسکن کنید تا صفحه انتقال در Safari باز شود.',
+                      '2) After joining, scan the QR below to open the transfer page in Safari.',
+                    )
+                  : _t(
+                      'پس از اتصال دو دستگاه، QR زیر را اسکن یا آدرس را در Safari وارد کنید.',
+                      'After both devices are connected, scan the QR below or enter the address in Safari.',
+                    ),
+            ),
+            const SizedBox(height: 10),
+            if (service.primaryUrl.isEmpty)
+              ServiceLockNotice(
+                message: _t(
+                  'منتظر آدرس شبکه هستیم. پس از روشن شدن هات‌اسپات چند ثانیه صبر کنید.',
+                  'Waiting for a network address. Allow a few seconds after enabling the hotspot.',
+                ),
+                icon: Icons.hourglass_top_outlined,
+              )
+            else ...[
+              _qrPanel(
+                title: _t('QR صفحه انتقال', 'Transfer page QR'),
+                data: service.primaryUrl,
+                caption: service.primaryUrl,
+              ),
+              const SizedBox(height: 10),
+              for (final url in service.webUrls.take(3))
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.link),
+                  title: SelectableText(url),
+                  trailing: IconButton(
+                    tooltip: _t('کپی آدرس', 'Copy address'),
+                    onPressed: () => _copyWebTransferUrl(url),
+                    icon: const Icon(Icons.copy_outlined),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _refreshAppleSharedContent,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(
+                    _t('به‌روزرسانی فایل‌ها', 'Refresh shared files'),
+                  ),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: _stopAppleWebTransfer,
+                  icon: const Icon(Icons.stop_circle_outlined),
+                  label: Text(_t('توقف سرویس', 'Stop service')),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _credentialRow({
+    required String label,
+    required String value,
+    required IconData icon,
+  }) {
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon),
+      title: Text(label),
+      subtitle: SelectableText(value),
+      trailing: IconButton(
+        tooltip: _t('کپی', 'Copy'),
+        onPressed: () async {
+          await Clipboard.setData(ClipboardData(text: value));
+          if (mounted) {
+            _notice(_t('$label کپی شد.', '$label copied.'));
+          }
+        },
+        icon: const Icon(Icons.copy_outlined),
+      ),
+    );
+  }
+
+  Widget _qrPanel({
+    required String title,
+    required String data,
+    required String caption,
+  }) {
+    if (data.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: Column(
+          children: [
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleSmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: QrImageView(
+                  data: data,
+                  size: 176,
+                  backgroundColor: Colors.white,
+                  eyeStyle: const QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: Colors.black,
+                  ),
+                  dataModuleStyle: const QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              caption,
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _statusPanel(QuickSendSettings settings) {
-    final running = _service.serverRunning;
+    final running = _service.serverRunning && !widget.deviceVpnActive;
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,6 +538,8 @@ class _QuickSendPageState extends State<QuickSendPage> {
                 label: Text(
                   running
                       ? _t('آماده دریافت', 'Ready to receive')
+                      : widget.deviceVpnActive
+                      ? _t('غیرفعال به‌دلیل VPN', 'Disabled by VPN')
                       : _t('فقط ارسال', 'Send only'),
                 ),
               ),
@@ -314,12 +680,17 @@ class _QuickSendPageState extends State<QuickSendPage> {
               ),
               IconButton(
                 tooltip: _t('افزودن با IP', 'Add by IP'),
-                onPressed: _showManualDeviceDialog,
+                onPressed: widget.deviceVpnActive
+                    ? null
+                    : _showManualDeviceDialog,
                 icon: const Icon(Icons.add_link),
               ),
               IconButton(
                 tooltip: _t('جست‌وجوی دوباره', 'Search again'),
-                onPressed: _service.scanning || _service.restarting
+                onPressed:
+                    widget.deviceVpnActive ||
+                        _service.scanning ||
+                        _service.restarting
                     ? null
                     : _service.refresh,
                 icon: _service.scanning
@@ -400,10 +771,10 @@ class _QuickSendPageState extends State<QuickSendPage> {
                       const Icon(Icons.check_circle),
                   ],
                 ),
-                onLongPress: _sending
+                onLongPress: _sending || widget.deviceVpnActive
                     ? null
                     : () => _toggleDeviceSelection(device),
-                onTap: _sending
+                onTap: _sending || widget.deviceVpnActive
                     ? null
                     : _selectedDeviceIds.isEmpty
                     ? () => _sendToDevices([device])
@@ -414,7 +785,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _sending
+                onPressed: _sending || widget.deviceVpnActive
                     ? null
                     : () => _sendToDevices(selectedDevices),
                 icon: const Icon(Icons.send_outlined),
@@ -540,7 +911,10 @@ class _QuickSendPageState extends State<QuickSendPage> {
                 ),
                 trailing: IconButton(
                   tooltip: _t('حذف', 'Remove'),
-                  onPressed: () => setState(() => _selectedText = ''),
+                  onPressed: () {
+                    setState(() => _selectedText = '');
+                    _syncAppleSharedContent();
+                  },
                   icon: const Icon(Icons.close),
                 ),
               ),
@@ -559,10 +933,13 @@ class _QuickSendPageState extends State<QuickSendPage> {
                 ),
                 trailing: IconButton(
                   tooltip: _t('حذف', 'Remove'),
-                  onPressed: () => setState(() {
-                    _selectedPaths.remove(path);
-                    _selectedFileNames.remove(path);
-                  }),
+                  onPressed: () {
+                    setState(() {
+                      _selectedPaths.remove(path);
+                      _selectedFileNames.remove(path);
+                    });
+                    _syncAppleSharedContent();
+                  },
                   icon: const Icon(Icons.close),
                 ),
               ),
@@ -652,16 +1029,12 @@ class _QuickSendPageState extends State<QuickSendPage> {
                             ),
                           ],
                         )
-                      : Text(
-                          transfer.path.isEmpty &&
-                                  transfer.direction ==
-                                      QuickSendDirection.receiving &&
-                                  transfer.state ==
-                                      QuickSendTransferState.completed
-                              ? _t('کپی', 'Copy')
-                              : sizeText,
-                          textAlign: TextAlign.end,
-                        ),
+                      : transfer.path.isEmpty &&
+                            transfer.direction ==
+                                QuickSendDirection.receiving &&
+                            transfer.state == QuickSendTransferState.completed
+                      ? Text(_t('کپی', 'Copy'), textAlign: TextAlign.end)
+                      : const SizedBox.shrink(),
                   onTap:
                       transfer.path.isEmpty &&
                           transfer.direction == QuickSendDirection.receiving &&
@@ -694,7 +1067,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
     return '${_formatBytes(transfer.transferredBytes)} / ${_formatBytes(transfer.totalBytes)}';
   }
 
-  void _shareReceivedFile(QuickSendTransfer transfer) {
+  Future<void> _shareReceivedFile(QuickSendTransfer transfer) async {
     if (transfer.path.isEmpty || !File(transfer.path).existsSync()) {
       if (context.l10n.isPersian) {
         _notice(
@@ -709,12 +1082,98 @@ class _QuickSendPageState extends State<QuickSendPage> {
       );
       return;
     }
+    if (!Platform.isAndroid) {
+      _selectReceivedFileForQuickSend(transfer);
+      return;
+    }
+    final choice = await showDialog<_ReceivedFileShareChoice>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text(
+          _t(
+            'این فایل چگونه به اشتراک گذاشته شود؟',
+            'How would you like to share this file?',
+          ),
+        ),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(
+              dialogContext,
+            ).pop(_ReceivedFileShareChoice.quickSend),
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.devices_outlined),
+              title: Text(
+                _t('ارسال دوباره داخل Localist', 'Send again inside Localist'),
+              ),
+              subtitle: Text(
+                _t(
+                  'فایل انتخاب می‌شود تا آن را برای دستگاه‌های نزدیک بفرستید.',
+                  'Selects the file so you can send it to nearby devices.',
+                ),
+              ),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(
+              dialogContext,
+            ).pop(_ReceivedFileShareChoice.androidShare),
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.share_outlined),
+              title: Text(
+                _t('اشتراک در برنامه‌های دیگر', 'Share with other apps'),
+              ),
+              subtitle: Text(
+                _t(
+                  'منوی Share اندروید باز می‌شود.',
+                  'Opens the Android system share menu.',
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null) {
+      return;
+    }
+    if (choice == _ReceivedFileShareChoice.quickSend) {
+      _selectReceivedFileForQuickSend(transfer);
+      return;
+    }
+    try {
+      final shared = await _bridge.shareFileExternally(transfer.path);
+      if (!shared && mounted) {
+        _notice(
+          _t(
+            'منوی اشتراک اندروید باز نشد.',
+            'Could not open the Android share menu.',
+          ),
+          warning: true,
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        _notice(
+          _t(
+            'اشتراک فایل ناموفق بود: $error',
+            'Could not share the file: $error',
+          ),
+          warning: true,
+        );
+      }
+    }
+  }
+
+  void _selectReceivedFileForQuickSend(QuickSendTransfer transfer) {
     setState(() {
       if (!_selectedPaths.contains(transfer.path)) {
         _selectedPaths.add(transfer.path);
       }
       _selectedFileNames[transfer.path] = transfer.fileName;
     });
+    _syncAppleSharedContent();
     if (context.l10n.isPersian) {
       _notice(
         '\u0641\u0627\u06cc\u0644 \u0628\u0631\u0627\u06cc \u0627\u0631\u0633\u0627\u0644 \u062f\u0648\u0628\u0627\u0631\u0647 \u0622\u0645\u0627\u062f\u0647 \u0634\u062f\u061b \u062f\u0633\u062a\u06af\u0627\u0647 \u0645\u0642\u0635\u062f \u0631\u0627 \u0627\u0646\u062a\u062e\u0627\u0628 \u06a9\u0646\u06cc\u062f.',
@@ -730,7 +1189,12 @@ class _QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _openReceivedFolder(QuickSendTransfer transfer) async {
-    final opened = await _bridge.openContainingFolder(transfer.path);
+    var opened = false;
+    try {
+      opened = await _bridge.openContainingFolder(transfer.path);
+    } catch (_) {
+      opened = false;
+    }
     if (!opened && mounted) {
       if (context.l10n.isPersian) {
         _notice(
@@ -747,7 +1211,12 @@ class _QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _openReceivedFile(QuickSendTransfer transfer) async {
-    final opened = await _bridge.openFile(transfer.path);
+    var opened = false;
+    try {
+      opened = await _bridge.openFile(transfer.path);
+    } catch (_) {
+      opened = false;
+    }
     if (!opened && mounted) {
       if (context.l10n.isPersian) {
         _notice(
@@ -781,6 +1250,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
         }
       }
     });
+    _syncAppleSharedContent();
   }
 
   Future<void> _pickFolder() async {
@@ -817,6 +1287,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
           _selectedFileNames[file] = offeredNames[file]!;
         }
       });
+      _syncAppleSharedContent();
       if (files.length >= 5000) {
         _notice(
           _t(
@@ -851,6 +1322,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
       return;
     }
     setState(() => _selectedText = text);
+    _syncAppleSharedContent();
   }
 
   Future<void> _composeText() async {
@@ -883,6 +1355,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
       return;
     }
     setState(() => _selectedText = result.trim());
+    _syncAppleSharedContent();
   }
 
   void _toggleDeviceSelection(QuickSendDevice device) {
@@ -899,6 +1372,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
       _selectedFileNames.clear();
       _selectedText = '';
     });
+    _syncAppleSharedContent();
   }
 
   Future<void> _sendContentToDevice(
@@ -920,6 +1394,16 @@ class _QuickSendPageState extends State<QuickSendPage> {
 
   Future<void> _sendToDevices(List<QuickSendDevice> devices) async {
     if (_sending || devices.isEmpty) {
+      return;
+    }
+    if (widget.deviceVpnActive) {
+      _notice(
+        _t(
+          'برای انتقال فایل ابتدا VPN دستگاه را خاموش کنید.',
+          'Turn off the device VPN before transferring files.',
+        ),
+        warning: true,
+      );
       return;
     }
     if (_selectedPaths.isEmpty && _selectedText.isEmpty) {
@@ -979,6 +1463,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
             _selectedText = '';
             _selectedDeviceIds.clear();
           });
+          _syncAppleSharedContent();
         } else {
           final names = failed.keys.map((device) => device.alias).join(', ');
           _notice(
@@ -1108,6 +1593,122 @@ class _QuickSendPageState extends State<QuickSendPage> {
     }
   }
 
+  void _syncAppleSharedContent() {
+    _appleWebTransfer.setSharedContent(
+      paths: List.of(_selectedPaths),
+      offeredNames: Map.of(_selectedFileNames),
+      selectedText: _selectedText,
+    );
+  }
+
+  Future<void> _startAppleWebTransfer() async {
+    if (widget.deviceVpnActive) {
+      _notice(
+        _t(
+          'برای راه‌اندازی انتقال وب ابتدا VPN دستگاه را خاموش کنید.',
+          'Turn off the device VPN before starting web transfer.',
+        ),
+        warning: true,
+      );
+      return;
+    }
+    try {
+      final automaticHotspot = await _appleWebTransfer.start(
+        paths: List.of(_selectedPaths),
+        offeredNames: Map.of(_selectedFileNames),
+        selectedText: _selectedText,
+      );
+      if (!mounted || widget.deviceVpnActive) {
+        return;
+      }
+      if (automaticHotspot) {
+        _notice(
+          _t(
+            'هات‌اسپات خصوصی و صفحه انتقال آماده شدند.',
+            'The private hotspot and transfer page are ready.',
+          ),
+        );
+        return;
+      }
+      _notice(
+        _t(
+          'هات‌اسپات خودکار در دسترس نبود؛ هات‌اسپات سیستم را روشن کنید یا از Wi-Fi مشترک استفاده کنید.',
+          'Automatic hotspot was unavailable; enable the system hotspot or use a shared Wi-Fi network.',
+        ),
+        warning: true,
+      );
+      await _openWebTransferHotspotSettings();
+    } catch (error) {
+      if (mounted) {
+        _notice(
+          _t(
+            'راه‌اندازی انتقال وب ناموفق بود: $error',
+            'Could not start web transfer: $error',
+          ),
+          warning: true,
+        );
+      }
+    }
+  }
+
+  Future<void> _stopAppleWebTransfer() async {
+    try {
+      await _appleWebTransfer.stop();
+      if (mounted) {
+        _notice(_t('سرویس انتقال وب متوقف شد.', 'Web transfer stopped.'));
+      }
+    } catch (error) {
+      if (mounted) {
+        _notice(
+          _t(
+            'توقف سرویس ناموفق بود: $error',
+            'Could not stop the service: $error',
+          ),
+          warning: true,
+        );
+      }
+    }
+  }
+
+  void _refreshAppleSharedContent() {
+    _syncAppleSharedContent();
+    _notice(
+      _t(
+        'فایل‌ها و متن انتخاب‌شده در صفحه وب به‌روزرسانی شدند.',
+        'Selected files and text were refreshed on the web page.',
+      ),
+    );
+  }
+
+  Future<void> _copyWebTransferUrl(String url) async {
+    await Clipboard.setData(ClipboardData(text: url));
+    if (mounted) {
+      _notice(_t('آدرس کپی شد.', 'Address copied.'));
+    }
+  }
+
+  Future<void> _openWebTransferHotspotSettings() async {
+    try {
+      final opened = await _bridge.openHotspotSettings();
+      if (!opened && mounted) {
+        _notice(
+          _t('تنظیمات هات‌اسپات باز نشد.', 'Could not open hotspot settings.'),
+          warning: true,
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        _notice(
+          _t(
+            'تنظیمات هات‌اسپات باز نشد: $error',
+            'Could not open hotspot settings: $error',
+          ),
+          warning: true,
+        );
+      }
+    }
+  }
+
   Future<void> _requestStorageAccess() async {
     final granted = await _service.ensureReceiveStorageAccess();
     if (!mounted) {
@@ -1146,6 +1747,8 @@ class _QuickSendPageState extends State<QuickSendPage> {
     };
   }
 }
+
+enum _ReceivedFileShareChoice { quickSend, androidShare }
 
 class _SelectionCard extends StatelessWidget {
   const _SelectionCard({

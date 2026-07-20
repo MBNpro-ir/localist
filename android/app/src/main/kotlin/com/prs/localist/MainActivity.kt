@@ -1,17 +1,21 @@
 package com.prs.localist
 
+import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.ClipData
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
@@ -24,7 +28,10 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.net.InetSocketAddress
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.net.ServerSocket
+import java.util.Collections
 import java.util.UUID
 
 class MainActivity : FlutterActivity() {
@@ -33,6 +40,9 @@ class MainActivity : FlutterActivity() {
     private var pendingSaveFileText: String = ""
     private var methodChannel: MethodChannel? = null
     private var quickSendMulticastLock: WifiManager.MulticastLock? = null
+    private var localOnlyHotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
+    private var localOnlyHotspotInfo: Map<String, Any?>? = null
+    private var pendingLocalOnlyHotspotResult: MethodChannel.Result? = null
     private val pendingQuickSendFiles = mutableListOf<Map<String, String>>()
     private val pendingQuickSendFilesLock = Any()
     private var nativeLogReceiverRegistered = false
@@ -98,10 +108,16 @@ class MainActivity : FlutterActivity() {
                 "getServiceState" -> result.success(LocalistVpnService.snapshot(this))
                 "shareApk" -> shareApk(result)
                 "shareText" -> shareText(call, result)
+                "shareFileExternally" -> shareFileExternally(call, result)
                 "openUri" -> openUri(call, result)
                 "openFile" -> openFile(call, result)
                 "openContainingFolder" -> openContainingFolder(call, result)
                 "openHotspotSettings" -> openHotspotSettings(result)
+                "startLocalOnlyHotspot" -> startLocalOnlyHotspot(result)
+                "stopLocalOnlyHotspot" -> {
+                    stopLocalOnlyHotspot(notifyFlutter = false)
+                    result.success(true)
+                }
                 "saveTextFile" -> saveTextFile(call, result)
                 "takeQuickSendSharedFiles" -> result.success(takeQuickSendSharedFiles())
                 "hasQuickSendSharedFiles" -> result.success(hasQuickSendSharedFiles())
@@ -121,6 +137,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         setQuickSendMulticastLock(false)
+        stopLocalOnlyHotspot(notifyFlutter = false)
         unregisterNativeLogReceiver()
         methodChannel = null
         super.onDestroy()
@@ -534,6 +551,29 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun shareFileExternally(call: MethodCall, result: MethodChannel.Result) {
+        val file = File(call.argument<String>("path") ?: "")
+        if (!file.isFile) {
+            result.success(false)
+            return
+        }
+        runCatching {
+            val uri = fileProviderUri(file)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeTypeFor(file)
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, file.name)
+                clipData = ClipData.newRawUri("Localist file", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "Share file"))
+        }.onSuccess {
+            result.success(true)
+        }.onFailure { error ->
+            result.error("share_file_failed", error.message, null)
+        }
+    }
+
     private fun openUri(call: MethodCall, result: MethodChannel.Result) {
         val uri = call.argument<String>("uri") ?: ""
         runCatching {
@@ -577,18 +617,59 @@ class MainActivity : FlutterActivity() {
             return
         }
         runCatching {
-            val uri = fileProviderUri(folder)
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-                clipData = ClipData.newRawUri("Localist folder", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val initialUri = externalStorageDocumentUri(folder)
+            val viewed = initialUri != null && runCatching {
+                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(initialUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_ACTIVITY_NEW_TASK,
+                    )
+                }
+                startActivity(viewIntent)
+            }.isSuccess
+            if (!viewed) {
+                val treeIntent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+                    )
+                    if (initialUri != null) {
+                        putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialUri)
+                    }
+                }
+                startActivity(treeIntent)
             }
-            startActivity(Intent.createChooser(intent, "Open folder"))
         }.onSuccess {
             result.success(true)
         }.onFailure { error ->
             result.error("open_folder_failed", error.message, null)
         }
+    }
+
+    private fun externalStorageDocumentUri(folder: File): Uri? {
+        return runCatching {
+            val storageRoot = Environment.getExternalStorageDirectory().canonicalFile
+            val canonicalFolder = folder.canonicalFile
+            val rootPath = storageRoot.path
+            val folderPath = canonicalFolder.path
+            if (folderPath != rootPath &&
+                !folderPath.startsWith("$rootPath${File.separator}")
+            ) {
+                return null
+            }
+            val relative = canonicalFolder.relativeTo(storageRoot)
+                .invariantSeparatorsPath
+                .takeUnless { it == "." }
+                .orEmpty()
+            val documentId = if (relative.isEmpty()) "primary:" else "primary:$relative"
+            DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                documentId,
+            )
+        }.getOrNull()
     }
 
     private fun openHotspotSettings(result: MethodChannel.Result) {
@@ -607,6 +688,263 @@ class MainActivity : FlutterActivity() {
             }
         }
         result.success(false)
+    }
+
+    private fun startLocalOnlyHotspot(result: MethodChannel.Result) {
+        localOnlyHotspotReservation?.let {
+            result.success(refreshLocalOnlyHotspotAddresses(localOnlyHotspotInfo.orEmpty()))
+            return
+        }
+        if (pendingLocalOnlyHotspotResult != null) {
+            result.success(
+                localOnlyHotspotFailure(
+                    code = "request_pending",
+                    message = "A private hotspot request is already pending.",
+                ),
+            )
+            return
+        }
+        val requiredPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.NEARBY_WIFI_DEVICES
+        } else {
+            Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        if (checkSelfPermission(requiredPermission) != PackageManager.PERMISSION_GRANTED) {
+            result.success(
+                localOnlyHotspotFailure(
+                    code = "permission_required",
+                    message = "Nearby Wi-Fi permission is required.",
+                    permissionRequired = true,
+                ),
+            )
+            return
+        }
+
+        val addressesBefore = localIpv4Addresses()
+            .map { "${it.interfaceName}|${it.address}" }
+            .toSet()
+        val wifiManager =
+            applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val handler = Handler(Looper.getMainLooper())
+        pendingLocalOnlyHotspotResult = result
+        runCatching {
+            wifiManager.startLocalOnlyHotspot(
+                object : WifiManager.LocalOnlyHotspotCallback() {
+                    override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
+                        localOnlyHotspotReservation = reservation
+                        handler.postDelayed({
+                            val pending = pendingLocalOnlyHotspotResult
+                            if (pending == null) {
+                                return@postDelayed
+                            }
+                            val info = buildLocalOnlyHotspotInfo(
+                                reservation = reservation,
+                                addressesBefore = addressesBefore,
+                            )
+                            localOnlyHotspotInfo = info
+                            pendingLocalOnlyHotspotResult = null
+                            pending.success(info)
+                        }, HOTSPOT_ADDRESS_SETTLE_DELAY_MS)
+                    }
+
+                    override fun onStopped() {
+                        localOnlyHotspotReservation = null
+                        localOnlyHotspotInfo = null
+                        pendingLocalOnlyHotspotResult?.let { pending ->
+                            pendingLocalOnlyHotspotResult = null
+                            pending.success(
+                                localOnlyHotspotFailure(
+                                    code = "stopped",
+                                    message = "The private hotspot stopped before it was ready.",
+                                ),
+                            )
+                        }
+                        methodChannel?.invokeMethod("localOnlyHotspotStopped", null)
+                    }
+
+                    override fun onFailed(reason: Int) {
+                        localOnlyHotspotReservation = null
+                        localOnlyHotspotInfo = null
+                        pendingLocalOnlyHotspotResult?.let { pending ->
+                            pendingLocalOnlyHotspotResult = null
+                            pending.success(
+                                localOnlyHotspotFailure(
+                                    code = localOnlyHotspotErrorCode(reason),
+                                    message = localOnlyHotspotErrorMessage(reason),
+                                ),
+                            )
+                        }
+                    }
+                },
+                handler,
+            )
+        }.onFailure { error ->
+            pendingLocalOnlyHotspotResult = null
+            result.success(
+                localOnlyHotspotFailure(
+                    code = if (error is SecurityException) {
+                        "permission_required"
+                    } else {
+                        "start_failed"
+                    },
+                    message = error.message ?: "Could not start the private hotspot.",
+                    permissionRequired = error is SecurityException,
+                ),
+            )
+        }
+    }
+
+    private fun stopLocalOnlyHotspot(notifyFlutter: Boolean) {
+        val reservation = localOnlyHotspotReservation
+        localOnlyHotspotReservation = null
+        localOnlyHotspotInfo = null
+        runCatching { reservation?.close() }
+        if (notifyFlutter && reservation != null) {
+            methodChannel?.invokeMethod("localOnlyHotspotStopped", null)
+        }
+    }
+
+    private fun buildLocalOnlyHotspotInfo(
+        reservation: WifiManager.LocalOnlyHotspotReservation,
+        addressesBefore: Set<String>,
+    ): Map<String, Any?> {
+        val credentials = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val configuration = reservation.softApConfiguration
+            configuration.ssid.orEmpty() to configuration.passphrase.orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            val configuration = reservation.wifiConfiguration
+            unquoteWifiValue(configuration?.SSID.orEmpty()) to
+                unquoteWifiValue(configuration?.preSharedKey.orEmpty())
+        }
+        val addresses = localIpv4Addresses().sortedWith(
+            compareBy<LocalIpv4Address> {
+                if ("${it.interfaceName}|${it.address}" in addressesBefore) 1 else 0
+            }.thenBy { hotspotInterfacePriority(it.interfaceName) }
+                .thenBy { it.address },
+        )
+        return mapOf(
+            "supported" to true,
+            "active" to true,
+            "managed" to true,
+            "ssid" to credentials.first,
+            "password" to credentials.second,
+            "addresses" to addresses.map { it.address }.distinct(),
+            "primaryAddress" to addresses.firstOrNull()?.address.orEmpty(),
+            "errorCode" to "",
+            "message" to "",
+            "permissionRequired" to false,
+        )
+    }
+
+    private fun refreshLocalOnlyHotspotAddresses(
+        current: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val addresses = localIpv4Addresses()
+            .sortedWith(
+                compareBy<LocalIpv4Address> { hotspotInterfacePriority(it.interfaceName) }
+                    .thenBy { it.address },
+            )
+            .map { it.address }
+            .distinct()
+        return current.toMutableMap().apply {
+            this["addresses"] = addresses
+            this["primaryAddress"] = addresses.firstOrNull().orEmpty()
+        }
+    }
+
+    private fun localIpv4Addresses(): List<LocalIpv4Address> {
+        return runCatching {
+            Collections.list(NetworkInterface.getNetworkInterfaces())
+                .filter {
+                    it.isUp &&
+                        !it.isLoopback &&
+                        !isIgnoredHotspotInterface(it.name)
+                }
+                .flatMap { networkInterface ->
+                    Collections.list(networkInterface.inetAddresses)
+                        .filterIsInstance<Inet4Address>()
+                        .filter {
+                            !it.isLoopbackAddress &&
+                                (it.isSiteLocalAddress || it.isLinkLocalAddress)
+                        }
+                        .map {
+                            LocalIpv4Address(
+                                interfaceName = networkInterface.name,
+                                address = it.hostAddress.orEmpty(),
+                            )
+                        }
+                }
+                .filter { it.address.isNotBlank() }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun isIgnoredHotspotInterface(name: String): Boolean {
+        val normalized = name.lowercase()
+        return normalized == "lo" ||
+            normalized.startsWith("lo") ||
+            normalized.startsWith("tun") ||
+            normalized.startsWith("tap") ||
+            normalized.startsWith("rmnet") ||
+            normalized.startsWith("ccmni") ||
+            normalized.startsWith("pdp")
+    }
+
+    private fun hotspotInterfacePriority(name: String): Int {
+        val normalized = name.lowercase()
+        return when {
+            normalized.contains("softap") || normalized.startsWith("ap") -> 0
+            normalized.contains("wlan") || normalized.contains("wifi") -> 1
+            normalized.contains("usb") || normalized.contains("rndis") -> 2
+            normalized.startsWith("eth") -> 3
+            else -> 4
+        }
+    }
+
+    private fun unquoteWifiValue(value: String): String {
+        return value.removePrefix("\"").removeSuffix("\"")
+    }
+
+    private fun localOnlyHotspotFailure(
+        code: String,
+        message: String,
+        permissionRequired: Boolean = false,
+    ): Map<String, Any?> {
+        return mapOf(
+            "supported" to true,
+            "active" to false,
+            "managed" to false,
+            "ssid" to "",
+            "password" to "",
+            "addresses" to emptyList<String>(),
+            "primaryAddress" to "",
+            "errorCode" to code,
+            "message" to message,
+            "permissionRequired" to permissionRequired,
+        )
+    }
+
+    private fun localOnlyHotspotErrorCode(reason: Int): String {
+        return when (reason) {
+            WifiManager.LocalOnlyHotspotCallback.ERROR_NO_CHANNEL -> "no_channel"
+            WifiManager.LocalOnlyHotspotCallback.ERROR_INCOMPATIBLE_MODE ->
+                "incompatible_mode"
+            WifiManager.LocalOnlyHotspotCallback.ERROR_TETHERING_DISALLOWED ->
+                "tethering_disallowed"
+            else -> "generic"
+        }
+    }
+
+    private fun localOnlyHotspotErrorMessage(reason: Int): String {
+        return when (reason) {
+            WifiManager.LocalOnlyHotspotCallback.ERROR_NO_CHANNEL ->
+                "No Wi-Fi channel is available for a private hotspot."
+            WifiManager.LocalOnlyHotspotCallback.ERROR_INCOMPATIBLE_MODE ->
+                "The current Wi-Fi or tethering mode is incompatible with a private hotspot."
+            WifiManager.LocalOnlyHotspotCallback.ERROR_TETHERING_DISALLOWED ->
+                "Hotspot use is disabled by this device or administrator."
+            else -> "Android could not start the private hotspot."
+        }
     }
 
     private fun saveTextFile(call: MethodCall, result: MethodChannel.Result) {
@@ -785,6 +1123,11 @@ class MainActivity : FlutterActivity() {
         }.isSuccess
     }
 
+    private data class LocalIpv4Address(
+        val interfaceName: String,
+        val address: String,
+    )
+
     companion object {
         private const val CHANNEL = "com.prs.localist.vpn"
         private const val ACTION_NATIVE_LOG = "com.prs.localist.NATIVE_LOG"
@@ -792,6 +1135,7 @@ class MainActivity : FlutterActivity() {
         private const val EXTRA_NATIVE_LOG_SOURCE = "source"
         private const val VPN_REQUEST_CODE = 41088
         private const val SAVE_FILE_REQUEST_CODE = 41089
+        private const val HOTSPOT_ADDRESS_SETTLE_DELAY_MS = 700L
 
         fun broadcastNativeLog(context: Context, source: String, message: String) {
             if (message.isBlank()) {

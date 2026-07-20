@@ -224,6 +224,7 @@ class QuickSendService extends ChangeNotifier {
   Future<void>? _initializing;
   bool _restarting = false;
   bool _scanning = false;
+  bool _transferBlocked = false;
   String _lastError = '';
   _QuickSendSecurity? _security;
   String _deviceAlias = 'Localist device';
@@ -234,6 +235,7 @@ class QuickSendService extends ChangeNotifier {
   bool get serverRunning => _server != null;
   bool get scanning => _scanning;
   bool get restarting => _restarting;
+  bool get transferBlocked => _transferBlocked;
   String get lastError => _lastError;
   bool get storageAccessGranted => _storageAccessGranted;
   QuickSendSettings? get settings => _settings;
@@ -340,7 +342,9 @@ class QuickSendService extends ChangeNotifier {
     notifyListeners();
     try {
       await _stopNetwork();
-      await _startNetwork();
+      if (!_transferBlocked) {
+        await _startNetwork();
+      }
     } finally {
       _restarting = false;
       notifyListeners();
@@ -351,8 +355,29 @@ class QuickSendService extends ChangeNotifier {
     await _stopNetwork();
   }
 
+  Future<void> setTransferBlocked(bool blocked) async {
+    await initialize();
+    if (_transferBlocked == blocked) {
+      return;
+    }
+    _transferBlocked = blocked;
+    _devices.clear();
+    if (blocked) {
+      await _stopNetwork();
+    } else {
+      await _startNetwork();
+    }
+    notifyListeners();
+  }
+
   Future<void> refresh() async {
     await initialize();
+    if (_transferBlocked) {
+      _devices.clear();
+      _scanning = false;
+      notifyListeners();
+      return;
+    }
     _scanning = true;
     _devices.clear();
     notifyListeners();
@@ -395,6 +420,7 @@ class QuickSendService extends ChangeNotifier {
     required bool https,
   }) async {
     await initialize();
+    _ensureTransferAvailable();
     final device = await _discoverTarget(
       host: host,
       port: port,
@@ -511,6 +537,7 @@ class QuickSendService extends ChangeNotifier {
     String? pin,
   }) async {
     await initialize();
+    _ensureTransferAvailable();
     final files = <QuickSendOfferedFile>[];
     final fileById = <String, File>{};
     for (final value in paths) {
@@ -665,6 +692,7 @@ class QuickSendService extends ChangeNotifier {
       return;
     }
     await initialize();
+    _ensureTransferAvailable();
     final id = _randomToken();
     final bytes = utf8.encode(clean).length;
     final offer = QuickSendOfferedFile(
@@ -698,7 +726,7 @@ class QuickSendService extends ChangeNotifier {
 
   Future<void> _startNetwork() async {
     final current = _settings;
-    if (current == null) {
+    if (current == null || _transferBlocked) {
       return;
     }
     _lastError = '';
@@ -1478,6 +1506,14 @@ class QuickSendService extends ChangeNotifier {
         sha256.convert(utf8.encode('localist.quick-send')).toString();
   }
 
+  void _ensureTransferAvailable() {
+    if (_transferBlocked) {
+      throw StateError(
+        'Turn off the device VPN before sending or receiving files.',
+      );
+    }
+  }
+
   Future<_QuickSendSecurity> _loadSecurity() async {
     final prefs = await SharedPreferences.getInstance();
     final privateKey = prefs.getString(_privateKeyPreference);
@@ -1496,6 +1532,35 @@ class QuickSendService extends ChangeNotifier {
     await prefs.setString(_privateKeyPreference, generated.privateKey);
     await prefs.setString(_certificatePreference, generated.certificate);
     return generated;
+  }
+
+  Future<File> createReceivedFile(String unsafeName, String fileType) async {
+    await initialize();
+    _ensureTransferAvailable();
+    return _destinationFile(unsafeName, fileType);
+  }
+
+  void recordCompletedBrowserReceive({
+    required String fileName,
+    required String path,
+    required int totalBytes,
+    String deviceName = 'Apple / Mac browser',
+  }) {
+    final id = _randomToken();
+    _putTransfer(
+      QuickSendTransfer(
+        id: 'browser-receive-$id',
+        deviceName: deviceName,
+        fileName: fileName,
+        path: path,
+        totalBytes: totalBytes,
+        transferredBytes: totalBytes,
+        direction: QuickSendDirection.receiving,
+        state: QuickSendTransferState.completed,
+        message: '',
+        updatedAt: DateTime.now(),
+      ),
+    );
   }
 
   Future<File> _destinationFile(String unsafeName, String fileType) async {
@@ -1559,6 +1624,10 @@ class QuickSendService extends ChangeNotifier {
       }
     }
     return segments.isEmpty ? 'received-file' : p.joinAll(segments);
+  }
+
+  static String safeRelativeFilePath(String value) {
+    return sanitizeRelativeFilePath(value);
   }
 
   @visibleForTesting
