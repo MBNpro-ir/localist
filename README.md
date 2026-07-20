@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.2-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.3-blue"></a>
 </p>
 
 ## User Guide
@@ -31,6 +31,7 @@ Localist lets devices on the same local network share VPN/proxy access and trans
 - The Sharing screen shows the number and identity of connected Localist devices.
 - Quick Send selects files, media, clipboard text, typed text, or complete folders and is compatible with the LocalSend v2.1 protocol and legacy v1 routes.
 - Android can create a local-only hotspot and token-protected browser transfer page for bidirectional file exchange with iPhone, iPad, and Mac without installing Localist on the Apple device.
+- Windows can host the same token-protected browser transfer page on Wi-Fi, Ethernet, a router, or Windows Mobile Hotspot and displays a QR that opens it directly on iPhone, iPad, or Mac.
 - English and Persian, light/dark themes, Android dynamic colors, and Windows accent colors are supported.
 
 ### Download and install
@@ -68,11 +69,13 @@ Turn off the device VPN before starting Quick Send. A red warning appears and al
 3. Tap a destination, or press and hold devices to select several recipients and send concurrently.
 4. Accept the request on the receiving device unless Quick Save is enabled.
 
-On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files can also be dragged onto the Quick Send window. Completed Android receives offer **Share again** and **Open file**. The folder button beside **Transfers** opens the main `/Localist` folder in view mode without asking Localist to use that folder. **Share again** asks whether to select the file inside Localist or open the Android system share sheet for other apps. Windows retains the per-file open-folder and open-file actions.
+On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files or folders can be dropped anywhere on the Localist window; Quick Send opens automatically and keeps the dropped items selected. Completed Android receives offer **Share again** and **Open file**. The folder button beside **Transfers** opens the main `/Localist` folder in view mode without asking Localist to use that folder. **Share again** asks whether to select the file inside Localist or open the Android system share sheet for other apps. Windows retains the per-file open-folder and open-file actions.
 
 For a manual Quick Send connection, open Quick Send on the destination and copy one of the IP chips under **Manual connection address for this device**. On the sender, tap **+** beside **Nearby devices**, then enter that IP with the destination's displayed port and HTTP/HTTPS mode. Both devices must use the same Wi-Fi or hotspot and their VPN must be off.
 
-For an iPhone, iPad, or Mac, use the **Send to iPhone or Mac** card between Selection and Nearby Devices:
+For an iPhone, iPad, or Mac, use the **Send to iPhone or Mac** card between Selection and Nearby Devices.
+
+On Android:
 
 1. Start the private hotspot service.
 2. Scan the Wi-Fi QR on the Apple device. The network intentionally has no internet access.
@@ -80,6 +83,13 @@ For an iPhone, iPad, or Mac, use the **Send to iPhone or Mac** card between Sele
 4. Download the files selected in Localist, or upload one or more Apple files back to the Android receive folder. Files and text selected after Safari opens appear automatically without reloading the page.
 
 Some manufacturers, administrators, or an already-running tethering mode can reject an automatic local-only hotspot. Localist keeps the browser server available, opens the system hotspot settings, and refreshes eligible Wi-Fi/hotspot addresses as a fallback.
+
+On Windows:
+
+1. Connect the PC and Apple device to the same Wi-Fi/router, or enable **Windows Mobile hotspot** and join it from the Apple device.
+2. Select the files, text, or dropped folders, then tap **Start web transfer and create QR**.
+3. Scan the transfer-page QR with the Apple camera or enter one of the displayed local addresses in Safari.
+4. Download Windows files or upload Apple files back to the configured Quick Send receive folder. The browser page updates automatically when the Windows selection changes.
 
 Use Refresh to repeat multicast, directed-broadcast, and active subnet discovery across eligible Wi-Fi, Ethernet, hotspot, and USB-tethering interfaces. A charge-only USB cable does not create an IP network; enable USB tethering when the cable should carry Quick Send traffic.
 
@@ -99,7 +109,7 @@ Quick Save accepts files without asking. Enable it only on trusted local network
 | Platform | Sharing | Receiving | Quick Send |
 | --- | --- | --- | --- |
 | Android | HTTP/SOCKS5 proxy, hotspot/manual network flow, optional root routing | Android VPN or local proxy | Send and receive files/messages; local Safari bridge for Apple devices |
-| Windows | HTTP/SOCKS5 proxy, optional local v2rayN upstream | Windows VPN with Wintun, system proxy, or local proxy | Send and receive files/messages |
+| Windows | HTTP/SOCKS5 proxy, optional local v2rayN upstream | Windows VPN with Wintun, system proxy, or local proxy | Send and receive files/messages; drag-and-drop and local Safari bridge for Apple devices |
 
 Windows VPN mode requires administrator access plus `tun2socks.exe` and `wintun.dll`. If those tools are absent, development packages can still use system/local proxy modes.
 
@@ -206,7 +216,8 @@ For a manual release, open the repository Actions page, run **Release**, and lea
 - Quick Send binds multicast listeners per eligible interface, announces from concrete interface addresses, falls back to directed broadcast and bounded concurrent `/24` registration scans, and never sends discovery from `0.0.0.0`.
 - Android still excludes Localist's process from its own TUN for control-plane safety, but Quick Send deliberately closes its HTTP/UDP services while any VPN transport is active and restarts them only after the VPN is off.
 - Quick Send validates upload tokens and source addresses, bounds request metadata, preserves safe relative folder paths, sanitizes traversal attempts, and expires inactive receive sessions.
-- The Apple/Mac bridge uses Android `LocalOnlyHotspot`, separate Wi-Fi and browser QR payloads, an unguessable URL token, streamed multipart uploads, and the existing categorized receive-path policy. It falls back to a manually enabled hotspot or shared Wi-Fi when the platform rejects local-only hotspot mode.
+- The Apple/Mac bridge uses an unguessable URL token, streamed multipart uploads, and the existing categorized receive-path policy. Android can additionally create `LocalOnlyHotspot` with separate Wi-Fi and browser QR payloads; Windows serves the browser QR over eligible Wi-Fi, Ethernet, router, or Mobile Hotspot interfaces and filters virtual/VPN adapters.
+- The Windows runner registers both its host and Flutter child windows as shell drop targets, permits the required UIPI messages for its elevated process, and queues dropped files until Quick Send is ready.
 - The Windows release job downloads signed Wintun and tun2socks runtime files before compiling the package.
 
 ### License and attribution

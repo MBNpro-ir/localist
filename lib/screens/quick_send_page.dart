@@ -92,17 +92,70 @@ class _QuickSendPageState extends State<QuickSendPage> {
   Future<void> _addExternallySharedFiles(
     List<QuickSendSharedFile> files,
   ) async {
-    if (files.isEmpty || !mounted) {
+    if (files.isEmpty) {
+      return;
+    }
+    final expanded = <QuickSendSharedFile>[];
+    for (final shared in files) {
+      final path = shared.path.trim();
+      if (path.isEmpty) {
+        continue;
+      }
+      if (File(path).existsSync()) {
+        expanded.add(
+          QuickSendSharedFile(
+            path: path,
+            name: shared.name.trim().isEmpty
+                ? p.basename(path)
+                : shared.name.trim(),
+          ),
+        );
+        continue;
+      }
+      final directory = Directory(path);
+      if (!directory.existsSync()) {
+        continue;
+      }
+      final rootName = shared.name.trim().isEmpty
+          ? p.basename(path)
+          : shared.name.trim();
+      try {
+        await for (final entity in directory.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (entity is! File) {
+            continue;
+          }
+          final relative = p
+              .relative(entity.path, from: path)
+              .replaceAll('\\', '/');
+          expanded.add(
+            QuickSendSharedFile(
+              path: entity.path,
+              name: p.posix.join(rootName, relative),
+            ),
+          );
+          if (expanded.length >= 5000) {
+            break;
+          }
+        }
+      } catch (_) {
+        // Keep readable drop items even when one folder cannot be enumerated.
+      }
+      if (expanded.length >= 5000) {
+        break;
+      }
+    }
+    _bridge.consumeQuickSendSharedFiles(files);
+    if (expanded.isEmpty || !mounted) {
       return;
     }
     var added = 0;
     setState(() {
-      for (final file in files) {
+      for (final file in expanded) {
         final path = file.path.trim();
         if (path.isEmpty || _selectedPaths.contains(path)) {
-          continue;
-        }
-        if (!File(path).existsSync()) {
           continue;
         }
         _selectedPaths.add(path);
@@ -151,7 +204,8 @@ class _QuickSendPageState extends State<QuickSendPage> {
             if (_service.pendingRequest case final pending?)
               _pendingPanel(pending),
             _selectionPanel(),
-            if (Platform.isAndroid) _appleWebTransferPanel(),
+            if (Platform.isAndroid || Platform.isWindows)
+              _appleWebTransferPanel(),
             _nearbyPanel(settings),
             if (_service.transfers.isNotEmpty) _transfersPanel(),
           ],
@@ -205,6 +259,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
     final service = _appleWebTransfer;
     final colors = Theme.of(context).colorScheme;
     final blocked = widget.deviceVpnActive;
+    final isWindows = Platform.isWindows;
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -227,10 +282,15 @@ class _QuickSendPageState extends State<QuickSendPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _t(
-                        'یک شبکه خصوصی و صفحه انتقال محلی می‌سازد؛ دستگاه اپل فقط به Safari نیاز دارد.',
-                        'Creates a private network and local transfer page; the Apple device only needs Safari.',
-                      ),
+                      isWindows
+                          ? _t(
+                              'صفحه انتقال محلی را روی این کامپیوتر اجرا می‌کند. iPhone یا Mac را به همان Wi-Fi، مودم یا هات‌اسپات وصل و QR را اسکن کنید.',
+                              'Runs a local transfer page on this PC. Connect the iPhone or Mac to the same Wi-Fi, router, or hotspot, then scan the QR.',
+                            )
+                          : _t(
+                              'یک شبکه خصوصی و صفحه انتقال محلی می‌سازد؛ دستگاه اپل فقط به Safari نیاز دارد.',
+                              'Creates a private network and local transfer page; the Apple device only needs Safari.',
+                            ),
                     ),
                   ],
                 ),
@@ -250,12 +310,17 @@ class _QuickSendPageState extends State<QuickSendPage> {
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: blocked ? null : _startAppleWebTransfer,
-                icon: const Icon(Icons.wifi_tethering),
+                icon: Icon(isWindows ? Icons.qr_code_2 : Icons.wifi_tethering),
                 label: Text(
-                  _t(
-                    'ساخت هات‌اسپات خصوصی و شروع',
-                    'Create private hotspot and start',
-                  ),
+                  isWindows
+                      ? _t(
+                          'شروع انتقال وب و ساخت QR',
+                          'Start web transfer and create QR',
+                        )
+                      : _t(
+                          'ساخت هات‌اسپات خصوصی و شروع',
+                          'Create private hotspot and start',
+                        ),
                 ),
               ),
             )
@@ -278,6 +343,11 @@ class _QuickSendPageState extends State<QuickSendPage> {
                   label: Text(
                     service.managedHotspot
                         ? _t('هات‌اسپات خودکار', 'Automatic hotspot')
+                        : isWindows
+                        ? _t(
+                            'شبکه مشترک / هات‌اسپات Windows',
+                            'Shared network / Windows hotspot',
+                          )
                         : _t(
                             'هات‌اسپات دستی / Wi-Fi',
                             'Manual hotspot / Wi-Fi',
@@ -335,17 +405,30 @@ class _QuickSendPageState extends State<QuickSendPage> {
             ] else ...[
               const SizedBox(height: 12),
               Text(
-                _t(
-                  'هات‌اسپات خودکار روی این دستگاه شروع نشد. هات‌اسپات Android را روشن کنید یا هر دو دستگاه را روی یک Wi-Fi قرار دهید؛ آدرس‌ها خودکار به‌روزرسانی می‌شوند.',
-                  'The automatic hotspot could not start on this device. Turn on Android hotspot settings or put both devices on the same Wi-Fi; addresses update automatically.',
-                ),
+                isWindows
+                    ? _t(
+                        'کامپیوتر و دستگاه اپل را به یک مودم یا Wi-Fi وصل کنید، یا Mobile hotspot ویندوز را روشن و دستگاه اپل را به آن متصل کنید. آدرس‌های قابل‌دسترسی به‌صورت خودکار به‌روزرسانی می‌شوند.',
+                        'Connect this PC and the Apple device to the same router or Wi-Fi, or enable Windows Mobile hotspot and join it from the Apple device. Reachable addresses update automatically.',
+                      )
+                    : _t(
+                        'هات‌اسپات خودکار روی این دستگاه شروع نشد. هات‌اسپات Android را روشن کنید یا هر دو دستگاه را روی یک Wi-Fi قرار دهید؛ آدرس‌ها خودکار به‌روزرسانی می‌شوند.',
+                        'The automatic hotspot could not start on this device. Turn on Android hotspot settings or put both devices on the same Wi-Fi; addresses update automatically.',
+                      ),
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _openWebTransferHotspotSettings,
                 icon: const Icon(Icons.settings_outlined),
                 label: Text(
-                  _t('باز کردن تنظیمات هات‌اسپات', 'Open hotspot settings'),
+                  isWindows
+                      ? _t(
+                          'باز کردن Mobile hotspot ویندوز',
+                          'Open Windows Mobile hotspot',
+                        )
+                      : _t(
+                          'باز کردن تنظیمات هات‌اسپات',
+                          'Open hotspot settings',
+                        ),
                 ),
               ),
             ],
@@ -364,10 +447,15 @@ class _QuickSendPageState extends State<QuickSendPage> {
             const SizedBox(height: 10),
             if (service.primaryUrl.isEmpty)
               ServiceLockNotice(
-                message: _t(
-                  'منتظر آدرس شبکه هستیم. پس از روشن شدن هات‌اسپات چند ثانیه صبر کنید.',
-                  'Waiting for a network address. Allow a few seconds after enabling the hotspot.',
-                ),
+                message: isWindows
+                    ? _t(
+                        'هنوز آدرس شبکه محلی پیدا نشده است. اتصال Wi-Fi، Ethernet یا Mobile hotspot را بررسی کنید.',
+                        'No local-network address is available yet. Check Wi-Fi, Ethernet, or Mobile hotspot connectivity.',
+                      )
+                    : _t(
+                        'منتظر آدرس شبکه هستیم. پس از روشن شدن هات‌اسپات چند ثانیه صبر کنید.',
+                        'Waiting for a network address. Allow a few seconds after enabling the hotspot.',
+                      ),
                 icon: Icons.hourglass_top_outlined,
               )
             else ...[
@@ -1731,6 +1819,15 @@ class _QuickSendPageState extends State<QuickSendPage> {
         selectedText: _selectedText,
       );
       if (!mounted || widget.deviceVpnActive) {
+        return;
+      }
+      if (Platform.isWindows) {
+        _notice(
+          _t(
+            'صفحه انتقال وب آماده است؛ دستگاه اپل را به همان شبکه وصل و QR را اسکن کنید.',
+            'The web transfer page is ready. Join the same network from the Apple device and scan the QR.',
+          ),
+        );
         return;
       }
       if (automaticHotspot) {

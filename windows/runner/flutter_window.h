@@ -25,6 +25,13 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  static LRESULT CALLBACK DropTargetWindowProc(HWND window,
+                                               UINT const message,
+                                               WPARAM const wparam,
+                                               LPARAM const lparam) noexcept;
+  void ConfigureDropTarget(HWND window);
+  void HandleDroppedFiles(WPARAM drop_handle);
+
   // The project to run.
   flutter::DartProject project_;
 
@@ -33,6 +40,9 @@ class FlutterWindow : public Win32Window {
 
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       method_channel_;
+
+  HWND flutter_view_window_ = nullptr;
+  WNDPROC original_flutter_view_window_proc_ = nullptr;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

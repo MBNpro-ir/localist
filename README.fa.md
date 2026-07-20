@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.2-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.3-blue"></a>
 </p>
 
 ## راهنمای کاربران
@@ -31,6 +31,7 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 - صفحه Sharing تعداد و مشخصات دستگاه‌های Localist متصل را نشان می‌دهد.
 - Quick Send فایل، رسانه، متن Clipboard، متن تایپی یا یک پوشه کامل را انتخاب و منتقل می‌کند و با پروتکل LocalSend v2.1 و مسیرهای قدیمی v1 سازگار است.
 - Android می‌تواند یک Local-only Hotspot و صفحه انتقال مرورگری محافظت‌شده با Token بسازد تا بدون نصب Localist روی دستگاه اپل، فایل به‌صورت دوطرفه با iPhone، iPad و Mac جابه‌جا شود.
+- Windows نیز همین صفحه انتقال مرورگری محافظت‌شده با Token را روی Wi-Fi، Ethernet، مودم یا Windows Mobile Hotspot اجرا می‌کند و QR ورود مستقیم را برای iPhone، iPad و Mac نشان می‌دهد.
 - زبان فارسی و انگلیسی، تم روشن و تیره، رنگ پویا در اندروید و رنگ Accent ویندوز پشتیبانی می‌شوند.
 
 ### دانلود و نصب
@@ -68,11 +69,13 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 3. روی یک مقصد بزنید؛ یا روی دستگاه‌ها نگه دارید تا چند مقصد انتخاب شوند و انتقال هم‌زمان انجام شود.
 4. اگر Quick Save فعال نیست، درخواست را روی دستگاه دریافت‌کننده تأیید کنید.
 
-در Android می‌توانید از منوی Share برنامه‌های دیگر، **Localist** را انتخاب کنید تا فایل‌ها خودکار در Quick Send آماده شوند. در Windows نیز Drag & Drop پشتیبانی می‌شود. جلوی فایل‌های دریافت‌شده Android گزینه‌های **Share again** و **Open file** قرار دارند. دکمه پوشه کنار عنوان **Transfers**، پوشه اصلی `/Localist` را فقط برای مشاهده در فایل‌منیجر باز می‌کند و دیگر از کاربر نمی‌خواهد اجازه «Use this folder» بدهد. گزینه Share again از کاربر می‌پرسد فایل دوباره داخل Localist انتخاب شود یا منوی Share سیستم Android برای برنامه‌های دیگر باز شود. در Windows گزینه‌های بازکردن پوشه و فایل هر انتقال همچنان در دسترس هستند.
+در Android می‌توانید از منوی Share برنامه‌های دیگر، **Localist** را انتخاب کنید تا فایل‌ها خودکار در Quick Send آماده شوند. در Windows می‌توانید فایل یا پوشه را روی هر قسمت پنجره Localist رها کنید؛ Quick Send خودکار باز می‌شود و موارد Drop‌شده انتخاب‌شده باقی می‌مانند. جلوی فایل‌های دریافت‌شده Android گزینه‌های **Share again** و **Open file** قرار دارند. دکمه پوشه کنار عنوان **Transfers**، پوشه اصلی `/Localist` را فقط برای مشاهده در فایل‌منیجر باز می‌کند و دیگر از کاربر نمی‌خواهد اجازه «Use this folder» بدهد. گزینه Share again از کاربر می‌پرسد فایل دوباره داخل Localist انتخاب شود یا منوی Share سیستم Android برای برنامه‌های دیگر باز شود. در Windows گزینه‌های بازکردن پوشه و فایل هر انتقال همچنان در دسترس هستند.
 
 برای اتصال دستی Quick Send، در دستگاه مقصد Quick Send را باز کنید و یکی از IPهای بخش **آدرس اتصال دستی این دستگاه** را کپی کنید. در دستگاه فرستنده کنار **Nearby devices** روی **+** بزنید و همان IP را همراه پورت و حالت HTTP/HTTPS نمایش‌داده‌شده در مقصد وارد کنید. هر دو دستگاه باید روی یک Wi-Fi یا Hotspot مشترک باشند و VPN آن‌ها خاموش باشد.
 
-برای iPhone، iPad یا Mac از کارت **Send to iPhone or Mac** بین Selection و Nearby Devices استفاده کنید:
+برای iPhone، iPad یا Mac از کارت **Send to iPhone or Mac** بین Selection و Nearby Devices استفاده کنید.
+
+در Android:
 
 1. سرویس هات‌اسپات خصوصی را شروع کنید.
 2. QR شبکه Wi-Fi را با دستگاه اپل اسکن کنید. نداشتن اینترنت در این شبکه طبیعی و عمدی است.
@@ -80,6 +83,13 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 4. فایل‌های انتخاب‌شده در Localist را دانلود کنید یا فایل‌های دستگاه اپل را به پوشه دریافت Android بفرستید. فایل و متنی که پس از بازشدن Safari انتخاب می‌شود، بدون Refresh صفحه به‌صورت خودکار نمایش داده خواهد شد.
 
 ممکن است سازنده دستگاه، سیاست Administrator یا روشن بودن Tethering دیگر، Local-only Hotspot خودکار را رد کند. در این حالت Localist وب‌سرور را فعال نگه می‌دارد، تنظیمات Hotspot سیستم را باز می‌کند و آدرس‌های شبکه را خودکار تازه می‌کند.
+
+در Windows:
+
+1. کامپیوتر و دستگاه اپل را به یک Wi-Fi/مودم وصل کنید؛ یا **Windows Mobile hotspot** را روشن و دستگاه اپل را به آن متصل کنید.
+2. فایل، متن یا پوشه Drop‌شده را انتخاب و روی **Start web transfer and create QR** بزنید.
+3. QR صفحه انتقال را با دوربین دستگاه اپل اسکن کنید یا یکی از آدرس‌های محلی نمایش‌داده‌شده را در Safari وارد کنید.
+4. فایل‌های Windows را دانلود کنید یا فایل‌های Apple را به مسیر دریافت Quick Send بفرستید. با تغییر انتخاب‌ها در Windows، صفحه مرورگر خودکار به‌روزرسانی می‌شود.
 
 دکمه Refresh کشف Multicast، Broadcast مستقیم و اسکن فعال Subnet را روی رابط‌های مجاز Wi-Fi، Ethernet، Hotspot و USB Tethering تکرار می‌کند. کابل USB در حالت فقط شارژ شبکه IP ایجاد نمی‌کند؛ برای انتقال از کابل، USB Tethering را فعال کنید.
 
@@ -99,7 +109,7 @@ Quick Save فایل‌ها را بدون سؤال می‌پذیرد؛ آن را 
 | پلتفرم | Sharing | Receiving | Quick Send |
 | --- | --- | --- | --- |
 | Android | پروکسی HTTP/SOCKS5، مسیر Hotspot/Manual و Root Routing اختیاری | Android VPN یا Local Proxy | ارسال و دریافت فایل/پیام و پل محلی Safari برای دستگاه اپل |
-| Windows | پروکسی HTTP/SOCKS5 و Upstream اختیاری v2rayN | VPN با Wintun، System Proxy یا Local Proxy | ارسال و دریافت فایل/پیام |
+| Windows | پروکسی HTTP/SOCKS5 و Upstream اختیاری v2rayN | VPN با Wintun، System Proxy یا Local Proxy | ارسال و دریافت فایل/پیام، Drag & Drop و پل محلی Safari برای دستگاه اپل |
 
 حالت VPN ویندوز به دسترسی Administrator و فایل‌های `tun2socks.exe` و `wintun.dll` نیاز دارد. بدون این ابزارها همچنان می‌توان از System Proxy یا Local Proxy استفاده کرد.
 
@@ -207,7 +217,8 @@ git push origin "v$version"
 - Quick Send برای هر رابط مجاز Listener جدا می‌سازد، اعلان را از IP واقعی همان رابط می‌فرستد، سپس از Broadcast مستقیم و اسکن هم‌زمان و محدود `/24` استفاده می‌کند؛ Discovery هیچ‌وقت از `0.0.0.0` ارسال نمی‌شود.
 - در Android پردازش Localist برای ایمنی Control Plane از TUN خودش مستثنا می‌ماند، اما Quick Send هنگام فعال بودن هر VPN عمداً HTTP/UDP خود را می‌بندد و فقط بعد از خاموش شدن VPN دوباره آن‌ها را راه‌اندازی می‌کند.
 - Quick Send، Token و Source Address آپلود را بررسی می‌کند، اندازه Metadata را محدود می‌کند، ساختار امن پوشه را حفظ و تلاش برای Path Traversal را پاک‌سازی می‌کند و Session بدون فعالیت را منقضی می‌کند.
-- پل Apple/Mac از `LocalOnlyHotspot` اندروید، QR جدا برای Wi-Fi و صفحه مرورگر، URL دارای Token تصادفی، آپلود Multipart استریم‌شده و همان سیاست دسته‌بندی پوشه دریافت استفاده می‌کند. اگر سیستم Local-only Hotspot را رد کند، Hotspot دستی یا Wi-Fi مشترک به‌عنوان مسیر جایگزین استفاده می‌شود.
+- پل Apple/Mac از URL دارای Token تصادفی، آپلود Multipart استریم‌شده و همان سیاست دسته‌بندی پوشه دریافت استفاده می‌کند. Android علاوه بر آن می‌تواند `LocalOnlyHotspot` و QR جدا برای Wi-Fi و صفحه مرورگر بسازد؛ Windows نیز QR مرورگر را روی رابط‌های مجاز Wi-Fi، Ethernet، مودم یا Mobile Hotspot ارائه می‌کند و رابط‌های مجازی/VPN را کنار می‌گذارد.
+- Runner ویندوز هم پنجره اصلی و هم سطح Flutter را به‌عنوان Drop Target ثبت می‌کند، پیام‌های لازم UIPI را برای اجرای Administrator می‌پذیرد و فایل‌های Drop‌شده را تا آماده‌شدن Quick Send در صف نگه می‌دارد.
 - Job ویندوز قبل از Build، فایل‌های امضاشده Wintun و Runtime مربوط به tun2socks را دریافت می‌کند.
 
 ### مجوز و Attribution

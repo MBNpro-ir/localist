@@ -547,6 +547,12 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     return;
   }
 
+  if (method == "openHotspotSettings") {
+    result->Success(
+        EncodableValue(OpenUri(window, "ms-settings:network-mobilehotspot")));
+    return;
+  }
+
   if (method == "startWindowsUpdate") {
     const bool started = StartWindowsUpdate(window, arguments);
     result->Success(EncodableValue(started));

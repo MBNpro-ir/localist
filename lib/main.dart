@@ -782,7 +782,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _openQuickSendForPendingSharedFiles() async {
-    if (!Platform.isAndroid) {
+    if (!Platform.isAndroid && !Platform.isWindows) {
       return;
     }
     try {

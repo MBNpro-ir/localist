@@ -298,7 +298,7 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          Localist v${APP_VERSION} fixes Android updater compatibility, improves manual Quick Send guidance, and corrects received-file actions.
+          Localist v${APP_VERSION} brings QR-based Apple/Mac browser transfer to Windows and repairs native Windows drag and drop.
 
           ## Changes
 
@@ -306,9 +306,12 @@ jobs:
           - Selects a reachable Sharing address automatically and keeps the intended device identity pinned.
           - Adds File, Media, Paste, Text, and Folder choices to Quick Send.
           - Adds long-press multi-device selection and concurrent delivery with an in-app tip.
-          - Adds an Android Apple/Mac transfer card with local-only hotspot setup, Wi-Fi and browser QR codes, and two-way Safari file transfer.
+          - Adds an Android and Windows Apple/Mac transfer card with browser QR codes and two-way Safari file transfer.
           - Adds a fallback for a user-managed hotspot or the current shared Wi-Fi network when Android cannot start a local-only hotspot.
-          - Automatically updates the open Safari/Mac transfer page when Android files or shared text change.
+          - Automatically updates the open Safari/Mac transfer page when Localist files or shared text change.
+          - Hosts the token-protected browser transfer page from Windows over Wi-Fi, Ethernet, a router, or Windows Mobile Hotspot.
+          - Opens Windows Mobile Hotspot settings directly and prioritizes reachable LAN adapters over virtual or VPN interfaces.
+          - Repairs Windows drag and drop by registering the Flutter child window, allowing the required elevated-window messages, and queuing dropped files or folders until Quick Send is ready.
           - Detects Android updater architecture through native and runtime ABI information and accepts normalized ARM ABI aliases.
           - Verifies APK v2 signatures, rejects debug certificates, and validates ZIP alignment before publishing Android assets.
           - Shows copyable destination IP addresses and an in-dialog guide for manual Quick Send connections.

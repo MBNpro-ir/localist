@@ -155,30 +155,41 @@ class AppleWebTransferService extends ChangeNotifier {
     LocalOnlyHotspotInfo hotspotInfo = const LocalOnlyHotspotInfo.unsupported();
     try {
       await _quickSend.initialize();
-      final permissionGranted = await _ensureHotspotPermission();
-      if (permissionGranted) {
-        hotspotInfo = await _bridge.startLocalOnlyHotspot();
+      if (Platform.isAndroid) {
+        final permissionGranted = await _ensureHotspotPermission();
+        if (permissionGranted) {
+          hotspotInfo = await _bridge.startLocalOnlyHotspot();
+        } else {
+          _errorMessage =
+              'Nearby Wi-Fi permission was not granted. Use the Android hotspot settings instead.';
+        }
+        if (_cancelStart) {
+          if (hotspotInfo.active) {
+            await _bridge.stopLocalOnlyHotspot();
+          }
+          return false;
+        }
+
+        _managedHotspot = hotspotInfo.active && hotspotInfo.managed;
+        _manualHotspotRequired = !_managedHotspot;
+        _hotspotSsid = hotspotInfo.ssid;
+        _hotspotPassword = hotspotInfo.password;
+        _preferredAddresses = [
+          hotspotInfo.primaryAddress,
+          ...hotspotInfo.addresses,
+        ].where((value) => value.trim().isNotEmpty).toSet().toList();
+        if (!_managedHotspot && hotspotInfo.message.isNotEmpty) {
+          _errorMessage = hotspotInfo.message;
+        }
       } else {
-        _errorMessage =
-            'Nearby Wi-Fi permission was not granted. Use the Android hotspot settings instead.';
+        _managedHotspot = false;
+        _manualHotspotRequired = false;
+        _hotspotSsid = '';
+        _hotspotPassword = '';
+        _preferredAddresses = const [];
       }
       if (_cancelStart) {
-        if (hotspotInfo.active) {
-          await _bridge.stopLocalOnlyHotspot();
-        }
         return false;
-      }
-
-      _managedHotspot = hotspotInfo.active && hotspotInfo.managed;
-      _manualHotspotRequired = !_managedHotspot;
-      _hotspotSsid = hotspotInfo.ssid;
-      _hotspotPassword = hotspotInfo.password;
-      _preferredAddresses = [
-        hotspotInfo.primaryAddress,
-        ...hotspotInfo.addresses,
-      ].where((value) => value.trim().isNotEmpty).toSet().toList();
-      if (!_managedHotspot && hotspotInfo.message.isNotEmpty) {
-        _errorMessage = hotspotInfo.message;
       }
 
       _sessionToken = _randomToken(length: 18);
@@ -217,6 +228,8 @@ class AppleWebTransferService extends ChangeNotifier {
       _active = true;
       _statusMessage = _managedHotspot
           ? 'Private hotspot and browser transfer are ready.'
+          : Platform.isWindows
+          ? 'Browser transfer is ready on this Windows PC.'
           : 'Browser transfer is ready; turn on a hotspot or use the current Wi-Fi network.';
       await _refreshAddresses();
       _addressRefreshTimer = Timer.periodic(
@@ -311,15 +324,16 @@ class AppleWebTransferService extends ChangeNotifier {
     } catch (error) {
       _logs.debug('Web transfer address refresh skipped: $error');
     }
-    found.sort(
-      (a, b) => _interfacePriority(
+    found.sort((a, b) {
+      final priority = _interfacePriority(
         a.interfaceName,
-      ).compareTo(_interfacePriority(b.interfaceName)),
-    );
+      ).compareTo(_interfacePriority(b.interfaceName));
+      return priority != 0 ? priority : a.address.compareTo(b.address);
+    });
     final next = <String>{
       ..._preferredAddresses.where(_isPrivateIpv4),
       ...found.map((entry) => entry.address),
-    }.toList(growable: false);
+    }.take(8).toList(growable: false);
     if (!listEquals(next, _addresses)) {
       _addresses = next;
       notifyListeners();
@@ -730,6 +744,17 @@ class AppleWebTransferService extends ChangeNotifier {
     );
   }
 
+  @visibleForTesting
+  static bool isUsableNetworkAddress(String value) => _isPrivateIpv4(value);
+
+  @visibleForTesting
+  static bool isIgnoredNetworkInterface(String value) =>
+      _isIgnoredInterface(value);
+
+  @visibleForTesting
+  static int networkInterfacePriority(String value) =>
+      _interfacePriority(value);
+
   static String _multipartFilename(String disposition) {
     final extended = RegExp(
       r'''filename\*=(?:UTF-8'')?([^;]+)''',
@@ -775,8 +800,7 @@ class AppleWebTransferService extends ChangeNotifier {
     final second = parts[1]!;
     return first == 10 ||
         (first == 172 && second >= 16 && second <= 31) ||
-        (first == 192 && second == 168) ||
-        (first == 169 && second == 254);
+        (first == 192 && second == 168);
   }
 
   static bool _isIgnoredInterface(String value) {
@@ -789,12 +813,28 @@ class AppleWebTransferService extends ChangeNotifier {
         name.startsWith('rmnet') ||
         name.startsWith('ccmni') ||
         name.startsWith('pdp') ||
-        name.contains('loopback');
+        name.contains('loopback') ||
+        name.contains('vethernet') ||
+        name.contains('hyper-v') ||
+        name.contains('virtualbox') ||
+        name.contains('vmware') ||
+        name.contains('docker') ||
+        name.contains('wsl') ||
+        name.contains('tailscale') ||
+        name.contains('zerotier') ||
+        name.contains('hamachi') ||
+        name.contains('wireguard') ||
+        name.contains('wintun') ||
+        name.contains('openvpn') ||
+        name.contains('vpn');
   }
 
   static int _interfacePriority(String value) {
     final name = value.toLowerCase();
-    if (name.contains('softap') || name.startsWith('ap')) {
+    if (name.contains('softap') ||
+        name.contains('mobile hotspot') ||
+        name.contains('local area connection') ||
+        name.startsWith('ap')) {
       return 0;
     }
     if (name.contains('wlan') ||

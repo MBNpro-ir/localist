@@ -83,6 +83,38 @@ void main() {
     );
   });
 
+  test('Apple web transfer prioritizes real Windows LAN adapters', () {
+    expect(
+      AppleWebTransferService.networkInterfacePriority(
+        'Local Area Connection* 12',
+      ),
+      0,
+    );
+    expect(
+      AppleWebTransferService.networkInterfacePriority('Wi-Fi'),
+      lessThan(AppleWebTransferService.networkInterfacePriority('Ethernet')),
+    );
+    expect(
+      AppleWebTransferService.isIgnoredNetworkInterface(
+        'vEthernet (Default Switch)',
+      ),
+      isTrue,
+    );
+    expect(
+      AppleWebTransferService.isIgnoredNetworkInterface('Tailscale'),
+      isTrue,
+    );
+    expect(AppleWebTransferService.isIgnoredNetworkInterface('Wi-Fi'), isFalse);
+    expect(
+      AppleWebTransferService.isUsableNetworkAddress('192.168.137.1'),
+      isTrue,
+    );
+    expect(
+      AppleWebTransferService.isUsableNetworkAddress('169.254.1.20'),
+      isFalse,
+    );
+  });
+
   test('Android local-only hotspot details are decoded safely', () {
     final info = LocalOnlyHotspotInfo.fromMap({
       'supported': true,
@@ -102,6 +134,30 @@ void main() {
     expect(info.ssid, 'Localist_42');
     expect(info.addresses, ['192.168.43.1', '192.168.137.1']);
   });
+
+  test(
+    'native dropped files remain queued until Quick Send consumes them',
+    () async {
+      final bridge = NativeBridgeService.instance;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      await messenger.handlePlatformMessage(
+        'com.prs.localist.vpn',
+        const StandardMethodCodec().encodeMethodCall(
+          const MethodCall('quickSendSharedFiles', [
+            {'path': r'C:\Drop\photo.jpg', 'name': 'photo.jpg'},
+          ]),
+        ),
+        (_) {},
+      );
+
+      expect(await bridge.hasQuickSendSharedFiles(), isTrue);
+      final files = await bridge.takeQuickSendSharedFiles();
+      expect(files, hasLength(1));
+      expect(files.single.path, r'C:\Drop\photo.jpg');
+      expect(await bridge.hasQuickSendSharedFiles(), isFalse);
+    },
+  );
 
   test('Quick Send preserves a legacy custom receive destination', () async {
     SharedPreferences.setMockInitialValues({
@@ -231,6 +287,10 @@ void main() {
       );
       expect(automatic, isFalse);
       expect(service.active, isTrue);
+      if (Platform.isWindows) {
+        expect(service.errorMessage, isEmpty);
+        expect(service.statusMessage, contains('Windows'));
+      }
 
       final homeResponse = await _rawHttpRequest(service.loopbackTestUri);
       expect(homeResponse.status, HttpStatus.ok);
