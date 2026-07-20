@@ -270,7 +270,7 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          Localist v${APP_VERSION} improves Smart VPN sharing and makes Quick Send discovery, selection, and multi-device delivery more reliable while keeping the existing Localist interface.
+          Localist v${APP_VERSION} adds browser-based transfer with Apple devices and improves received-file actions while keeping the existing Localist interface.
 
           ## Changes
 
@@ -278,6 +278,12 @@ jobs:
           - Selects a reachable Sharing address automatically and keeps the intended device identity pinned.
           - Adds File, Media, Paste, Text, and Folder choices to Quick Send.
           - Adds long-press multi-device selection and concurrent delivery with an in-app tip.
+          - Adds an Android Apple/Mac transfer card with local-only hotspot setup, Wi-Fi and browser QR codes, and two-way Safari file transfer.
+          - Adds a fallback for a user-managed hotspot or the current shared Wi-Fi network when Android cannot start a local-only hotspot.
+          - Shows a red VPN warning and pauses Quick Send networking while an incompatible VPN connection is active.
+          - Lets Android users either reselect a received file inside Quick Send or send it through the system share sheet.
+          - Fixes opening the received-file folder through Android's document provider.
+          - Removes the duplicated file-size label from received transfers.
           - Improves discovery on Wi-Fi, Ethernet, hotspot, and USB tethering with per-interface multicast, directed broadcast, and active subnet registration scans.
           - Keeps Localist's own discovery and transfer traffic on the underlying Android LAN while its VPN is active.
           - Removes invalid 0.0.0.0 discovery sends and advertises the real Android phone model instead of localhost.
