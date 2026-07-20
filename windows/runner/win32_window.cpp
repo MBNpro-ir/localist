@@ -18,10 +18,10 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 constexpr DWORD kWindowStyle =
-    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME;
-constexpr unsigned int kFixedClientWidth = 440;
-constexpr unsigned int kMinClientHeight = 680;
-constexpr unsigned int kMaxClientHeight = 8192;
+    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
+    WS_MAXIMIZEBOX | WS_THICKFRAME;
+constexpr unsigned int kMinClientWidth = 360;
+constexpr unsigned int kMinClientHeight = 560;
 
 /// Registry key for app theme preference.
 ///
@@ -218,15 +218,10 @@ Win32Window::MessageHandler(HWND hwnd,
       UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
       double scale_factor = dpi / 96.0;
       RECT minimum =
-          GetAdjustedWindowBounds(Size(kFixedClientWidth, kMinClientHeight),
-                                  scale_factor);
-      RECT maximum =
-          GetAdjustedWindowBounds(Size(kFixedClientWidth, kMaxClientHeight),
+          GetAdjustedWindowBounds(Size(kMinClientWidth, kMinClientHeight),
                                   scale_factor);
       min_max_info->ptMinTrackSize.x = minimum.right - minimum.left;
       min_max_info->ptMinTrackSize.y = minimum.bottom - minimum.top;
-      min_max_info->ptMaxTrackSize.x = maximum.right - maximum.left;
-      min_max_info->ptMaxTrackSize.y = maximum.bottom - maximum.top;
       return 0;
     }
     case WM_SIZE: {

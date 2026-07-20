@@ -32,38 +32,44 @@ class LogsSheet extends StatelessWidget {
       builder: (context, scrollController) {
         return SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: _OpaqueSheetSurface(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 14, 10, 10),
-                    child: Row(
-                      children: [
-                        Icon(Icons.subject_outlined, color: scheme.primary),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            l10n.logs,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 920),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: _OpaqueSheetSurface(
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 14, 10, 10),
+                        child: Row(
+                          children: [
+                            Icon(Icons.subject_outlined, color: scheme.primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                l10n.logs,
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: l10n.close,
+                              onPressed: onClose,
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
                         ),
-                        IconButton(
-                          tooltip: l10n.close,
-                          onPressed: onClose,
-                          icon: const Icon(Icons.close),
+                      ),
+                      Expanded(
+                        child: _LogsBody(
+                          pageMode: false,
+                          scrollController: scrollController,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    child: _LogsBody(
-                      pageMode: false,
-                      scrollController: scrollController,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

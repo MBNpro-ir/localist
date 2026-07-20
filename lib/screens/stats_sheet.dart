@@ -203,49 +203,59 @@ class _StatsSheetState extends State<StatsSheet> {
       builder: (context, scrollController) {
         return SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: _OpaqueSheetSurface(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 14, 10, 10),
-                    child: Row(
-                      children: [
-                        Icon(Icons.query_stats, color: scheme.primary),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l10n.stats,
-                                style: Theme.of(context).textTheme.titleLarge,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 920),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: _OpaqueSheetSurface(
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 14, 10, 10),
+                        child: Row(
+                          children: [
+                            Icon(Icons.query_stats, color: scheme.primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    l10n.stats,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleLarge,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    running ? title : l10n.idle,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                running ? title : l10n.idle,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
+                            ),
+                            IconButton(
+                              tooltip: l10n.closeStats,
+                              onPressed: widget.onClose,
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
                         ),
-                        IconButton(
-                          tooltip: l10n.closeStats,
-                          onPressed: widget.onClose,
-                          icon: const Icon(Icons.close),
+                      ),
+                      Expanded(
+                        child: ListView(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          children: sections,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    child: ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      children: sections,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -278,7 +288,13 @@ class _StatsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 300 ? 2 : 1;
+        final columns = constraints.maxWidth >= 720
+            ? 4
+            : constraints.maxWidth >= 520
+            ? 3
+            : constraints.maxWidth >= 300
+            ? 2
+            : 1;
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),

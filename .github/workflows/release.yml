@@ -296,45 +296,21 @@ jobs:
       - name: Create release notes
         run: |
           cat > RELEASE_NOTES.md <<EOF
-          # Localist v${APP_VERSION}
+          ✨ Makes the Windows app fully resizable, maximizable, and responsive.
 
-          Localist v${APP_VERSION} brings QR-based Apple/Mac browser transfer to Windows and repairs native Windows drag and drop.
+          ## ✨ Highlights
 
-          ## Changes
+          - 🪟 Removes the fixed-width Windows window lock and enables standard maximize behavior.
+          - ↔️ Adapts Localist smoothly from compact windows to large screens with responsive density, sizing, and spacing.
+          - 🧭 Replaces the bottom navigation with a compact or expanded side rail on wider Windows layouts.
+          - 🧩 Arranges page content in a focused single column or balanced two-column layout when space permits.
+          - 📤 Makes Quick Send selection, completed-transfer actions, logs, statistics, and settings comfortable at every window size.
 
-          - Uses one Smart QR/configuration for Android-to-Android and Android-to-Windows handoff; iPhone/Xray configurations remain separate for every advertised IP.
-          - Selects a reachable Sharing address automatically and keeps the intended device identity pinned.
-          - Adds File, Media, Paste, Text, and Folder choices to Quick Send.
-          - Adds long-press multi-device selection and concurrent delivery with an in-app tip.
-          - Adds an Android and Windows Apple/Mac transfer card with browser QR codes and two-way Safari file transfer.
-          - Adds a fallback for a user-managed hotspot or the current shared Wi-Fi network when Android cannot start a local-only hotspot.
-          - Automatically updates the open Safari/Mac transfer page when Localist files or shared text change.
-          - Hosts the token-protected browser transfer page from Windows over Wi-Fi, Ethernet, a router, or Windows Mobile Hotspot.
-          - Opens Windows Mobile Hotspot settings directly and prioritizes reachable LAN adapters over virtual or VPN interfaces.
-          - Repairs Windows drag and drop by registering the Flutter child window, allowing the required elevated-window messages, and queuing dropped files or folders until Quick Send is ready.
-          - Detects Android updater architecture through native and runtime ABI information and accepts normalized ARM ABI aliases.
-          - Verifies APK v2 signatures, rejects debug certificates, and validates ZIP alignment before publishing Android assets.
-          - Shows copyable destination IP addresses and an in-dialog guide for manual Quick Send connections.
-          - Restores the Android Open file action for completed receives.
-          - Opens the main Localist receive folder with view-only file-manager intents and never launches the folder-access permission picker.
-          - Shows a red VPN warning and pauses Quick Send networking while an incompatible VPN connection is active.
-          - Lets Android users either reselect a received file inside Quick Send or send it through the system share sheet.
-          - Fixes opening the received-file folder through Android's document provider.
-          - Removes the duplicated file-size label from received transfers.
-          - Improves discovery on Wi-Fi, Ethernet, hotspot, and USB tethering with per-interface multicast, directed broadcast, and active subnet registration scans.
-          - Keeps Localist's own discovery and transfer traffic on the underlying Android LAN while its VPN is active.
-          - Removes invalid 0.0.0.0 discovery sends and advertises the real Android phone model instead of localhost.
-          - Saves Android receives under /Localist by default, grouped into media/document/archive/app categories, while preserving custom destinations.
-          - Preserves safe relative folder paths and rejects path traversal during receive.
-          - Keeps LocalSend v2.1 and legacy v1 compatibility, HTTPS fingerprint checks, PIN protection, favorites, Quick Save, and transfer progress.
-          - Keeps the existing Localist light/dark and simple/glass visual styles.
-          - Windows can now download, install, restart, and confirm a new Localist version automatically.
+          ## 📦 Assets
 
-          ## Assets
-
-          - Android 32-bit APK
-          - Android 64-bit APK
-          - Windows 64-bit ZIP package
+          - 🤖 Android 32-bit APK.
+          - 🤖 Android 64-bit APK.
+          - 🪟 Windows 64-bit ZIP package.
           EOF
 
       - name: Publish or update release
@@ -347,17 +323,17 @@ jobs:
 
           if gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
-              --title "Localist v${APP_VERSION}" \
+              --title "🚀 Localist v${APP_VERSION}" \
               --notes-file RELEASE_NOTES.md \
               --repo "$GH_REPO"
           else
             gh release create "$RELEASE_TAG" \
               --target "$GITHUB_SHA" \
-              --title "Localist v${APP_VERSION}" \
+              --title "🚀 Localist v${APP_VERSION}" \
               --notes-file RELEASE_NOTES.md \
               --repo "$GH_REPO" || \
             gh release edit "$RELEASE_TAG" \
-              --title "Localist v${APP_VERSION}" \
+              --title "🚀 Localist v${APP_VERSION}" \
               --notes-file RELEASE_NOTES.md \
               --repo "$GH_REPO"
           fi

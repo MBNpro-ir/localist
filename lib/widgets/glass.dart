@@ -2,6 +2,9 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+const localistDesktopNavigationBreakpoint = 840.0;
+const localistExpandedNavigationBreakpoint = 1380.0;
+
 class LocalistVisualStyle extends InheritedWidget {
   const LocalistVisualStyle({
     super.key,
@@ -168,25 +171,92 @@ class PageSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final list = ScrollConfiguration(
-      behavior: const _StableScrollBehavior(),
-      child: ListView(
-        key: key,
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
-        children: [
-          for (final child in children)
-            RepaintBoundary(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: child,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final windowWidth = MediaQuery.sizeOf(context).width;
+        final desktopNavigation =
+            windowWidth >= localistDesktopNavigationBreakpoint;
+        final horizontalPadding = constraints.maxWidth < 420
+            ? 12.0
+            : constraints.maxWidth < 900
+            ? 18.0
+            : 24.0;
+        final usableWidth = constraints.maxWidth - (horizontalPadding * 2);
+        final useColumns = usableWidth >= 1000 && children.length > 2;
+        final maxContentWidth = useColumns ? 1400.0 : 760.0;
+        final bottomPadding = desktopNavigation ? 88.0 : 112.0;
+
+        Widget item(Widget child) {
+          return RepaintBoundary(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: child,
+            ),
+          );
+        }
+
+        Widget content;
+        if (!useColumns) {
+          content = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [for (final child in children) item(child)],
+          );
+        } else {
+          final left = <Widget>[];
+          final right = <Widget>[];
+          for (var index = 1; index < children.length; index++) {
+            (index.isOdd ? left : right).add(item(children[index]));
+          }
+          content = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              item(children.first),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: left,
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: right,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        }
+
+        final scrollView = ScrollConfiguration(
+          behavior: const _StableScrollBehavior(),
+          child: SingleChildScrollView(
+            key: key,
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              16,
+              horizontalPadding,
+              bottomPadding,
+            ),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxContentWidth),
+                child: content,
               ),
             ),
-        ],
-      ),
+          ),
+        );
+        return LocalistVisualStyle.simpleOf(context)
+            ? scrollView
+            : BackdropGroup(child: scrollView);
+      },
     );
-    return LocalistVisualStyle.simpleOf(context)
-        ? list
-        : BackdropGroup(child: list);
   }
 }
 

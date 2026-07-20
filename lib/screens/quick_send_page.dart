@@ -957,36 +957,55 @@ class _QuickSendPageState extends State<QuickSendPage> {
             ],
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _SelectionCard(
-                icon: Icons.description_outlined,
-                label: _t('فایل', 'File'),
-                onTap: _sending ? null : _pickFiles,
-              ),
-              _SelectionCard(
-                icon: Icons.image_outlined,
-                label: _t('رسانه', 'Media'),
-                onTap: _sending ? null : _pickMedia,
-              ),
-              _SelectionCard(
-                icon: Icons.content_paste_outlined,
-                label: _t('چسباندن', 'Paste'),
-                onTap: _sending ? null : _pasteClipboard,
-              ),
-              _SelectionCard(
-                icon: Icons.subject_outlined,
-                label: _t('متن', 'Text'),
-                onTap: _sending ? null : _composeText,
-              ),
-              _SelectionCard(
-                icon: Icons.folder_outlined,
-                label: _t('پوشه', 'Folder'),
-                onTap: _sending ? null : _pickFolder,
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 500
+                  ? 5
+                  : constraints.maxWidth >= 350
+                  ? 4
+                  : constraints.maxWidth >= 250
+                  ? 3
+                  : 2;
+              final cardWidth =
+                  ((constraints.maxWidth - ((columns - 1) * 8)) / columns)
+                      .clamp(72.0, 112.0)
+                      .toDouble();
+              final choices = [
+                _SelectionCard(
+                  icon: Icons.description_outlined,
+                  label: _t('فایل', 'File'),
+                  onTap: _sending ? null : _pickFiles,
+                ),
+                _SelectionCard(
+                  icon: Icons.image_outlined,
+                  label: _t('رسانه', 'Media'),
+                  onTap: _sending ? null : _pickMedia,
+                ),
+                _SelectionCard(
+                  icon: Icons.content_paste_outlined,
+                  label: _t('چسباندن', 'Paste'),
+                  onTap: _sending ? null : _pasteClipboard,
+                ),
+                _SelectionCard(
+                  icon: Icons.subject_outlined,
+                  label: _t('متن', 'Text'),
+                  onTap: _sending ? null : _composeText,
+                ),
+                _SelectionCard(
+                  icon: Icons.folder_outlined,
+                  label: _t('پوشه', 'Folder'),
+                  onTap: _sending ? null : _pickFolder,
+                ),
+              ];
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final choice in choices)
+                    SizedBox(width: cardWidth, child: choice),
+                ],
+              );
+            },
           ),
           if (Platform.isWindows) ...[
             const SizedBox(height: 10),
@@ -1113,8 +1132,8 @@ class _QuickSendPageState extends State<QuickSendPage> {
           ),
           const SizedBox(height: 8),
           for (final transfer in _service.transfers.take(12))
-            Builder(
-              builder: (context) {
+            LayoutBuilder(
+              builder: (context, constraints) {
                 final isReceivedFile =
                     transfer.direction == QuickSendDirection.receiving &&
                     transfer.path.isNotEmpty;
@@ -1122,6 +1141,28 @@ class _QuickSendPageState extends State<QuickSendPage> {
                     isReceivedFile &&
                     transfer.state == QuickSendTransferState.completed;
                 final sizeText = _transferSizeText(transfer);
+                final compactActions = constraints.maxWidth < 440;
+                final receivedFileActions = Wrap(
+                  spacing: 2,
+                  children: [
+                    IconButton(
+                      tooltip: _t('ارسال دوباره', 'Share again'),
+                      onPressed: () => _shareReceivedFile(transfer),
+                      icon: const Icon(Icons.ios_share_outlined),
+                    ),
+                    if (!Platform.isAndroid)
+                      IconButton(
+                        tooltip: _t('باز کردن پوشه', 'Open folder'),
+                        onPressed: () => _openReceivedFolder(transfer),
+                        icon: const Icon(Icons.folder_open_outlined),
+                      ),
+                    IconButton(
+                      tooltip: _t('باز کردن فایل', 'Open file'),
+                      onPressed: () => _openReceivedFile(transfer),
+                      icon: const Icon(Icons.open_in_new_outlined),
+                    ),
+                  ],
+                );
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(
@@ -1152,30 +1193,15 @@ class _QuickSendPageState extends State<QuickSendPage> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                      if (completedReceivedFile && compactActions)
+                        Align(
+                          alignment: AlignmentDirectional.centerEnd,
+                          child: receivedFileActions,
+                        ),
                     ],
                   ),
-                  trailing: completedReceivedFile
-                      ? Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: _t('ارسال دوباره', 'Share again'),
-                              onPressed: () => _shareReceivedFile(transfer),
-                              icon: const Icon(Icons.ios_share_outlined),
-                            ),
-                            if (!Platform.isAndroid)
-                              IconButton(
-                                tooltip: _t('باز کردن پوشه', 'Open folder'),
-                                onPressed: () => _openReceivedFolder(transfer),
-                                icon: const Icon(Icons.folder_open_outlined),
-                              ),
-                            IconButton(
-                              tooltip: _t('باز کردن فایل', 'Open file'),
-                              onPressed: () => _openReceivedFile(transfer),
-                              icon: const Icon(Icons.open_in_new_outlined),
-                            ),
-                          ],
-                        )
+                  trailing: completedReceivedFile && !compactActions
+                      ? receivedFileActions
                       : transfer.path.isEmpty &&
                             transfer.direction ==
                                 QuickSendDirection.receiving &&
@@ -1980,15 +2006,8 @@ class _SelectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final cardWidth = screenWidth >= 480
-        ? 96.0
-        : screenWidth >= 360
-        ? 82.0
-        : 72.0;
     return SizedBox(
-      width: cardWidth,
-      height: 78,
+      height: 76,
       child: Material(
         color: colors.secondaryContainer.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(18),
@@ -2093,8 +2112,8 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
         ),
         body: !_loaded
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            : PageSurface(
+                key: const PageStorageKey<String>('quick-send-settings-page'),
                 children: [
                   GlassPanel(
                     child: Column(
@@ -2133,7 +2152,6 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
                   GlassPanel(
                     child: Column(
                       children: [
@@ -2205,7 +2223,6 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
                   GlassPanel(
                     child: Column(
                       children: [
@@ -2259,7 +2276,6 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
                   FilledButton.icon(
                     onPressed: _saving ? null : _save,
                     icon: _saving
