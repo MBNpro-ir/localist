@@ -112,6 +112,7 @@ class MainActivity : FlutterActivity() {
                 "openUri" -> openUri(call, result)
                 "openFile" -> openFile(call, result)
                 "openContainingFolder" -> openContainingFolder(call, result)
+                "openLocalistFolder" -> openLocalistFolder(result)
                 "openHotspotSettings" -> openHotspotSettings(result)
                 "startLocalOnlyHotspot" -> startLocalOnlyHotspot(result)
                 "stopLocalOnlyHotspot" -> {
@@ -616,6 +617,20 @@ class MainActivity : FlutterActivity() {
             result.success(false)
             return
         }
+        openFolder(folder, result)
+    }
+
+    private fun openLocalistFolder(result: MethodChannel.Result) {
+        @Suppress("DEPRECATION")
+        val folder = File(Environment.getExternalStorageDirectory(), "Localist")
+        if (!folder.isDirectory && !folder.mkdirs()) {
+            result.success(false)
+            return
+        }
+        openFolder(folder, result)
+    }
+
+    private fun openFolder(folder: File, result: MethodChannel.Result) {
         runCatching {
             val initialUri = externalStorageDocumentUri(folder)
             val viewed = initialUri != null && runCatching {

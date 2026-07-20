@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.1-blue"></a>
 </p>
 
 ## User Guide
@@ -68,14 +68,14 @@ Turn off the device VPN before starting Quick Send. A red warning appears and al
 3. Tap a destination, or press and hold devices to select several recipients and send concurrently.
 4. Accept the request on the receiving device unless Quick Save is enabled.
 
-On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files can also be dragged onto the Quick Send window. Completed received files offer **Share again**, **Open folder**, and **Open file** actions. **Share again** asks whether to select the file inside Localist or open the Android system share sheet for other apps.
+On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files can also be dragged onto the Quick Send window. Completed Android receives keep the **Share again** action, while the folder button beside **Transfers** opens the main `/Localist` folder. **Share again** asks whether to select the file inside Localist or open the Android system share sheet for other apps. Windows retains the per-file open-folder and open-file actions.
 
 For an iPhone, iPad, or Mac, use the **Send to iPhone or Mac** card between Selection and Nearby Devices:
 
 1. Start the private hotspot service.
 2. Scan the Wi-Fi QR on the Apple device. The network intentionally has no internet access.
 3. Scan the separate transfer-page QR or enter its local address in Safari.
-4. Download the files selected in Localist, or upload one or more Apple files back to the Android receive folder.
+4. Download the files selected in Localist, or upload one or more Apple files back to the Android receive folder. Files and text selected after Safari opens appear automatically without reloading the page.
 
 Some manufacturers, administrators, or an already-running tethering mode can reject an automatic local-only hotspot. Localist keeps the browser server available, opens the system hotspot settings, and refreshes eligible Wi-Fi/hotspot addresses as a fallback.
 

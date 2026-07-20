@@ -380,6 +380,14 @@ class AppleWebTransferService extends ChangeNotifier {
         await _writeHomePage(request);
         return;
       }
+      if (segments.length == 2 && segments[1] == 'state') {
+        if (request.method != 'GET') {
+          response.statusCode = HttpStatus.methodNotAllowed;
+          return;
+        }
+        _writeSharedState(request);
+        return;
+      }
       if (segments.length == 2 && segments[1] == 'upload') {
         if (request.method != 'POST') {
           response.statusCode = HttpStatus.methodNotAllowed;
@@ -423,6 +431,27 @@ class AppleWebTransferService extends ChangeNotifier {
     );
     request.response.headers.contentType = ContentType.html;
     request.response.write(_homePageHtml(uploaded: uploaded));
+  }
+
+  void _writeSharedState(HttpRequest request) {
+    final payload = utf8.encode(
+      jsonEncode({
+        'files': [
+          for (final file in _sharedFiles.values)
+            {
+              'id': file.id,
+              'name': file.name,
+              'size': file.size,
+              'sizeLabel': _formatBytes(file.size),
+              'url': '/$_sessionToken/download/${file.id}',
+            },
+        ],
+        'text': _selectedText,
+      }),
+    );
+    request.response.headers.contentType = ContentType.json;
+    request.response.contentLength = payload.length;
+    request.response.add(payload);
   }
 
   Future<void> _sendSharedFile(HttpRequest request, String id) async {
@@ -530,10 +559,8 @@ class AppleWebTransferService extends ChangeNotifier {
                 '<span><strong>$name</strong><small>$size</small></span>'
                 '<b>Download</b></a>';
           }).join();
-    final selectedText = _selectedText.isEmpty
-        ? ''
-        : '<section><h2>Shared text</h2><pre>${_htmlEscape(_selectedText)}</pre>'
-              '</section>';
+    final selectedText = _htmlEscape(_selectedText);
+    final selectedTextHidden = _selectedText.isEmpty ? ' hidden' : '';
     return '''<!doctype html>
 <html lang="en">
 <head>
@@ -565,7 +592,8 @@ class AppleWebTransferService extends ChangeNotifier {
     input[type=file] { width:100%; margin-top:12px; }
     button { width:100%; border:0; border-radius:16px; padding:14px 18px; margin-top:14px;
       background:#6750a4; color:white; font:inherit; font-weight:800; cursor:pointer; }
-    button:disabled { opacity:.65; } pre { white-space:pre-wrap; overflow-wrap:anywhere;
+    button:disabled { opacity:.65; } [hidden] { display:none !important; }
+    pre { white-space:pre-wrap; overflow-wrap:anywhere;
       background:#f2ecf5; border-radius:14px; padding:14px; }
     footer { text-align:center; color:#69636d; font-size:13px; padding:10px; }
     @media (prefers-color-scheme:dark) {
@@ -588,9 +616,12 @@ class AppleWebTransferService extends ChangeNotifier {
   $status
   <section>
     <h2>Download from Android</h2>
-    $downloads
+    <div id="download-list" aria-live="polite">$downloads</div>
   </section>
-  $selectedText
+  <section id="shared-text-section"$selectedTextHidden>
+    <h2>Shared text</h2>
+    <pre id="shared-text">$selectedText</pre>
+  </section>
   <section>
     <h2>Send to Android</h2>
     <form action="/$_sessionToken/upload" method="post" enctype="multipart/form-data"
@@ -606,6 +637,74 @@ class AppleWebTransferService extends ChangeNotifier {
   </section>
   <footer>Keep Localist open until every transfer finishes.</footer>
 </main>
+<script>
+(function () {
+  const stateUrl = '/$_sessionToken/state';
+  const downloadList = document.getElementById('download-list');
+  const textSection = document.getElementById('shared-text-section');
+  const sharedText = document.getElementById('shared-text');
+  let lastSignature = '';
+
+  function renderDownloads(files) {
+    downloadList.textContent = '';
+    if (!files.length) {
+      const empty = document.createElement('p');
+      empty.className = 'muted';
+      empty.textContent = 'No Android files are selected yet. You can still send files to the Android device below.';
+      downloadList.appendChild(empty);
+      return;
+    }
+    files.forEach(function (file) {
+      const link = document.createElement('a');
+      link.className = 'file';
+      link.href = String(file.url || '#');
+
+      const label = document.createElement('span');
+      const name = document.createElement('strong');
+      name.textContent = String(file.name || 'File');
+      const size = document.createElement('small');
+      size.textContent = String(file.sizeLabel || '');
+      label.appendChild(name);
+      label.appendChild(size);
+
+      const action = document.createElement('b');
+      action.textContent = 'Download';
+      link.appendChild(label);
+      link.appendChild(action);
+      downloadList.appendChild(link);
+    });
+  }
+
+  function renderState(state) {
+    const files = Array.isArray(state.files) ? state.files : [];
+    const text = typeof state.text === 'string' ? state.text : '';
+    renderDownloads(files);
+    sharedText.textContent = text;
+    textSection.hidden = !text;
+  }
+
+  async function refreshSharedContent() {
+    try {
+      const response = await fetch(stateUrl, {cache: 'no-store'});
+      if (!response.ok) return;
+      const state = await response.json();
+      const signature = JSON.stringify(state);
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+      renderState(state);
+    } catch (_) {
+      // The hotspot can briefly pause while Safari changes network routes.
+    }
+  }
+
+  refreshSharedContent();
+  window.setInterval(refreshSharedContent, 1000);
+  window.addEventListener('pageshow', refreshSharedContent);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) refreshSharedContent();
+  });
+}());
+</script>
 </body>
 </html>''';
   }

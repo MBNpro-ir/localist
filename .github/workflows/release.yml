@@ -270,7 +270,7 @@ jobs:
           cat > RELEASE_NOTES.md <<EOF
           # Localist v${APP_VERSION}
 
-          Localist v${APP_VERSION} adds browser-based transfer with Apple devices and improves received-file actions while keeping the existing Localist interface.
+          Localist v${APP_VERSION} improves Android received-transfer actions and keeps Apple/Mac browser downloads synchronized without manual page refreshes.
 
           ## Changes
 
@@ -280,6 +280,8 @@ jobs:
           - Adds long-press multi-device selection and concurrent delivery with an in-app tip.
           - Adds an Android Apple/Mac transfer card with local-only hotspot setup, Wi-Fi and browser QR codes, and two-way Safari file transfer.
           - Adds a fallback for a user-managed hotspot or the current shared Wi-Fi network when Android cannot start a local-only hotspot.
+          - Automatically updates the open Safari/Mac transfer page when Android files or shared text change.
+          - Moves Android access to the main Localist receive folder beside the Transfers heading and removes per-file open controls.
           - Shows a red VPN warning and pauses Quick Send networking while an incompatible VPN connection is active.
           - Lets Android users either reselect a received file inside Quick Send or send it through the system share sheet.
           - Fixes opening the received-file folder through Android's document provider.

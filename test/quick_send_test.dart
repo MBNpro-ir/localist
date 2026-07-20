@@ -212,11 +212,16 @@ void main() {
       '${Directory.systemTemp.path}${Platform.pathSeparator}'
       'localist-browser-offer-$unique.txt',
     );
+    final refreshedFile = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}'
+      'localist-browser-refresh-$unique.txt',
+    );
     final uploadedName = 'localist-safari-upload-$unique.txt';
     final uploadedFile = File(
       '${Directory.systemTemp.path}${Platform.pathSeparator}$uploadedName',
     );
     await offeredFile.writeAsString('hello from Localist');
+    await refreshedFile.writeAsString('selected after Safari opened');
 
     final service = AppleWebTransferService.instance;
     try {
@@ -231,6 +236,10 @@ void main() {
       expect(homeResponse.status, HttpStatus.ok);
       expect(homeResponse.body, contains('Localist Web Transfer'));
       expect(homeResponse.body, contains('hello.txt'));
+      expect(
+        homeResponse.body,
+        contains('window.setInterval(refreshSharedContent, 1000)'),
+      );
 
       final downloadPath = RegExp(
         r'href="([^"]+/download/[^"]+)"',
@@ -240,6 +249,24 @@ void main() {
       );
       expect(downloadResponse.status, HttpStatus.ok);
       expect(downloadResponse.body, contains('hello from Localist'));
+
+      service.setSharedContent(
+        paths: [refreshedFile.path],
+        offeredNames: {refreshedFile.path: 'live-selection.txt'},
+        selectedText: 'shared after Safari opened',
+      );
+      final stateResponse = await _rawHttpRequest(
+        service.loopbackTestUri.resolve('state'),
+      );
+      expect(stateResponse.status, HttpStatus.ok);
+      final state = jsonDecode(stateResponse.body) as Map<String, dynamic>;
+      final stateFiles = state['files'] as List<dynamic>;
+      expect(stateFiles, hasLength(1));
+      expect(
+        (stateFiles.single as Map<String, dynamic>)['name'],
+        'live-selection.txt',
+      );
+      expect(state['text'], 'shared after Safari opened');
 
       final boundary = 'localist-test-$unique';
       final uploadBody = utf8.encode(
@@ -262,6 +289,9 @@ void main() {
       await service.stop();
       if (await offeredFile.exists()) {
         await offeredFile.delete();
+      }
+      if (await refreshedFile.exists()) {
+        await refreshedFile.delete();
       }
       if (await uploadedFile.exists()) {
         await uploadedFile.delete();

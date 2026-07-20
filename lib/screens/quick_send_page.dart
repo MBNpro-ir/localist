@@ -961,9 +961,24 @@ class _QuickSendPageState extends State<QuickSendPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            _t('انتقال‌ها', 'Transfers'),
-            style: Theme.of(context).textTheme.titleLarge,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _t('انتقال‌ها', 'Transfers'),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              if (Platform.isAndroid)
+                IconButton(
+                  tooltip: _t(
+                    'باز کردن پوشه اصلی Localist',
+                    'Open the main Localist folder',
+                  ),
+                  onPressed: _openLocalistFolder,
+                  icon: const Icon(Icons.folder_open_outlined),
+                ),
+            ],
           ),
           const SizedBox(height: 8),
           for (final transfer in _service.transfers.take(12))
@@ -1017,16 +1032,18 @@ class _QuickSendPageState extends State<QuickSendPage> {
                               onPressed: () => _shareReceivedFile(transfer),
                               icon: const Icon(Icons.ios_share_outlined),
                             ),
-                            IconButton(
-                              tooltip: _t('باز کردن پوشه', 'Open folder'),
-                              onPressed: () => _openReceivedFolder(transfer),
-                              icon: const Icon(Icons.folder_open_outlined),
-                            ),
-                            IconButton(
-                              tooltip: _t('باز کردن فایل', 'Open file'),
-                              onPressed: () => _openReceivedFile(transfer),
-                              icon: const Icon(Icons.open_in_new_outlined),
-                            ),
+                            if (!Platform.isAndroid) ...[
+                              IconButton(
+                                tooltip: _t('باز کردن پوشه', 'Open folder'),
+                                onPressed: () => _openReceivedFolder(transfer),
+                                icon: const Icon(Icons.folder_open_outlined),
+                              ),
+                              IconButton(
+                                tooltip: _t('باز کردن فایل', 'Open file'),
+                                onPressed: () => _openReceivedFile(transfer),
+                                icon: const Icon(Icons.open_in_new_outlined),
+                              ),
+                            ],
                           ],
                         )
                       : transfer.path.isEmpty &&
@@ -1205,6 +1222,24 @@ class _QuickSendPageState extends State<QuickSendPage> {
       }
       _notice(
         _t('پوشه فایل باز نشد.', 'Could not open the file folder.'),
+        warning: true,
+      );
+    }
+  }
+
+  Future<void> _openLocalistFolder() async {
+    var opened = false;
+    try {
+      opened = await _bridge.openLocalistFolder();
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && mounted) {
+      _notice(
+        _t(
+          'پوشه اصلی Localist باز نشد.',
+          'Could not open the main Localist folder.',
+        ),
         warning: true,
       );
     }

@@ -286,6 +286,13 @@ class NativeBridgeService {
     return await _invoke<bool>('openContainingFolder', {'path': path}) ?? false;
   }
 
+  Future<bool> openLocalistFolder() async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return await _invoke<bool>('openLocalistFolder') ?? false;
+  }
+
   Future<List<QuickSendSharedFile>> takeQuickSendSharedFiles() async {
     if (!Platform.isAndroid) {
       return const [];
