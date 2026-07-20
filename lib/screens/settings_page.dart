@@ -703,7 +703,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid || Platform.isWindows) {
       unawaited(_checkForUpdates(quiet: true));
     }
   }
@@ -733,7 +733,9 @@ class _UpdatePanelState extends State<_UpdatePanel> {
                 child: MetricTile(
                   label: l10n.currentVersion,
                   value: currentVersion,
-                  icon: Icons.phone_android_outlined,
+                  icon: Platform.isWindows
+                      ? Icons.desktop_windows_outlined
+                      : Icons.phone_android_outlined,
                 ),
               ),
               const SizedBox(width: 10),
@@ -780,7 +782,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
                 FilledButton.icon(
                   onPressed: _downloading || _installing
                       ? null
-                      : _downloadAndInstall,
+                      : _downloadAndInstallAndroid,
                   icon: _downloading
                       ? const SizedBox.square(
                           dimension: 18,
@@ -810,7 +812,24 @@ class _UpdatePanelState extends State<_UpdatePanel> {
                       : const Icon(Icons.install_mobile_outlined),
                   label: Text(l10n.installUpdate),
                 ),
-              if (!Platform.isAndroid)
+              if (Platform.isWindows && hasInstallableUpdate)
+                FilledButton.icon(
+                  onPressed: _downloading || _installing
+                      ? null
+                      : _downloadAndInstallWindows,
+                  icon: _downloading
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.system_update_alt_outlined),
+                  label: Text(
+                    _downloading
+                        ? l10n.downloadingUpdate
+                        : l10n.downloadAndInstall,
+                  ),
+                ),
+              if (!Platform.isAndroid && !Platform.isWindows)
                 FilledButton.tonalIcon(
                   onPressed: () => _bridge.openUri(localistLatestReleaseUrl),
                   icon: const Icon(Icons.open_in_new),
@@ -818,7 +837,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
                 ),
             ],
           ),
-          if (!Platform.isAndroid) ...[
+          if (!Platform.isAndroid && !Platform.isWindows) ...[
             const SizedBox(height: 12),
             ServiceLockNotice(
               message: l10n.updaterAndroidOnly,
@@ -877,7 +896,7 @@ class _UpdatePanelState extends State<_UpdatePanel> {
     return l10n.updaterAvailable(result.release.version.toString());
   }
 
-  Future<void> _downloadAndInstall() async {
+  Future<void> _downloadAndInstallAndroid() async {
     _logs.debug('Download and install update button pressed');
     var check = _check;
     if (check == null) {
@@ -983,6 +1002,75 @@ class _UpdatePanelState extends State<_UpdatePanel> {
     } finally {
       if (mounted) {
         setState(() => _installing = false);
+      }
+    }
+  }
+
+  Future<void> _downloadAndInstallWindows() async {
+    _logs.debug('Windows download and install update button pressed');
+    var check = _check;
+    if (check == null) {
+      await _checkForUpdates();
+      check = _check;
+    }
+    final asset = check?.windowsAsset;
+    if (asset == null) {
+      _logs.debug('Windows update blocked: no compatible asset');
+      if (mounted) {
+        setState(() => _message = context.l10n.updaterNoCompatibleApk);
+      }
+      return;
+    }
+    setState(() {
+      _downloading = true;
+      _progress = 0;
+      _message = null;
+    });
+    try {
+      final archive = await _updates.downloadWindowsUpdate(
+        asset,
+        onProgress: (received, total) {
+          if (!mounted || total <= 0) {
+            return;
+          }
+          setState(() => _progress = received / total);
+        },
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _downloading = false;
+        _installing = true;
+        _progress = 1;
+        _message = 'Preparing the Localist update…';
+      });
+      await _bridge.stopRootSharing();
+      await _bridge.stopProxyService();
+      final started = await _bridge.startWindowsUpdate(
+        archivePath: archive.path,
+        version: check!.release.version.toString(),
+      );
+      _logs.debug(
+        'Windows update helper started=$started path=${archive.path}',
+      );
+      if (!started && mounted) {
+        setState(() {
+          _installing = false;
+          _message = context.l10n.updaterFailed;
+        });
+      }
+    } catch (error) {
+      _logs.debug('Windows download and install update failed', error: error);
+      if (mounted) {
+        setState(() {
+          _installing = false;
+          _message = context.l10n.updaterFailed;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _downloading = false);
       }
     }
   }

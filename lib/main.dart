@@ -213,6 +213,8 @@ class _LocalistShellState extends State<LocalistShell>
   final AppUpdateService _updates = AppUpdateService();
   final LogService _logs = LogService.instance;
   late final PageController _pageController;
+  StreamSubscription<List<QuickSendSharedFile>>?
+  _sharedQuickSendFilesSubscription;
   Timer? _refreshTimer;
 
   int _index = 0;
@@ -245,6 +247,9 @@ class _LocalistShellState extends State<LocalistShell>
     widget.settings.addListener(_handleSettingsChanged);
     _discovery.addListener(_handleDiscoveryChanged);
     _peerService.addListener(_handlePeersChanged);
+    _sharedQuickSendFilesSubscription = _bridge.sharedQuickSendFiles.listen(
+      _handleQuickSendSharedFiles,
+    );
     unawaited(_quickSend.initialize());
     _refreshState();
     _refreshTimer = Timer.periodic(
@@ -254,6 +259,8 @@ class _LocalistShellState extends State<LocalistShell>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showOnboardingGuideIfNeeded();
       _checkForStartupUpdate();
+      _openQuickSendForPendingSharedFiles();
+      _showWindowsUpdateSuccessNotice();
     });
   }
 
@@ -266,6 +273,7 @@ class _LocalistShellState extends State<LocalistShell>
     widget.settings.removeListener(_handleSettingsChanged);
     _discovery.removeListener(_handleDiscoveryChanged);
     _peerService.removeListener(_handlePeersChanged);
+    _sharedQuickSendFilesSubscription?.cancel();
     unawaited(_discovery.stop());
     unawaited(_peerService.stop());
     unawaited(_quickSend.disposeService());
@@ -713,7 +721,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _checkForStartupUpdate() async {
-    if (_startupUpdateChecked || !Platform.isAndroid) {
+    if (_startupUpdateChecked || (!Platform.isAndroid && !Platform.isWindows)) {
       return;
     }
     _startupUpdateChecked = true;
@@ -739,6 +747,77 @@ class _LocalistShellState extends State<LocalistShell>
     } catch (error) {
       _logs.warning('Startup update check failed: $error');
     }
+  }
+
+  void _handleQuickSendSharedFiles(List<QuickSendSharedFile> files) {
+    if (files.isEmpty || !mounted) {
+      return;
+    }
+    _logs.debug(
+      'Opening Quick Send for ${files.length} externally shared files',
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _setPage(2, force: true);
+      if (_usePersianText) {
+        _showInAppNotice(
+          '${files.length} \u0641\u0627\u06cc\u0644 \u0628\u0631\u0627\u06cc \u0627\u0631\u0633\u0627\u0644 \u0622\u0645\u0627\u062f\u0647 \u0634\u062f.',
+          tone: InAppNoticeTone.success,
+        );
+        return;
+      }
+      _showInAppNotice(
+        _usePersianText
+            ? '${files.length} فایل برای ارسال آماده شد.'
+            : '${files.length} file${files.length == 1 ? '' : 's'} ready to send.',
+        tone: InAppNoticeTone.success,
+      );
+    });
+  }
+
+  Future<void> _openQuickSendForPendingSharedFiles() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
+    try {
+      if (await _bridge.hasQuickSendSharedFiles()) {
+        _setPage(2, force: true);
+      }
+    } catch (error) {
+      _logs.warning('Could not inspect pending Quick Send share: $error');
+    }
+  }
+
+  void _showWindowsUpdateSuccessNotice() {
+    if (!Platform.isWindows) {
+      return;
+    }
+    const prefix = '--updated-to=';
+    final argument = Platform.executableArguments.where(
+      (value) => value.startsWith(prefix),
+    );
+    if (argument.isEmpty) {
+      return;
+    }
+    final version = argument.first.substring(prefix.length).trim();
+    if (version.isEmpty) {
+      return;
+    }
+    if (_usePersianText) {
+      _showInAppNotice(
+        'Localist \u0628\u0627 \u0645\u0648\u0641\u0642\u06cc\u062a \u0628\u0647 \u0646\u0633\u062e\u0647 $version \u0628\u0647\u200c\u0631\u0648\u0632\u0631\u0633\u0627\u0646\u06cc \u0634\u062f.',
+        tone: InAppNoticeTone.success,
+      );
+      return;
+    }
+    _showInAppNotice(
+      _usePersianText
+          ? 'Localist با موفقیت به نسخه $version به‌روزرسانی شد.'
+          : 'Localist was updated to version $version.',
+      tone: InAppNoticeTone.success,
+    );
   }
 
   void _showInAppNotice(

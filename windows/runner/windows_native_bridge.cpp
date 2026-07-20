@@ -154,6 +154,114 @@ bool OpenUri(HWND window, const std::string& uri) {
   return reinterpret_cast<intptr_t>(result) > 32;
 }
 
+std::wstring GetModulePath() {
+  std::vector<wchar_t> buffer(MAX_PATH, L'\0');
+  while (true) {
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(),
+                                              static_cast<DWORD>(buffer.size()));
+    if (length == 0) {
+      return std::wstring();
+    }
+    if (length < buffer.size() - 1) {
+      return std::wstring(buffer.data(), length);
+    }
+    buffer.resize(buffer.size() * 2, L'\0');
+  }
+}
+
+std::wstring ParentDirectory(const std::wstring& path) {
+  const size_t separator = path.find_last_of(L"\\/");
+  return separator == std::wstring::npos ? std::wstring()
+                                         : path.substr(0, separator);
+}
+
+bool IsRegularFile(const std::wstring& path) {
+  const DWORD attributes = GetFileAttributesW(path.c_str());
+  return attributes != INVALID_FILE_ATTRIBUTES &&
+         (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+std::wstring QuoteArgument(const std::wstring& value) {
+  return L"\"" + value + L"\"";
+}
+
+bool OpenFile(HWND window, const std::string& path) {
+  const std::wstring wide_path = Utf8ToWide(path);
+  if (!IsRegularFile(wide_path)) {
+    return false;
+  }
+  const HINSTANCE result = ShellExecuteW(window, L"open", wide_path.c_str(),
+                                          nullptr, nullptr, SW_SHOWNORMAL);
+  return reinterpret_cast<intptr_t>(result) > 32;
+}
+
+bool OpenContainingFolder(HWND window, const std::string& path) {
+  const std::wstring wide_path = Utf8ToWide(path);
+  if (!IsRegularFile(wide_path)) {
+    return false;
+  }
+  const std::wstring parameters = L"/select," + QuoteArgument(wide_path);
+  const HINSTANCE result = ShellExecuteW(window, L"open", L"explorer.exe",
+                                          parameters.c_str(), nullptr,
+                                          SW_SHOWNORMAL);
+  return reinterpret_cast<intptr_t>(result) > 32;
+}
+
+bool StartWindowsUpdate(HWND window, const EncodableValue* arguments) {
+  const std::wstring archive_path =
+      Utf8ToWide(GetStringArgument(arguments, "archivePath"));
+  const std::wstring version = Utf8ToWide(GetStringArgument(arguments, "version"));
+  const std::wstring executable_path = GetModulePath();
+  const std::wstring executable_directory = ParentDirectory(executable_path);
+  if (!IsRegularFile(archive_path) || executable_path.empty() ||
+      executable_directory.empty()) {
+    return false;
+  }
+
+  const std::wstring bundled_updater =
+      executable_directory + L"\\LocalistUpdater.exe";
+  if (!IsRegularFile(bundled_updater)) {
+    return false;
+  }
+
+  wchar_t temp_path[MAX_PATH];
+  const DWORD temp_length = GetTempPathW(MAX_PATH, temp_path);
+  if (temp_length == 0 || temp_length >= MAX_PATH) {
+    return false;
+  }
+  const std::wstring temporary_updater =
+      std::wstring(temp_path) + L"LocalistUpdater-" +
+      std::to_wstring(GetCurrentProcessId()) + L"-" +
+      std::to_wstring(GetTickCount64()) + L".exe";
+  if (!CopyFileW(bundled_updater.c_str(), temporary_updater.c_str(), FALSE)) {
+    return false;
+  }
+
+  std::wstring command_line =
+      QuoteArgument(temporary_updater) + L" --wait-pid " +
+      std::to_wstring(GetCurrentProcessId()) + L" --archive " +
+      QuoteArgument(archive_path) + L" --target " +
+      QuoteArgument(executable_directory) + L" --launch " +
+      QuoteArgument(executable_path) + L" --version " + QuoteArgument(version);
+  std::vector<wchar_t> command_line_buffer(command_line.begin(), command_line.end());
+  command_line_buffer.push_back(L'\0');
+  STARTUPINFOW startup_info{};
+  startup_info.cb = sizeof(startup_info);
+  PROCESS_INFORMATION process_info{};
+  const BOOL started = CreateProcessW(
+      temporary_updater.c_str(), command_line_buffer.data(), nullptr, nullptr,
+      FALSE, CREATE_UNICODE_ENVIRONMENT, nullptr, nullptr, &startup_info,
+      &process_info);
+  if (!started) {
+    DeleteFileW(temporary_updater.c_str());
+    return false;
+  }
+  CloseHandle(process_info.hThread);
+  CloseHandle(process_info.hProcess);
+  MoveFileExW(temporary_updater.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
+  return true;
+}
+
 std::string WindowsSettingsSignature() {
   DWORD light_mode = 1;
   DWORD light_mode_size = sizeof(light_mode);
@@ -424,6 +532,27 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
   if (method == "openUri") {
     result->Success(EncodableValue(OpenUri(
         window, GetStringArgument(arguments, "uri"))));
+    return;
+  }
+
+  if (method == "openFile") {
+    result->Success(EncodableValue(OpenFile(
+        window, GetStringArgument(arguments, "path"))));
+    return;
+  }
+
+  if (method == "openContainingFolder") {
+    result->Success(EncodableValue(OpenContainingFolder(
+        window, GetStringArgument(arguments, "path"))));
+    return;
+  }
+
+  if (method == "startWindowsUpdate") {
+    const bool started = StartWindowsUpdate(window, arguments);
+    result->Success(EncodableValue(started));
+    if (started) {
+      PostMessageW(window, kLocalistApplyUpdateMessage, 0, 0);
+    }
     return;
   }
 

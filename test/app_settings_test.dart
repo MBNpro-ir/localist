@@ -147,6 +147,43 @@ void main() {
     expect(asset?.name, contains('arm64-v8a'));
   });
 
+  test('update asset picker chooses the current three release packages', () {
+    final release = AppRelease(
+      name: 'Localist v3.7.1',
+      tagName: 'v3.7.1',
+      htmlUrl: localistLatestReleaseUrl,
+      version: AppVersion.tryParse('v3.7.1')!,
+      assets: const [
+        UpdateAsset(
+          name: 'localist-v3.7.1-android-32bit.apk',
+          downloadUrl: 'https://example.com/android-32.apk',
+        ),
+        UpdateAsset(
+          name: 'localist-v3.7.1-android-64bit.apk',
+          downloadUrl: 'https://example.com/android-64.apk',
+        ),
+        UpdateAsset(
+          name: 'localist-v3.7.1-windows-64bit.zip',
+          downloadUrl: 'https://example.com/windows.zip',
+        ),
+        UpdateAsset(
+          name: 'localist-v3.7.1-windows-symbols.zip',
+          downloadUrl: 'https://example.com/symbols.zip',
+        ),
+      ],
+    );
+
+    expect(
+      release.pickAndroidAsset(['armeabi-v7a'])?.name,
+      contains('android-32bit'),
+    );
+    expect(
+      release.pickAndroidAsset(['arm64-v8a'])?.name,
+      contains('android-64bit'),
+    );
+    expect(release.pickWindowsAsset()?.name, contains('windows-64bit.zip'));
+  });
+
   test('update asset picker falls back to universal apk', () {
     final release = AppRelease(
       name: 'Localist v3.5.1',

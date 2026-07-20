@@ -6,4 +6,13 @@
     <cache-path
         name="update_apks"
         path="updates/" />
+    <cache-path
+        name="quick_send_shared"
+        path="quick-send-shared/" />
+    <files-path
+        name="app_files"
+        path="." />
+    <external-path
+        name="external_files"
+        path="." />
 </paths>

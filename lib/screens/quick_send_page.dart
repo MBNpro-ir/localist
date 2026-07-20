@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
 import '../models/quick_send_settings.dart';
+import '../services/native_bridge_service.dart';
 import '../services/quick_send_service.dart';
 import '../widgets/glass.dart';
 
@@ -20,15 +21,20 @@ class QuickSendPage extends StatefulWidget {
 
 class _QuickSendPageState extends State<QuickSendPage> {
   final QuickSendService _service = QuickSendService.instance;
+  final NativeBridgeService _bridge = NativeBridgeService.instance;
   final List<String> _selectedPaths = [];
   final Map<String, String> _selectedFileNames = {};
   final Set<String> _selectedDeviceIds = {};
   String _selectedText = '';
   bool _sending = false;
+  StreamSubscription<List<QuickSendSharedFile>>? _sharedFilesSubscription;
 
   @override
   void initState() {
     super.initState();
+    _sharedFilesSubscription = _bridge.sharedQuickSendFiles.listen(
+      _addExternallySharedFiles,
+    );
     unawaited(_initializeQuickSend());
   }
 
@@ -39,7 +45,58 @@ class _QuickSendPageState extends State<QuickSendPage> {
         !_service.storageAccessGranted) {
       await _service.ensureReceiveStorageAccess();
     }
+    await _loadExternallySharedFiles();
     await _service.refresh();
+  }
+
+  @override
+  void dispose() {
+    _sharedFilesSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadExternallySharedFiles() async {
+    final files = await _bridge.takeQuickSendSharedFiles();
+    await _addExternallySharedFiles(files);
+  }
+
+  Future<void> _addExternallySharedFiles(
+    List<QuickSendSharedFile> files,
+  ) async {
+    if (files.isEmpty || !mounted) {
+      return;
+    }
+    var added = 0;
+    setState(() {
+      for (final file in files) {
+        final path = file.path.trim();
+        if (path.isEmpty || _selectedPaths.contains(path)) {
+          continue;
+        }
+        if (!File(path).existsSync()) {
+          continue;
+        }
+        _selectedPaths.add(path);
+        _selectedFileNames[path] = file.name.trim().isEmpty
+            ? p.basename(path)
+            : file.name.trim();
+        added++;
+      }
+    });
+    if (added > 0 && mounted) {
+      if (context.l10n.isPersian) {
+        _notice(
+          '$added \u0641\u0627\u06cc\u0644 \u0628\u0631\u0627\u06cc \u0627\u0631\u0633\u0627\u0644 \u0622\u0645\u0627\u062f\u0647 \u0634\u062f.',
+        );
+        return;
+      }
+      _notice(
+        _t(
+          '$added ÙØ§ÛŒÙ„ Ø¨Ø±Ø§ÛŒ Ø§Ø±Ø³Ø§Ù„ Ø¢Ù…Ø§Ø¯Ù‡ Ø´Ø¯.',
+          '$added file${added == 1 ? '' : 's'} ready to send.',
+        ),
+      );
+    }
   }
 
   @override
@@ -399,8 +456,8 @@ class _QuickSendPageState extends State<QuickSendPage> {
           ),
           const SizedBox(height: 10),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               _SelectionCard(
                 icon: Icons.description_outlined,
@@ -429,6 +486,38 @@ class _QuickSendPageState extends State<QuickSendPage> {
               ),
             ],
           ),
+          if (Platform.isWindows) ...[
+            const SizedBox(height: 10),
+            if (context.l10n.isPersian)
+              Row(
+                children: [
+                  const Icon(Icons.file_download_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '\u0645\u06cc\u200c\u062a\u0648\u0627\u0646\u06cc\u062f \u0641\u0627\u06cc\u0644\u200c\u0647\u0627 \u0631\u0627 \u0646\u06cc\u0632 \u0631\u0648\u06cc \u0627\u06cc\u0646 \u067e\u0646\u062c\u0631\u0647 \u0631\u0647\u0627 \u06a9\u0646\u06cc\u062f.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  const Icon(Icons.file_download_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _t(
+                        'می‌توانید فایل‌ها را نیز روی این پنجره رها کنید.',
+                        'You can also drag files onto this window.',
+                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+          ],
           const SizedBox(height: 14),
           if (!hasSelection)
             Text(
@@ -501,56 +590,174 @@ class _QuickSendPageState extends State<QuickSendPage> {
           ),
           const SizedBox(height: 8),
           for (final transfer in _service.transfers.take(12))
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                transfer.direction == QuickSendDirection.sending
-                    ? Icons.upload_file_outlined
-                    : Icons.download_for_offline_outlined,
-              ),
-              title: Text(transfer.fileName),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${transfer.deviceName} • ${_transferLabel(transfer.state)}',
+            Builder(
+              builder: (context) {
+                final isReceivedFile =
+                    transfer.direction == QuickSendDirection.receiving &&
+                    transfer.path.isNotEmpty;
+                final completedReceivedFile =
+                    isReceivedFile &&
+                    transfer.state == QuickSendTransferState.completed;
+                final sizeText = _transferSizeText(transfer);
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    transfer.direction == QuickSendDirection.sending
+                        ? Icons.upload_file_outlined
+                        : Icons.download_for_offline_outlined,
                   ),
-                  const SizedBox(height: 5),
-                  LinearProgressIndicator(value: transfer.progress),
-                  if (transfer.message.isNotEmpty)
-                    Text(
-                      transfer.message,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                ],
-              ),
-              trailing: Text(
-                transfer.path.isEmpty &&
-                        transfer.direction == QuickSendDirection.receiving &&
-                        transfer.state == QuickSendTransferState.completed
-                    ? _t('کپی', 'Copy')
-                    : '${_formatBytes(transfer.transferredBytes)}\n${_formatBytes(transfer.totalBytes)}',
-                textAlign: TextAlign.end,
-              ),
-              onTap:
-                  transfer.path.isEmpty &&
-                      transfer.direction == QuickSendDirection.receiving &&
-                      transfer.state == QuickSendTransferState.completed &&
-                      transfer.message.isNotEmpty
-                  ? () async {
-                      await Clipboard.setData(
-                        ClipboardData(text: transfer.message),
-                      );
-                      if (mounted) {
-                        _notice(_t('پیام کپی شد.', 'Message copied.'));
-                      }
-                    }
-                  : null,
+                  title: Text(transfer.fileName),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${transfer.deviceName} • ${_transferLabel(transfer.state)}',
+                      ),
+                      const SizedBox(height: 5),
+                      LinearProgressIndicator(value: transfer.progress),
+                      if (sizeText.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            sizeText,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      if (transfer.message.isNotEmpty)
+                        Text(
+                          transfer.message,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+                  trailing: completedReceivedFile
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: _t('ارسال دوباره', 'Share again'),
+                              onPressed: () => _shareReceivedFile(transfer),
+                              icon: const Icon(Icons.ios_share_outlined),
+                            ),
+                            IconButton(
+                              tooltip: _t('باز کردن پوشه', 'Open folder'),
+                              onPressed: () => _openReceivedFolder(transfer),
+                              icon: const Icon(Icons.folder_open_outlined),
+                            ),
+                            IconButton(
+                              tooltip: _t('باز کردن فایل', 'Open file'),
+                              onPressed: () => _openReceivedFile(transfer),
+                              icon: const Icon(Icons.open_in_new_outlined),
+                            ),
+                          ],
+                        )
+                      : Text(
+                          transfer.path.isEmpty &&
+                                  transfer.direction ==
+                                      QuickSendDirection.receiving &&
+                                  transfer.state ==
+                                      QuickSendTransferState.completed
+                              ? _t('کپی', 'Copy')
+                              : sizeText,
+                          textAlign: TextAlign.end,
+                        ),
+                  onTap:
+                      transfer.path.isEmpty &&
+                          transfer.direction == QuickSendDirection.receiving &&
+                          transfer.state == QuickSendTransferState.completed &&
+                          transfer.message.isNotEmpty
+                      ? () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: transfer.message),
+                          );
+                          if (mounted) {
+                            _notice(_t('پیام کپی شد.', 'Message copied.'));
+                          }
+                        }
+                      : null,
+                );
+              },
             ),
         ],
       ),
     );
+  }
+
+  String _transferSizeText(QuickSendTransfer transfer) {
+    if (transfer.totalBytes <= 0) {
+      return '';
+    }
+    if (transfer.state == QuickSendTransferState.completed) {
+      return _formatBytes(transfer.totalBytes);
+    }
+    return '${_formatBytes(transfer.transferredBytes)} / ${_formatBytes(transfer.totalBytes)}';
+  }
+
+  void _shareReceivedFile(QuickSendTransfer transfer) {
+    if (transfer.path.isEmpty || !File(transfer.path).existsSync()) {
+      if (context.l10n.isPersian) {
+        _notice(
+          '\u0641\u0627\u06cc\u0644 \u0642\u0627\u0628\u0644 \u062f\u0633\u062a\u0631\u0633 \u0646\u06cc\u0633\u062a.',
+          warning: true,
+        );
+        return;
+      }
+      _notice(
+        _t('فایل قابل دسترس نیست.', 'The received file is unavailable.'),
+        warning: true,
+      );
+      return;
+    }
+    setState(() {
+      if (!_selectedPaths.contains(transfer.path)) {
+        _selectedPaths.add(transfer.path);
+      }
+      _selectedFileNames[transfer.path] = transfer.fileName;
+    });
+    if (context.l10n.isPersian) {
+      _notice(
+        '\u0641\u0627\u06cc\u0644 \u0628\u0631\u0627\u06cc \u0627\u0631\u0633\u0627\u0644 \u062f\u0648\u0628\u0627\u0631\u0647 \u0622\u0645\u0627\u062f\u0647 \u0634\u062f\u061b \u062f\u0633\u062a\u06af\u0627\u0647 \u0645\u0642\u0635\u062f \u0631\u0627 \u0627\u0646\u062a\u062e\u0627\u0628 \u06a9\u0646\u06cc\u062f.',
+      );
+      return;
+    }
+    _notice(
+      _t(
+        'فایل برای ارسال دوباره آماده شد؛ دستگاه مقصد را انتخاب کنید.',
+        'The file is ready to send again. Choose a destination device.',
+      ),
+    );
+  }
+
+  Future<void> _openReceivedFolder(QuickSendTransfer transfer) async {
+    final opened = await _bridge.openContainingFolder(transfer.path);
+    if (!opened && mounted) {
+      if (context.l10n.isPersian) {
+        _notice(
+          '\u067e\u0648\u0634\u0647 \u0641\u0627\u06cc\u0644 \u0628\u0627\u0632 \u0646\u0634\u062f.',
+          warning: true,
+        );
+        return;
+      }
+      _notice(
+        _t('پوشه فایل باز نشد.', 'Could not open the file folder.'),
+        warning: true,
+      );
+    }
+  }
+
+  Future<void> _openReceivedFile(QuickSendTransfer transfer) async {
+    final opened = await _bridge.openFile(transfer.path);
+    if (!opened && mounted) {
+      if (context.l10n.isPersian) {
+        _notice(
+          '\u0641\u0627\u06cc\u0644 \u0628\u0627\u0632 \u0646\u0634\u062f.',
+          warning: true,
+        );
+        return;
+      }
+      _notice(_t('فایل باز نشد.', 'Could not open the file.'), warning: true);
+    }
   }
 
   Future<void> _pickFiles() async {
@@ -954,9 +1161,15 @@ class _SelectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final cardWidth = screenWidth >= 480
+        ? 96.0
+        : screenWidth >= 360
+        ? 82.0
+        : 72.0;
     return SizedBox(
-      width: 112,
-      height: 96,
+      width: cardWidth,
+      height: 78,
       child: Material(
         color: colors.secondaryContainer.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(18),
@@ -964,12 +1177,12 @@ class _SelectionCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: 30),
-                const SizedBox(height: 8),
+                Icon(icon, size: 24),
+                const SizedBox(height: 5),
                 Text(
                   label,
                   maxLines: 1,

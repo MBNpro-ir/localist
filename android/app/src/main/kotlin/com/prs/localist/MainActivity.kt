@@ -13,7 +13,10 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.provider.Settings
+import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -22,6 +25,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     private var pendingVpnResult: MethodChannel.Result? = null
@@ -29,6 +33,8 @@ class MainActivity : FlutterActivity() {
     private var pendingSaveFileText: String = ""
     private var methodChannel: MethodChannel? = null
     private var quickSendMulticastLock: WifiManager.MulticastLock? = null
+    private val pendingQuickSendFiles = mutableListOf<Map<String, String>>()
+    private val pendingQuickSendFilesLock = Any()
     private var nativeLogReceiverRegistered = false
     private val nativeLogReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -53,6 +59,13 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         LocalistCrashReporter.install(this)
+        receiveQuickSendFiles(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        receiveQuickSendFiles(intent)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -86,8 +99,12 @@ class MainActivity : FlutterActivity() {
                 "shareApk" -> shareApk(result)
                 "shareText" -> shareText(call, result)
                 "openUri" -> openUri(call, result)
+                "openFile" -> openFile(call, result)
+                "openContainingFolder" -> openContainingFolder(call, result)
                 "openHotspotSettings" -> openHotspotSettings(result)
                 "saveTextFile" -> saveTextFile(call, result)
+                "takeQuickSendSharedFiles" -> result.success(takeQuickSendSharedFiles())
+                "hasQuickSendSharedFiles" -> result.success(hasQuickSendSharedFiles())
                 "getDeviceDetails" -> result.success(deviceDetails())
                 "setQuickSendMulticastLock" -> {
                     result.success(setQuickSendMulticastLock(call.argument<Boolean>("enabled") == true))
@@ -531,6 +548,49 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun openFile(call: MethodCall, result: MethodChannel.Result) {
+        val file = File(call.argument<String>("path") ?: "")
+        if (!file.isFile) {
+            result.success(false)
+            return
+        }
+        runCatching {
+            val uri = fileProviderUri(file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mimeTypeFor(file))
+                clipData = ClipData.newRawUri("Localist file", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Open file"))
+        }.onSuccess {
+            result.success(true)
+        }.onFailure { error ->
+            result.error("open_file_failed", error.message, null)
+        }
+    }
+
+    private fun openContainingFolder(call: MethodCall, result: MethodChannel.Result) {
+        val input = File(call.argument<String>("path") ?: "")
+        val folder = if (input.isDirectory) input else input.parentFile
+        if (folder == null || !folder.isDirectory) {
+            result.success(false)
+            return
+        }
+        runCatching {
+            val uri = fileProviderUri(folder)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+                clipData = ClipData.newRawUri("Localist folder", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Open folder"))
+        }.onSuccess {
+            result.success(true)
+        }.onFailure { error ->
+            result.error("open_folder_failed", error.message, null)
+        }
+    }
+
     private fun openHotspotSettings(result: MethodChannel.Result) {
         val actions = listOf(
             "android.settings.TETHER_SETTINGS",
@@ -576,6 +636,110 @@ class MainActivity : FlutterActivity() {
             pendingSaveFileText = ""
             result.error("save_text_file_unavailable", error.message, null)
         }
+    }
+
+    private fun receiveQuickSendFiles(incomingIntent: Intent?) {
+        val intent = incomingIntent ?: return
+        if (intent.action != Intent.ACTION_SEND && intent.action != Intent.ACTION_SEND_MULTIPLE) {
+            return
+        }
+        val uris = linkedSetOf<Uri>()
+        @Suppress("DEPRECATION")
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.let(uris::add)
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let(uris::addAll)
+            }
+        }
+        val clipData = intent.clipData
+        if (clipData != null) {
+            for (index in 0 until clipData.itemCount) {
+                clipData.getItemAt(index).uri?.let(uris::add)
+            }
+        }
+        if (uris.isEmpty()) {
+            return
+        }
+        Thread {
+            val files = uris.mapNotNull(::cacheQuickSendSharedUri)
+            if (files.isEmpty()) {
+                return@Thread
+            }
+            synchronized(pendingQuickSendFilesLock) {
+                pendingQuickSendFiles.addAll(files)
+            }
+            runOnUiThread {
+                methodChannel?.invokeMethod("quickSendSharedFiles", files)
+            }
+        }.start()
+    }
+
+    private fun cacheQuickSendSharedUri(uri: Uri): Map<String, String>? {
+        return runCatching {
+            val displayName = displayNameFor(uri)
+            val directory = File(cacheDir, "quick-send-shared").apply { mkdirs() }
+            val destination = File(
+                directory,
+                "${System.currentTimeMillis()}-${UUID.randomUUID()}-$displayName",
+            )
+            contentResolver.openInputStream(uri)?.use { input ->
+                destination.outputStream().use { output ->
+                    input.copyTo(output, DEFAULT_BUFFER_SIZE)
+                }
+            } ?: return null
+            mapOf(
+                "path" to destination.absolutePath,
+                "name" to displayName,
+            )
+        }.getOrNull()
+    }
+
+    private fun takeQuickSendSharedFiles(): List<Map<String, String>> {
+        synchronized(pendingQuickSendFilesLock) {
+            val files = pendingQuickSendFiles.toList()
+            pendingQuickSendFiles.clear()
+            return files
+        }
+    }
+
+    private fun hasQuickSendSharedFiles(): Boolean {
+        synchronized(pendingQuickSendFilesLock) {
+            return pendingQuickSendFiles.isNotEmpty()
+        }
+    }
+
+    private fun displayNameFor(uri: Uri): String {
+        var displayName = ""
+        runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (column >= 0) {
+                            displayName = cursor.getString(column).orEmpty()
+                        }
+                    }
+                }
+        }
+        if (displayName.isBlank()) {
+            displayName = uri.lastPathSegment.orEmpty()
+        }
+        val safeName = File(displayName).name
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .trim()
+            .take(180)
+        return safeName.ifBlank { "shared-file" }
+    }
+
+    private fun fileProviderUri(file: File): Uri {
+        return FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+    }
+
+    private fun mimeTypeFor(file: File): String {
+        val extension = file.extension.lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
     }
 
     private fun deviceDetails(): Map<String, Any?> {

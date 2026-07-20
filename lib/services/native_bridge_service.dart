@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -16,8 +17,23 @@ class NativeBridgeService {
   static final NativeBridgeService instance = NativeBridgeService._();
   static const MethodChannel _channel = MethodChannel('com.prs.localist.vpn');
   final LogService _logs = LogService.instance;
+  final StreamController<List<QuickSendSharedFile>> _sharedFilesController =
+      StreamController<List<QuickSendSharedFile>>.broadcast();
+
+  Stream<List<QuickSendSharedFile>> get sharedQuickSendFiles =>
+      _sharedFilesController.stream;
 
   Future<void> _handleNativeCall(MethodCall call) async {
+    if (call.method == 'quickSendSharedFiles') {
+      final files = _sharedFilesFromNative(call.arguments);
+      if (files.isNotEmpty) {
+        _logs.debug(
+          'Received ${files.length} externally shared Quick Send files.',
+        );
+        _sharedFilesController.add(files);
+      }
+      return;
+    }
     if (call.method != 'nativeLog') {
       _logs.debug('Unknown native callback method=${call.method}');
       return;
@@ -240,6 +256,51 @@ class NativeBridgeService {
     return await _invoke<bool>('openUri', {'uri': uri}) ?? false;
   }
 
+  Future<bool> openFile(String path) async {
+    if (!Platform.isAndroid && !Platform.isWindows) {
+      return false;
+    }
+    return await _invoke<bool>('openFile', {'path': path}) ?? false;
+  }
+
+  Future<bool> openContainingFolder(String path) async {
+    if (!Platform.isAndroid && !Platform.isWindows) {
+      return false;
+    }
+    return await _invoke<bool>('openContainingFolder', {'path': path}) ?? false;
+  }
+
+  Future<List<QuickSendSharedFile>> takeQuickSendSharedFiles() async {
+    if (!Platform.isAndroid) {
+      return const [];
+    }
+    final raw =
+        await _invoke<List<Object?>>('takeQuickSendSharedFiles') ??
+        const <Object?>[];
+    return _sharedFilesFromNative(raw);
+  }
+
+  Future<bool> hasQuickSendSharedFiles() async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return await _invoke<bool>('hasQuickSendSharedFiles') ?? false;
+  }
+
+  Future<bool> startWindowsUpdate({
+    required String archivePath,
+    required String version,
+  }) async {
+    if (!Platform.isWindows) {
+      return false;
+    }
+    return await _invoke<bool>('startWindowsUpdate', {
+          'archivePath': archivePath,
+          'version': version,
+        }) ??
+        false;
+  }
+
   Future<bool> openHotspotSettings() async {
     if (Platform.isWindows) {
       return false;
@@ -407,6 +468,31 @@ class NativeBridgeService {
   String _short(Object? value) {
     final text = value.toString();
     return text.length <= 360 ? text : '${text.substring(0, 360)}...';
+  }
+
+  List<QuickSendSharedFile> _sharedFilesFromNative(Object? value) {
+    if (value is! Iterable) {
+      return const [];
+    }
+    return value
+        .whereType<Map>()
+        .map(QuickSendSharedFile.fromMap)
+        .where((file) => file.path.isNotEmpty)
+        .toList(growable: false);
+  }
+}
+
+class QuickSendSharedFile {
+  const QuickSendSharedFile({required this.path, required this.name});
+
+  final String path;
+  final String name;
+
+  factory QuickSendSharedFile.fromMap(Map value) {
+    return QuickSendSharedFile(
+      path: value['path']?.toString().trim() ?? '',
+      name: value['name']?.toString().trim() ?? '',
+    );
   }
 }
 

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'log_service.dart';
 import 'native_bridge_service.dart';
@@ -27,13 +29,15 @@ class AppUpdateService {
     final release = await _fetchLatestRelease();
     final supportedAbis = await _bridge.getAndroidSupportedAbis();
     final androidAsset = release.pickAndroidAsset(supportedAbis);
+    final windowsAsset = release.pickWindowsAsset();
     _logs.debug(
-      'Update check finished current=$current latest=${release.version} supportedAbis=$supportedAbis selectedAsset=${androidAsset?.name}',
+      'Update check finished current=$current latest=${release.version} supportedAbis=$supportedAbis androidAsset=${androidAsset?.name} windowsAsset=${windowsAsset?.name}',
     );
     return AppUpdateCheck(
       current: current,
       release: release,
       androidAsset: androidAsset,
+      windowsAsset: windowsAsset,
       supportedAbis: supportedAbis,
     );
   }
@@ -42,14 +46,47 @@ class AppUpdateService {
     UpdateAsset asset, {
     required void Function(int received, int total) onProgress,
   }) async {
+    final nativeUpdatesPath = await _bridge.getAndroidUpdateDirectory();
+    final updatesDir = Directory(
+      nativeUpdatesPath == null || nativeUpdatesPath.isEmpty
+          ? p.join(Directory.systemTemp.path, 'updates')
+          : nativeUpdatesPath,
+    );
+    return _downloadAsset(
+      asset,
+      directory: updatesDir,
+      platformName: 'Android',
+      onProgress: onProgress,
+    );
+  }
+
+  Future<File> downloadWindowsUpdate(
+    UpdateAsset asset, {
+    required void Function(int received, int total) onProgress,
+  }) async {
+    final supportDirectory = await getApplicationSupportDirectory();
+    return _downloadAsset(
+      asset,
+      directory: Directory(p.join(supportDirectory.path, 'updates')),
+      platformName: 'Windows',
+      onProgress: onProgress,
+    );
+  }
+
+  Future<File> _downloadAsset(
+    UpdateAsset asset, {
+    required Directory directory,
+    required String platformName,
+    required void Function(int received, int total) onProgress,
+  }) async {
     final client = HttpClient();
     try {
-      _logs.debug('Android update download started asset=${asset.name}');
+      _logs.debug('$platformName update download started asset=${asset.name}');
       final request = await client.getUrl(Uri.parse(asset.downloadUrl));
       request.headers.set(HttpHeaders.userAgentHeader, 'Localist updater');
       final response = await request.close();
       _logs.debug(
-        'Android update download response status=${response.statusCode} length=${response.contentLength}',
+        '$platformName update response status=${response.statusCode} length=${response.contentLength}',
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
@@ -57,16 +94,10 @@ class AppUpdateService {
           uri: Uri.parse(asset.downloadUrl),
         );
       }
-      final nativeUpdatesPath = await _bridge.getAndroidUpdateDirectory();
-      final updatesDir = Directory(
-        nativeUpdatesPath == null || nativeUpdatesPath.isEmpty
-            ? '${Directory.systemTemp.path}/updates'
-            : nativeUpdatesPath,
-      );
-      if (!updatesDir.existsSync()) {
-        updatesDir.createSync(recursive: true);
+      if (!directory.existsSync()) {
+        directory.createSync(recursive: true);
       }
-      final file = File('${updatesDir.path}/${asset.name}');
+      final file = File(p.join(directory.path, asset.name));
       final sink = file.openWrite();
       var received = 0;
       final total = response.contentLength;
@@ -74,22 +105,24 @@ class AppUpdateService {
         await for (final chunk in response) {
           received += chunk.length;
           sink.add(chunk);
-          _logs.debug(
-            'Android update download chunk bytes=${chunk.length} received=$received total=$total',
-          );
           onProgress(received, total);
         }
       } finally {
         await sink.close();
       }
-      final expectedLength = response.contentLength;
-      if (expectedLength > 0 && received != expectedLength) {
-        throw const FileSystemException('Downloaded APK size mismatch.');
+      if (total > 0 && received != total) {
+        throw FileSystemException(
+          'Downloaded $platformName update size mismatch.',
+        );
       }
-      _logs.debug('Android update download saved to ${file.path}');
+      _logs.debug('$platformName update saved to ${file.path}');
       return file;
     } catch (error, stack) {
-      _logs.debug('Android update download failed', error: error, stack: stack);
+      _logs.debug(
+        '$platformName update download failed',
+        error: error,
+        stack: stack,
+      );
       rethrow;
     } finally {
       client.close(force: true);
@@ -141,16 +174,24 @@ class AppUpdateCheck {
     required this.current,
     required this.release,
     required this.androidAsset,
+    required this.windowsAsset,
     required this.supportedAbis,
   });
 
   final AppVersion current;
   final AppRelease release;
   final UpdateAsset? androidAsset;
+  final UpdateAsset? windowsAsset;
   final List<String> supportedAbis;
 
   bool get updateAvailable => release.version.compareTo(current) > 0;
-  bool get canInstallOnThisDevice => androidAsset != null;
+  UpdateAsset? get compatibleAsset => Platform.isWindows
+      ? windowsAsset
+      : Platform.isAndroid
+      ? androidAsset
+      : null;
+
+  bool get canInstallOnThisDevice => compatibleAsset != null;
 }
 
 class AppRelease {
@@ -194,17 +235,17 @@ class AppRelease {
         .where((asset) => asset.name.toLowerCase().endsWith('.apk'))
         .toList(growable: false);
     for (final abi in supportedAbis) {
-      final token = switch (abi) {
-        'arm64-v8a' => 'android-arm64-v8a',
-        'armeabi-v7a' => 'android-armeabi-v7a',
-        'x86_64' => 'android-x86_64',
-        _ => '',
+      final tokens = switch (abi) {
+        'arm64-v8a' => const ['android-64bit', 'android-arm64-v8a'],
+        'armeabi-v7a' => const ['android-32bit', 'android-armeabi-v7a'],
+        'x86_64' => const ['android-x86_64'],
+        _ => const <String>[],
       };
-      if (token.isEmpty) {
+      if (tokens.isEmpty) {
         continue;
       }
       for (final asset in apkAssets) {
-        if (asset.name.toLowerCase().contains(token)) {
+        if (tokens.any(asset.name.toLowerCase().contains)) {
           return asset;
         }
       }
@@ -212,6 +253,18 @@ class AppRelease {
     for (final asset in apkAssets) {
       final name = asset.name.toLowerCase();
       if (name.contains('android-universal') || name.contains('universal')) {
+        return asset;
+      }
+    }
+    return null;
+  }
+
+  UpdateAsset? pickWindowsAsset() {
+    for (final asset in assets) {
+      final name = asset.name.toLowerCase();
+      if (name.endsWith('.zip') &&
+          !name.contains('symbols') &&
+          (name.contains('windows-64bit') || name.contains('windows-x64'))) {
         return asset;
       }
     }

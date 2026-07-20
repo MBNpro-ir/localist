@@ -52,10 +52,13 @@ endfunction()
 
 # Flutter library and tool build rules.
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
+set(LOCALIST_UPDATER_BINARY_NAME "LocalistUpdater")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
-# Application build; see runner/CMakeLists.txt.
+# Application build and its self-contained update helper.
+add_subdirectory("updater")
 add_subdirectory("runner")
+add_dependencies(${BINARY_NAME} ${LOCALIST_UPDATER_BINARY_NAME})
 
 
 # Generated plugin build rules, which manage building the plugins and adding
@@ -78,6 +81,10 @@ set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
+
+install(TARGETS ${LOCALIST_UPDATER_BINARY_NAME}
+  RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"

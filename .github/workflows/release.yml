@@ -60,11 +60,6 @@ jobs:
           cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:"
           pub-cache-key: "flutter-pub-:os:-:channel:-:version:-:arch:-:hash:"
 
-      - name: Install compression tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full
-
       - name: Restore packages
         run: flutter pub get
 
@@ -72,49 +67,22 @@ jobs:
         run: |
           flutter build apk --release \
             --split-per-abi \
-            --target-platform android-arm,android-arm64,android-x64 \
-            --obfuscate \
-            --split-debug-info=build/symbols/android \
-            --tree-shake-icons \
-            --build-name="$APP_VERSION" \
-            --build-number="$BUILD_NUMBER"
-
-      - name: Build universal APK
-        run: |
-          flutter build apk --release \
-            --target-platform android-arm,android-arm64,android-x64 \
-            --obfuscate \
-            --split-debug-info=build/symbols/android-universal \
-            --tree-shake-icons \
-            --build-name="$APP_VERSION" \
-            --build-number="$BUILD_NUMBER"
-
-      - name: Build Android App Bundle
-        run: |
-          flutter build appbundle --release \
-            --obfuscate \
-            --split-debug-info=build/symbols/android-aab \
+            --target-platform android-arm,android-arm64 \
             --tree-shake-icons \
             --build-name="$APP_VERSION" \
             --build-number="$BUILD_NUMBER"
 
       - name: Stage Android assets
         run: |
-          mkdir -p release/android
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release/android/localist-v${APP_VERSION}-android-armeabi-v7a.apk"
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release/android/localist-v${APP_VERSION}-android-arm64-v8a.apk"
-          cp build/app/outputs/flutter-apk/app-x86_64-release.apk "release/android/localist-v${APP_VERSION}-android-x86_64.apk"
-          cp build/app/outputs/flutter-apk/app-release.apk "release/android/localist-v${APP_VERSION}-android-universal.apk"
-          cp build/app/outputs/bundle/release/app-release.aab "release/android/localist-v${APP_VERSION}-android-universal.aab"
-          7z a -tzip -mx=9 "release/localist-v${APP_VERSION}-android-symbols.zip" build/symbols/android build/symbols/android-universal build/symbols/android-aab
+          mkdir -p release
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release/localist-v${APP_VERSION}-android-32bit.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release/localist-v${APP_VERSION}-android-64bit.apk"
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v7
         with:
           name: localist-android
-          path: |
-            release/android/*
-            release/*-android-symbols.zip
+          path: release/*.apk
           if-no-files-found: error
           compression-level: 9
 
@@ -206,8 +174,6 @@ jobs:
         shell: pwsh
         run: |
           flutter build windows --release `
-            --obfuscate `
-            --split-debug-info=build\symbols\windows-x64 `
             --tree-shake-icons `
             --build-name=$env:APP_VERSION `
             --build-number=$env:BUILD_NUMBER
@@ -216,9 +182,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
-          $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
-          & $sevenZip a -tzip -mx=9 "release\localist-v${env:APP_VERSION}-windows-x64.zip" .\build\windows\x64\runner\Release\*
-          & $sevenZip a -tzip -mx=9 "release\localist-v${env:APP_VERSION}-windows-x64-symbols.zip" .\build\symbols\windows-x64\*
+          $archive = "release\localist-v${env:APP_VERSION}-windows-64bit.zip"
+          if (Test-Path $archive) { Remove-Item -LiteralPath $archive -Force }
+          Compress-Archive `
+            -Path .\build\windows\x64\runner\Release\* `
+            -DestinationPath $archive `
+            -CompressionLevel Optimal
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
@@ -316,13 +285,13 @@ jobs:
           - Preserves safe relative folder paths and rejects path traversal during receive.
           - Keeps LocalSend v2.1 and legacy v1 compatibility, HTTPS fingerprint checks, PIN protection, favorites, Quick Save, and transfer progress.
           - Keeps the existing Localist light/dark and simple/glass visual styles.
+          - Windows can now download, install, restart, and confirm a new Localist version automatically.
 
           ## Assets
 
-          - Android APKs: universal, armeabi-v7a, arm64-v8a, x86_64
-          - Android App Bundle: universal AAB
-          - Windows Desktop: x64 ZIP package
-          - Split debug symbols are uploaded as separate ZIP files for crash symbolication.
+          - Android 32-bit APK
+          - Android 64-bit APK
+          - Windows 64-bit ZIP package
           EOF
 
       - name: Publish or update release
@@ -350,4 +319,8 @@ jobs:
               --repo "$GH_REPO"
           fi
 
+          mapfile -t existing_assets < <(gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json assets --jq '.assets[].name')
+          for asset in "${existing_assets[@]}"; do
+            gh release delete-asset "$RELEASE_TAG" "$asset" --yes --repo "$GH_REPO"
+          done
           gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "$GH_REPO"

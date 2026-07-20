@@ -9,6 +9,8 @@
 #include <flutter/encodable_value.h>
 #include <flutter/method_channel.h>
 
+constexpr UINT kLocalistApplyUpdateMessage = WM_APP + 73;
+
 std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
 CreateLocalistMethodChannel(flutter::BinaryMessenger* messenger, HWND window);
 

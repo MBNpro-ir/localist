@@ -36,8 +36,8 @@ Localist lets devices on the same local network share VPN/proxy access and trans
 
 Download the latest package from [GitHub Releases](https://github.com/MBNpro-ir/localist/releases/latest).
 
-- Android: use the universal APK when you do not know the device architecture. ABI-specific APKs are available for smaller downloads.
-- Windows: extract the complete x64 ZIP before running `Localist.exe`. Keep all DLL and tool files beside the executable.
+- Android: install the **32-bit APK** on `armeabi-v7a` devices or the **64-bit APK** on `arm64-v8a` devices.
+- Windows: extract the complete 64-bit ZIP before running `Localist.exe`. Keep all DLL, tool, and `LocalistUpdater.exe` files beside the executable. Windows updates download and apply automatically from Settings, then restart Localist.
 - Put both devices on the same Wi-Fi, Ethernet, or hotspot network. Client isolation on guest Wi-Fi can prevent local discovery and connections.
 
 ### Share VPN or proxy access
@@ -64,6 +64,8 @@ Raw `http://` and `socks5://` configurations are still accepted. A raw configura
 2. Choose **File**, **Media**, **Paste**, **Text**, or **Folder**.
 3. Tap a destination, or press and hold devices to select several recipients and send concurrently.
 4. Accept the request on the receiving device unless Quick Save is enabled.
+
+On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files can also be dragged onto the Quick Send window. Completed received files offer **Send again**, **Open folder**, and **Open file** actions; the displayed completed size is shown only once.
 
 Use Refresh to repeat multicast, directed-broadcast, and active subnet discovery across eligible Wi-Fi, Ethernet, hotspot, and USB-tethering interfaces. A charge-only USB cable does not create an IP network; enable USB tethering when the cable should carry Quick Send traffic.
 
@@ -124,7 +126,6 @@ ico/                       Application icons
 - Android SDK Platform 35 or newer and JDK 17.
 - Visual Studio 2022 with **Desktop development with C++**.
 - Windows 10/11 WebView2 Runtime for webcam QR scanning.
-- 7-Zip for local Windows release packaging.
 
 Prepare a fresh checkout:
 
@@ -148,24 +149,7 @@ ABI-specific release APKs:
 ```powershell
 flutter build apk --release `
   --split-per-abi `
-  --target-platform android-arm,android-arm64,android-x64 `
-  --obfuscate `
-  --split-debug-info=build\symbols\android `
-  --tree-shake-icons
-```
-
-Universal APK and App Bundle:
-
-```powershell
-flutter build apk --release `
-  --target-platform android-arm,android-arm64,android-x64 `
-  --obfuscate `
-  --split-debug-info=build\symbols\android-universal `
-  --tree-shake-icons
-
-flutter build appbundle --release `
-  --obfuscate `
-  --split-debug-info=build\symbols\android-aab `
+  --target-platform android-arm,android-arm64 `
   --tree-shake-icons
 ```
 
@@ -173,12 +157,10 @@ flutter build appbundle --release `
 
 ```powershell
 flutter build windows --release `
-  --obfuscate `
-  --split-debug-info=build\symbols\windows-x64 `
   --tree-shake-icons
 ```
 
-The compiled application is written to `build/windows/x64/runner/Release/`. A distributable package must include the entire directory, including the Flutter runtime and Wintun tools.
+The compiled application is written to `build/windows/x64/runner/Release/`. A distributable package must include the entire directory, including the Flutter runtime, Wintun tools, and `LocalistUpdater.exe`. The runner copies the helper beside `Localist.exe` during each build; the helper runs from a temporary private copy while replacing an update ZIP.
 
 ### Release workflow
 
@@ -186,10 +168,9 @@ The compiled application is written to `build/windows/x64/runner/Release/`. A di
 
 Published assets include:
 
-- Android universal, armeabi-v7a, arm64-v8a, and x86_64 APKs.
-- Android universal AAB.
-- Windows x64 ZIP.
-- Separate Android and Windows symbol archives.
+- Android 32-bit APK (`armeabi-v7a`).
+- Android 64-bit APK (`arm64-v8a`).
+- Windows 64-bit ZIP.
 
 Start a tag-based release:
 
