@@ -35,7 +35,6 @@ import 'widgets/glass.dart';
 const _onboardingSeenKey = 'localist.onboarding.v2.seen';
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
 const _windowsAdminBootstrapArg = '--enable-admin';
-const _android13Sdk = 33;
 
 Future<void> main(List<String> args) async {
   await runZonedGuarded<Future<void>>(
@@ -46,7 +45,7 @@ Future<void> main(List<String> args) async {
         await CrashReporterService.instance.initialize();
         await _bootstrapWindowsWindow();
         await _bootstrapWindowsSettings(args);
-        final useSimpleAndroidTheme = await _shouldUseSimpleAndroidTheme();
+        final useSimpleAndroidTheme = Platform.isAndroid;
         if (!useSimpleAndroidTheme) {
           await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         }
@@ -125,18 +124,6 @@ class _LocalistApp extends StatelessWidget {
         },
       ),
     );
-  }
-}
-
-Future<bool> _shouldUseSimpleAndroidTheme() async {
-  if (!Platform.isAndroid) {
-    return false;
-  }
-  try {
-    final sdkInt = await NativeBridgeService.instance.getAndroidSdkInt();
-    return sdkInt != null && sdkInt < _android13Sdk;
-  } catch (_) {
-    return false;
   }
 }
 

@@ -296,15 +296,14 @@ jobs:
       - name: Create release notes
         run: |
           cat > RELEASE_NOTES.md <<EOF
-          ✨ Makes the Windows app fully resizable, maximizable, and responsive.
+          ✨ Gives every Android device the same clean, consistent Localist appearance.
 
           ## ✨ Highlights
 
-          - 🪟 Removes the fixed-width Windows window lock and enables standard maximize behavior.
-          - ↔️ Adapts Localist smoothly from compact windows to large screens with responsive density, sizing, and spacing.
-          - 🧭 Replaces the bottom navigation with a compact or expanded side rail on wider Windows layouts.
-          - 🧩 Arranges page content in a focused single column or balanced two-column layout when space permits.
-          - 📤 Makes Quick Send selection, completed-transfer actions, logs, statistics, and settings comfortable at every window size.
+          - 🤖 Uses the stable, lightweight Localist visual style on both newer and older Android phones.
+          - 📱 Restores standard status and navigation bar behavior instead of forcing edge-to-edge content on supported Android versions.
+          - 🎨 Keeps surfaces, navigation, onboarding, permissions, and Quick Send visually consistent across Android versions.
+          - 🪟 Preserves the responsive Windows experience introduced in v4.1.4.
 
           ## 📦 Assets
 
