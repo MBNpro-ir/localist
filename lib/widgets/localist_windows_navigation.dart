@@ -81,6 +81,15 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
               scheme.primaryContainer.withValues(alpha: .16),
             ],
           ),
+          boxShadow: _expanded
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: .18),
+                    blurRadius: 18,
+                    offset: const Offset(5, 0),
+                  ),
+                ]
+              : null,
         ),
         child: Column(
           children: [

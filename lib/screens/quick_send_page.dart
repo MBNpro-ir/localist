@@ -12,6 +12,7 @@ import '../models/quick_send_settings.dart';
 import '../services/apple_web_transfer_service.dart';
 import '../services/native_bridge_service.dart';
 import '../services/quick_send_service.dart';
+import '../services/quick_send_settings_exit_guard.dart';
 import '../widgets/glass.dart';
 
 class QuickSendPage extends StatefulWidget {
@@ -2081,16 +2082,21 @@ class QuickSendSettingsSection extends StatefulWidget {
 
   @override
   State<QuickSendSettingsSection> createState() =>
-      _QuickSendSettingsSectionState();
+      QuickSendSettingsSectionState();
 }
 
-class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
+class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
   final QuickSendService _service = QuickSendService.instance;
   final TextEditingController _alias = TextEditingController();
   final TextEditingController _port = TextEditingController();
   final TextEditingController _multicast = TextEditingController();
   final TextEditingController _destination = TextEditingController();
   final TextEditingController _pin = TextEditingController();
+  late final Future<bool> Function() _exitGuard;
+  Timer? _autoSaveTimer;
+  Future<void>? _activeSave;
+  bool _saveQueued = false;
+  QuickSendSettings? _lastSaved;
   bool _receiveEnabled = true;
   bool _encryption = true;
   bool _quickSave = false;
@@ -2100,10 +2106,13 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
   bool _destinationCustomized = false;
   bool _loaded = false;
   bool _saving = false;
+  bool _showValidation = false;
 
   @override
   void initState() {
     super.initState();
+    _exitGuard = prepareForExit;
+    QuickSendSettingsExitGuard.instance.attach(_exitGuard);
     unawaited(_load());
   }
 
@@ -2115,24 +2124,16 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
       return;
     }
     setState(() {
-      _alias.text = value.alias;
-      _port.text = value.port.toString();
-      _multicast.text = value.multicastGroup;
-      _destination.text = value.destinationDirectory;
-      _destinationCustomized = value.destinationCustomized;
-      _pin.text = value.pin;
-      _receiveEnabled = value.receiveEnabled;
-      _encryption = value.encryption;
-      _quickSave = value.quickSave;
-      _quickSaveFavorites = value.quickSaveFavorites;
-      _overwrite = value.overwrite;
-      _requirePin = value.requirePin;
+      _applySettings(value);
+      _lastSaved = value;
       _loaded = true;
     });
   }
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
+    QuickSendSettingsExitGuard.instance.detach();
     _alias.dispose();
     _port.dispose();
     _multicast.dispose();
@@ -2149,6 +2150,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
         child: Center(child: CircularProgressIndicator()),
       );
     }
+    final hasInvalidDraft = _showValidation && _draftValidationMessage != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2181,6 +2183,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 decoration: InputDecoration(
                   labelText: _t('نام دستگاه', 'Device name'),
                   prefixIcon: const Icon(Icons.badge_outlined),
+                  errorText: _showValidation ? _aliasValidationError : null,
                   helperText: Platform.isAndroid
                       ? _t(
                           'مدل واقعی گوشی به‌صورت خودکار استفاده می‌شود.',
@@ -2188,6 +2191,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                         )
                       : null,
                 ),
+                onChanged: (_) => _scheduleAutoSave(),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -2196,7 +2200,9 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 decoration: InputDecoration(
                   labelText: _t('پورت', 'Port'),
                   prefixIcon: const Icon(Icons.numbers),
+                  errorText: _showValidation ? _portValidationError : null,
                 ),
+                onChanged: (_) => _scheduleAutoSave(),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -2204,7 +2210,9 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 decoration: InputDecoration(
                   labelText: _t('گروه Multicast', 'Multicast group'),
                   prefixIcon: const Icon(Icons.hub_outlined),
+                  errorText: _showValidation ? _multicastValidationError : null,
                 ),
+                onChanged: (_) => _scheduleAutoSave(),
               ),
             ],
           ),
@@ -2229,7 +2237,8 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                   ),
                 ),
                 value: _receiveEnabled,
-                onChanged: (value) => setState(() => _receiveEnabled = value),
+                onChanged: (value) =>
+                    _updateDraft(() => _receiveEnabled = value),
               ),
               const Divider(height: 1),
               SwitchListTile(
@@ -2242,7 +2251,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                   ),
                 ),
                 value: _encryption,
-                onChanged: (value) => setState(() => _encryption = value),
+                onChanged: (value) => _updateDraft(() => _encryption = value),
               ),
               const Divider(height: 1),
               SwitchListTile(
@@ -2255,7 +2264,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                   ),
                 ),
                 value: _quickSave,
-                onChanged: (value) => setState(() => _quickSave = value),
+                onChanged: (value) => _updateDraft(() => _quickSave = value),
               ),
               const Divider(height: 1),
               SwitchListTile(
@@ -2268,7 +2277,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 ),
                 value: _quickSaveFavorites,
                 onChanged: (value) =>
-                    setState(() => _quickSaveFavorites = value),
+                    _updateDraft(() => _quickSaveFavorites = value),
               ),
               const Divider(height: 1),
               SwitchListTile(
@@ -2277,7 +2286,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                   _t('جایگزینی فایل موجود', 'Overwrite existing files'),
                 ),
                 value: _overwrite,
-                onChanged: (value) => setState(() => _overwrite = value),
+                onChanged: (value) => _updateDraft(() => _overwrite = value),
               ),
             ],
           ),
@@ -2298,6 +2307,9 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 decoration: InputDecoration(
                   labelText: _t('پوشه ذخیره', 'Destination folder'),
                   prefixIcon: const Icon(Icons.folder_outlined),
+                  errorText: _showValidation
+                      ? _destinationValidationError
+                      : null,
                   suffixIcon: IconButton(
                     tooltip: _t('انتخاب پوشه', 'Choose folder'),
                     onPressed: _chooseDestination,
@@ -2326,33 +2338,61 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 contentPadding: EdgeInsets.zero,
                 title: Text(_t('نیاز به PIN', 'Require PIN')),
                 value: _requirePin,
-                onChanged: (value) => setState(() => _requirePin = value),
+                onChanged: (value) => _updateDraft(() => _requirePin = value),
               ),
               if (_requirePin)
                 TextField(
                   controller: _pin,
                   obscureText: true,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'PIN',
-                    prefixIcon: Icon(Icons.pin_outlined),
+                    prefixIcon: const Icon(Icons.pin_outlined),
+                    errorText: _showValidation ? _pinValidationError : null,
                   ),
+                  onChanged: (_) => _scheduleAutoSave(),
                 ),
             ],
           ),
         ),
         const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: _saving
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.save_outlined),
-            label: Text(_t('ذخیره تنظیمات', 'Save settings')),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child: Row(
+            key: ValueKey('$_saving-$hasInvalidDraft'),
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_saving)
+                const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  hasInvalidDraft
+                      ? Icons.error_outline
+                      : Icons.check_circle_outline,
+                  size: 18,
+                  color: hasInvalidDraft
+                      ? Theme.of(context).colorScheme.error
+                      : Theme.of(context).colorScheme.primary,
+                ),
+              const SizedBox(width: 8),
+              Text(
+                _saving
+                    ? _t('در حال ذخیره تغییرات…', 'Saving changes…')
+                    : hasInvalidDraft
+                    ? _t(
+                        'برای ذخیرهٔ خودکار، مقدارهای مشخص‌شده را اصلاح کنید.',
+                        'Correct the highlighted values to save automatically.',
+                      )
+                    : _t(
+                        'تغییرات معتبر به‌صورت خودکار ذخیره می‌شوند.',
+                        'Valid changes save automatically.',
+                      ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ),
         ),
       ],
@@ -2364,61 +2404,179 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
       initialDirectory: _destination.text,
     );
     if (path != null && mounted) {
-      setState(() {
+      _updateDraft(() {
         _destination.text = path;
         _destinationCustomized = true;
       });
     }
   }
 
-  Future<void> _save() async {
+  void _applySettings(QuickSendSettings value) {
+    _alias.text = value.alias;
+    _port.text = value.port.toString();
+    _multicast.text = value.multicastGroup;
+    _destination.text = value.destinationDirectory;
+    _destinationCustomized = value.destinationCustomized;
+    _pin.text = value.pin;
+    _receiveEnabled = value.receiveEnabled;
+    _encryption = value.encryption;
+    _quickSave = value.quickSave;
+    _quickSaveFavorites = value.quickSaveFavorites;
+    _overwrite = value.overwrite;
+    _requirePin = value.requirePin;
+  }
+
+  void _updateDraft(VoidCallback update) {
+    setState(() {
+      update();
+      _showValidation = true;
+    });
+    _scheduleAutoSave();
+  }
+
+  void _scheduleAutoSave() {
+    if (!_loaded) {
+      return;
+    }
+    _autoSaveTimer?.cancel();
+    if (!_showValidation) {
+      setState(() => _showValidation = true);
+    }
+    if (_currentDraft() == null) {
+      return;
+    }
+    _autoSaveTimer = Timer(const Duration(milliseconds: 450), () {
+      _autoSaveTimer = null;
+      unawaited(_persistDraft());
+    });
+  }
+
+  QuickSendSettings? _currentDraft() {
+    final base = _lastSaved ?? _service.settings;
+    if (base == null || _draftValidationMessage != null) {
+      return null;
+    }
+    return base.copyWith(
+      alias: _alias.text.trim(),
+      port: int.parse(_port.text.trim()),
+      multicastGroup: _multicast.text.trim(),
+      destinationDirectory: _destination.text.trim(),
+      destinationCustomized: _destinationCustomized,
+      receiveEnabled: _receiveEnabled,
+      encryption: _encryption,
+      quickSave: _quickSave,
+      quickSaveFavorites: _quickSaveFavorites,
+      overwrite: _overwrite,
+      requirePin: _requirePin,
+      pin: _pin.text.trim(),
+    );
+  }
+
+  String? get _draftValidationMessage {
+    return _aliasValidationError ??
+        _portValidationError ??
+        _multicastValidationError ??
+        _destinationValidationError ??
+        _pinValidationError;
+  }
+
+  String? get _aliasValidationError {
+    return _alias.text.trim().isEmpty
+        ? _t('نام دستگاه را وارد کنید.', 'Enter a device name.')
+        : null;
+  }
+
+  String? get _portValidationError {
     final port = int.tryParse(_port.text.trim());
-    final alias = _alias.text.trim();
-    final multicast = _multicast.text.trim();
-    final ip = multicast.split('.').map(int.tryParse).toList();
-    if (alias.isEmpty ||
-        port == null ||
-        port < 1024 ||
-        port > 65535 ||
-        ip.length != 4 ||
-        ip.any((part) => part == null || part < 0 || part > 255) ||
-        _destination.text.trim().isEmpty ||
-        (_requirePin && _pin.text.trim().isEmpty)) {
-      showLocalistNotice(
-        context,
-        message: _t(
-          'نام، پورت، Multicast، پوشه و PIN را درست وارد کنید.',
-          'Enter a valid name, port, multicast group, folder, and PIN.',
-        ),
-        tone: InAppNoticeTone.warning,
-      );
+    return port == null || port < 1024 || port > 65535
+        ? _t(
+            'پورت باید بین 1024 و 65535 باشد.',
+            'Use a port from 1024 to 65535.',
+          )
+        : null;
+  }
+
+  String? get _multicastValidationError {
+    final parts = _multicast.text.trim().split('.');
+    final octets = parts.map(int.tryParse).toList();
+    final valid =
+        octets.length == 4 &&
+        octets.every((value) => value != null && value >= 0 && value <= 255) &&
+        octets.first != null &&
+        octets.first! >= 224 &&
+        octets.first! <= 239;
+    return valid
+        ? null
+        : _t(
+            'یک آدرس Multicast معتبر وارد کنید.',
+            'Enter a valid multicast address.',
+          );
+  }
+
+  String? get _destinationValidationError {
+    return _destination.text.trim().isEmpty
+        ? _t('پوشه ذخیره را انتخاب کنید.', 'Choose a destination folder.')
+        : null;
+  }
+
+  String? get _pinValidationError {
+    return _requirePin && _pin.text.trim().isEmpty
+        ? _t('برای PIN یک مقدار وارد کنید.', 'Enter a PIN value.')
+        : null;
+  }
+
+  bool _sameSettings(QuickSendSettings first, QuickSendSettings second) {
+    return first.alias == second.alias &&
+        first.port == second.port &&
+        first.multicastGroup == second.multicastGroup &&
+        first.destinationDirectory == second.destinationDirectory &&
+        first.destinationCustomized == second.destinationCustomized &&
+        first.receiveEnabled == second.receiveEnabled &&
+        first.encryption == second.encryption &&
+        first.quickSave == second.quickSave &&
+        first.quickSaveFavorites == second.quickSaveFavorites &&
+        first.overwrite == second.overwrite &&
+        first.requirePin == second.requirePin &&
+        first.pin == second.pin;
+  }
+
+  Future<void> _persistDraft() {
+    final active = _activeSave;
+    if (active != null) {
+      _saveQueued = true;
+      return active;
+    }
+    final task = _persistDraftUntilCurrent();
+    _activeSave = task;
+    unawaited(
+      task.whenComplete(() {
+        if (identical(_activeSave, task)) {
+          _activeSave = null;
+          if (_saveQueued && mounted) {
+            _saveQueued = false;
+            unawaited(_persistDraft());
+          }
+        }
+      }),
+    );
+    return task;
+  }
+
+  Future<void> _persistDraftUntilCurrent() async {
+    if (!mounted) {
       return;
     }
     setState(() => _saving = true);
     try {
-      final current = _service.settings!;
-      await _service.updateSettings(
-        current.copyWith(
-          alias: alias,
-          port: port,
-          multicastGroup: multicast,
-          destinationDirectory: _destination.text.trim(),
-          destinationCustomized: _destinationCustomized,
-          receiveEnabled: _receiveEnabled,
-          encryption: _encryption,
-          quickSave: _quickSave,
-          quickSaveFavorites: _quickSaveFavorites,
-          overwrite: _overwrite,
-          requirePin: _requirePin,
-          pin: _pin.text.trim(),
-        ),
-      );
-      if (mounted) {
-        showLocalistNotice(
-          context,
-          message: _t('تنظیمات ذخیره شد.', 'Settings saved.'),
-          tone: InAppNoticeTone.success,
-        );
+      while (mounted) {
+        final draft = _currentDraft();
+        final lastSaved = _lastSaved;
+        if (draft == null ||
+            (lastSaved != null && _sameSettings(draft, lastSaved))) {
+          return;
+        }
+        await _service.updateSettings(draft);
+        _lastSaved = _service.settings ?? draft;
       }
     } catch (error) {
       if (mounted) {
@@ -2436,6 +2594,67 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
         setState(() => _saving = false);
       }
     }
+  }
+
+  Future<bool> prepareForExit() async {
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = null;
+    if (!_loaded) {
+      return true;
+    }
+    if (_currentDraft() == null) {
+      final discard = await _confirmDiscardInvalidDraft();
+      if (discard) {
+        _restoreLastSavedDraft();
+      }
+      return discard;
+    }
+    await _persistDraft();
+    return true;
+  }
+
+  Future<bool> _confirmDiscardInvalidDraft() async {
+    if (!mounted) {
+      return false;
+    }
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          _t('تنظیمات نامعتبر Quick Send', 'Invalid Quick Send settings'),
+        ),
+        content: Text(
+          _t(
+            'بعضی مقدارها درست نیستند و ذخیره نشده‌اند. آن‌ها به آخرین مقدار صحیح برگردانده شوند؟',
+            'Some values are invalid and have not been saved. Restore the last valid settings before leaving?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(_t('ادامه و اصلاح', 'Keep editing')),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.restore_outlined),
+            label: Text(_t('بازگردانی و خروج', 'Restore and leave')),
+          ),
+        ],
+      ),
+    );
+    return discard ?? false;
+  }
+
+  void _restoreLastSavedDraft() {
+    final saved = _lastSaved ?? _service.settings;
+    if (saved == null) {
+      return;
+    }
+    _autoSaveTimer?.cancel();
+    setState(() {
+      _applySettings(saved);
+      _showValidation = false;
+    });
   }
 
   String _t(String fa, String en) => context.l10n.isPersian ? fa : en;

@@ -307,13 +307,16 @@ class _WindowsGlassAppBarState extends State<_WindowsGlassAppBar>
             Expanded(
               child: _WindowsTitleBarDragArea(
                 onDoubleTap: _toggleMaximize,
-                child: Padding(
-                  padding: const EdgeInsetsDirectional.only(start: 18),
-                  child: DefaultTextStyle.merge(
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.only(start: 18),
+                    child: DefaultTextStyle.merge(
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                      child: widget.title,
                     ),
-                    child: widget.title,
                   ),
                 ),
               ),

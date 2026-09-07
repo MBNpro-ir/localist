@@ -20,8 +20,11 @@ constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 constexpr DWORD kWindowStyle =
     WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
     WS_MAXIMIZEBOX | WS_THICKFRAME;
-constexpr unsigned int kMinClientWidth = 360;
-constexpr unsigned int kMinClientHeight = 560;
+// Keep the native resize boundary aligned with window_manager. The initial
+// window still uses the system default size; this only prevents layouts from
+// being squeezed below the width required by the Windows navigation.
+constexpr unsigned int kMinClientWidth = 920;
+constexpr unsigned int kMinClientHeight = 620;
 
 /// Registry key for app theme preference.
 ///

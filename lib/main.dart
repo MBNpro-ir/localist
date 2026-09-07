@@ -30,6 +30,7 @@ import 'services/localist_discovery_service.dart';
 import 'services/localist_peer_service.dart';
 import 'services/native_bridge_service.dart';
 import 'services/quick_send_service.dart';
+import 'services/quick_send_settings_exit_guard.dart';
 import 'widgets/glass.dart';
 import 'widgets/localist_bottom_navigation.dart';
 import 'widgets/localist_windows_navigation.dart';
@@ -315,7 +316,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _configureWindowsWindow() async {
-    const minimumSize = Size(360, 560);
+    const minimumSize = Size(920, 620);
     try {
       final iconPath = _windowsBundledAssetPath('ico/logo.ico');
       await windowManager.setTitle('Localist');
@@ -380,6 +381,9 @@ class _LocalistShellState extends State<LocalistShell>
     }
     _handlingWindowClose = true;
     try {
+      if (!await QuickSendSettingsExitGuard.instance.prepareForExit()) {
+        return;
+      }
       switch (widget.settings.windowsCloseBehavior) {
         case WindowsCloseBehavior.tray:
           await _hideWindowToTray();
@@ -542,6 +546,9 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<void> _exitApplication() async {
     if (_exitingApplication) {
+      return;
+    }
+    if (!await QuickSendSettingsExitGuard.instance.prepareForExit()) {
       return;
     }
     _exitingApplication = true;
@@ -1598,26 +1605,36 @@ class _LocalistShellState extends State<LocalistShell>
 
     return SafeArea(
       bottom: false,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          LocalistWindowsNavigation(
-            currentIndex: _index,
-            onDestinationSelected: _goToPage,
-            items: [
-              for (final item in navItems)
-                LocalistBottomNavigationItem(
-                  label: item.label,
-                  icon: item.icon,
-                  selectedIcon: item.selectedIcon,
-                ),
-            ],
-            showActionButton: _statsAvailable,
-            actionIcon: Icons.query_stats,
-            actionTooltip: context.l10n.stats,
-            onActionPressed: _showStatsSheet,
+          Padding(
+            padding: const EdgeInsetsDirectional.only(
+              start: LocalistWindowsNavigation.collapsedWidth,
+            ),
+            child: pageView,
           ),
-          Expanded(child: pageView),
+          PositionedDirectional(
+            start: 0,
+            top: 0,
+            bottom: 0,
+            child: LocalistWindowsNavigation(
+              currentIndex: _index,
+              onDestinationSelected: _goToPage,
+              items: [
+                for (final item in navItems)
+                  LocalistBottomNavigationItem(
+                    label: item.label,
+                    icon: item.icon,
+                    selectedIcon: item.selectedIcon,
+                  ),
+              ],
+              showActionButton: _statsAvailable,
+              actionIcon: Icons.query_stats,
+              actionTooltip: context.l10n.stats,
+              onActionPressed: _showStatsSheet,
+            ),
+          ),
         ],
       ),
     );

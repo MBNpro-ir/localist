@@ -19,7 +19,7 @@ const _appDeveloper = 'PRS';
 const _appPackageName = 'com.prs.localist';
 const _windowsAppId = 'PRS.Localist';
 
-class SettingsRoutePage extends StatelessWidget {
+class SettingsRoutePage extends StatefulWidget {
   const SettingsRoutePage({
     super.key,
     required this.settings,
@@ -34,28 +34,68 @@ class SettingsRoutePage extends StatelessWidget {
   final bool deviceVpnActive;
 
   @override
+  State<SettingsRoutePage> createState() => _SettingsRoutePageState();
+}
+
+class _SettingsRoutePageState extends State<SettingsRoutePage> {
+  final GlobalKey<QuickSendSettingsSectionState> _quickSendSettingsKey =
+      GlobalKey<QuickSendSettingsSectionState>();
+  bool _canPop = false;
+  bool _popInProgress = false;
+
+  Future<void> _requestPop() async {
+    if (_popInProgress || _canPop) {
+      return;
+    }
+    _popInProgress = true;
+    try {
+      final mayPop =
+          await _quickSendSettingsKey.currentState?.prepareForExit() ?? true;
+      if (!mayPop || !mounted) {
+        return;
+      }
+      setState(() => _canPop = true);
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } finally {
+      _popInProgress = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return GlassBackground(
-      simple: simple,
-      child: Scaffold(
-        backgroundColor: simple
-            ? Theme.of(context).colorScheme.surface
-            : Colors.transparent,
-        appBar: GlassAppBar(
-          title: Text(l10n.settings),
-          leading: IconButton(
-            tooltip: l10n.close,
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_back),
+    return PopScope(
+      canPop: _canPop,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          unawaited(_requestPop());
+        }
+      },
+      child: GlassBackground(
+        simple: widget.simple,
+        child: Scaffold(
+          backgroundColor: widget.simple
+              ? Theme.of(context).colorScheme.surface
+              : Colors.transparent,
+          appBar: GlassAppBar(
+            title: Text(l10n.settings),
+            leading: IconButton(
+              tooltip: l10n.close,
+              onPressed: () => unawaited(_requestPop()),
+              icon: const Icon(Icons.arrow_back),
+            ),
           ),
-        ),
-        body: SafeArea(
-          bottom: false,
-          child: SettingsPage(
-            settings: settings,
-            portsLocked: portsLocked,
-            deviceVpnActive: deviceVpnActive,
+          body: SafeArea(
+            bottom: false,
+            child: SettingsPage(
+              settings: widget.settings,
+              portsLocked: widget.portsLocked,
+              deviceVpnActive: widget.deviceVpnActive,
+              quickSendSettingsKey: _quickSendSettingsKey,
+            ),
           ),
         ),
       ),
@@ -69,11 +109,13 @@ class SettingsPage extends StatefulWidget {
     required this.settings,
     required this.portsLocked,
     this.deviceVpnActive = false,
+    this.quickSendSettingsKey,
   });
 
   final AppSettings settings;
   final bool portsLocked;
   final bool deviceVpnActive;
+  final GlobalKey<QuickSendSettingsSectionState>? quickSendSettingsKey;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -233,7 +275,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
-            QuickSendSettingsSection(deviceVpnActive: widget.deviceVpnActive),
+            QuickSendSettingsSection(
+              key: widget.quickSendSettingsKey,
+              deviceVpnActive: widget.deviceVpnActive,
+            ),
             if (isWindows)
               GlassPanel(
                 child: Column(
