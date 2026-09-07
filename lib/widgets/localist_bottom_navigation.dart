@@ -42,17 +42,17 @@ class LocalistBottomNavigationBar extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: const [0, .48, .82, 1],
+          stops: const [0, .42, .74, 1],
           colors: [
             Colors.transparent,
-            scheme.primary.withValues(alpha: .012),
-            scheme.primaryContainer.withValues(alpha: .035),
-            scheme.tertiary.withValues(alpha: .075),
+            scheme.primary.withValues(alpha: .02),
+            scheme.primaryContainer.withValues(alpha: .07),
+            scheme.tertiary.withValues(alpha: .14),
           ],
         ),
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 112),
+        constraints: const BoxConstraints(minHeight: 144),
         child: Align(
           alignment: Alignment.bottomCenter,
           child: SafeArea(
@@ -107,25 +107,41 @@ class _LocalistNavigationPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final selectedIndex = currentIndex.clamp(0, items.length - 1);
-    return Material(
-      type: MaterialType.transparency,
-      child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (var index = 0; index < items.length; index++)
-                _LocalistNavigationDestination(
-                  item: items[index],
-                  selected: index == selectedIndex,
-                  compact: compact,
-                  onTap: () => onDestinationSelected(index),
-                ),
-            ],
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(38),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .10),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var index = 0; index < items.length; index++)
+                  _LocalistNavigationDestination(
+                    item: items[index],
+                    selected: index == selectedIndex,
+                    compact: compact,
+                    onTap: () => onDestinationSelected(index),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -160,17 +176,26 @@ class _LocalistNavigationDestination extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (selected)
-          AnimatedNavIcon(
-            icon: item.selectedIcon,
-            selected: true,
-            selectedColor: scheme.primary,
-            unselectedColor: scheme.primary,
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.onPrimaryContainer.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(7),
+              child: AnimatedNavIcon(
+                icon: item.selectedIcon,
+                selected: true,
+                selectedColor: scheme.onPrimaryContainer,
+                unselectedColor: scheme.onPrimaryContainer,
+              ),
+            ),
           )
         else if (iconOnly)
           AnimatedNavIcon(
             icon: item.icon,
             selected: false,
-            selectedColor: scheme.primary,
+            selectedColor: scheme.onPrimaryContainer,
             unselectedColor: scheme.onSurfaceVariant,
           ),
         if (selected || !compact) ...[
@@ -178,7 +203,9 @@ class _LocalistNavigationDestination extends StatelessWidget {
           Text(
             item.label,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: selected ? scheme.primary : scheme.onSurfaceVariant,
+              color: selected
+                  ? scheme.onPrimaryContainer
+                  : scheme.onSurfaceVariant,
               fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
             ),
           ),
@@ -206,6 +233,10 @@ class _LocalistNavigationDestination extends StatelessWidget {
                     ? 13
                     : 15,
                 vertical: 7,
+              ),
+              decoration: BoxDecoration(
+                color: selected ? scheme.primaryContainer : Colors.transparent,
+                borderRadius: BorderRadius.circular(30),
               ),
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 240),
@@ -251,10 +282,14 @@ class _LocalistActionButton extends StatelessWidget {
       button: true,
       label: tooltip,
       child: Material(
-        type: MaterialType.transparency,
+        color: scheme.surfaceContainerHighest,
+        elevation: 2,
+        shadowColor: Colors.black.withValues(alpha: .22),
+        shape: CircleBorder(
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .5)),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          customBorder: const CircleBorder(),
           onTap: onPressed,
           child: SizedBox.square(
             dimension: 60,
@@ -266,7 +301,7 @@ class _LocalistActionButton extends StatelessWidget {
                 builder: (context, value, child) {
                   return Transform.scale(scale: value, child: child);
                 },
-                child: Icon(icon, color: scheme.primary, size: 28),
+                child: Icon(icon, color: scheme.onSurface, size: 28),
               ),
             ),
           ),
