@@ -397,10 +397,18 @@ class _WindowsWindowButton extends StatelessWidget {
 }
 
 class PageSurface extends StatelessWidget {
-  const PageSurface({super.key, required this.children, this.controller});
+  const PageSurface({
+    super.key,
+    required this.children,
+    this.controller,
+    this.useColumns,
+    this.maxContentWidth,
+  });
 
   final List<Widget> children;
   final ScrollController? controller;
+  final bool? useColumns;
+  final double? maxContentWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -412,8 +420,10 @@ class PageSurface extends StatelessWidget {
             ? 18.0
             : 24.0;
         final usableWidth = constraints.maxWidth - (horizontalPadding * 2);
-        final useColumns = usableWidth >= 1000 && children.length > 2;
-        final maxContentWidth = useColumns ? 1400.0 : 760.0;
+        final shouldUseColumns =
+            useColumns ?? (usableWidth >= 1000 && children.length > 2);
+        final resolvedMaxContentWidth =
+            maxContentWidth ?? (shouldUseColumns ? 1400.0 : 760.0);
         const bottomPadding = 112.0;
 
         Widget item(Widget child) {
@@ -426,7 +436,7 @@ class PageSurface extends StatelessWidget {
         }
 
         Widget content;
-        if (!useColumns) {
+        if (!shouldUseColumns) {
           content = Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [for (final child in children) item(child)],
@@ -477,7 +487,7 @@ class PageSurface extends StatelessWidget {
             child: Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxContentWidth),
+                constraints: BoxConstraints(maxWidth: resolvedMaxContentWidth),
                 child: content,
               ),
             ),

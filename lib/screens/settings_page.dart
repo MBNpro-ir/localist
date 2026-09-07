@@ -149,6 +149,8 @@ class _SettingsPageState extends State<SettingsPage> {
             !proxySettingsLocked &&
             !_portsSaving;
         return PageSurface(
+          useColumns: false,
+          maxContentWidth: 980,
           children: [
             GlassPanel(
               child: Column(

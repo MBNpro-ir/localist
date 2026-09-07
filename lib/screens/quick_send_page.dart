@@ -2150,6 +2150,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
       );
     }
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AnimatedBuilder(
           animation: _service,
@@ -2164,9 +2165,16 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
             );
           },
         ),
+        const SizedBox(height: 14),
         GlassPanel(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(
+                _t('دستگاه و شبکه', 'Device & network'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 14),
               TextField(
                 controller: _alias,
                 readOnly: Platform.isAndroid,
@@ -2201,9 +2209,16 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
             ],
           ),
         ),
+        const SizedBox(height: 14),
         GlassPanel(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(
+                _t('دریافت و انتقال', 'Receiving & transfers'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(_t('فعال بودن دریافت', 'Enable receiving')),
@@ -2216,6 +2231,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 value: _receiveEnabled,
                 onChanged: (value) => setState(() => _receiveEnabled = value),
               ),
+              const Divider(height: 1),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(_t('رمزنگاری HTTPS', 'HTTPS encryption')),
@@ -2228,6 +2244,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 value: _encryption,
                 onChanged: (value) => setState(() => _encryption = value),
               ),
+              const Divider(height: 1),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Quick Save'),
@@ -2240,6 +2257,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 value: _quickSave,
                 onChanged: (value) => setState(() => _quickSave = value),
               ),
+              const Divider(height: 1),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(
@@ -2252,6 +2270,7 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                 onChanged: (value) =>
                     setState(() => _quickSaveFavorites = value),
               ),
+              const Divider(height: 1),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(
@@ -2263,9 +2282,16 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
             ],
           ),
         ),
+        const SizedBox(height: 14),
         GlassPanel(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(
+                _t('ذخیره‌سازی و امنیت', 'Storage & security'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 14),
               TextField(
                 controller: _destination,
                 readOnly: true,
@@ -2315,15 +2341,19 @@ class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
             ],
           ),
         ),
-        FilledButton.icon(
-          onPressed: _saving ? null : _save,
-          icon: _saving
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.save_outlined),
-          label: Text(_t('ذخیره تنظیمات', 'Save settings')),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: Text(_t('ذخیره تنظیمات', 'Save settings')),
+          ),
         ),
       ],
     );
