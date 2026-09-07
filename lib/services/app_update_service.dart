@@ -16,6 +16,7 @@ const _latestReleaseApi =
     'https://api.github.com/repos/$_localistRepoOwner/$_localistRepoName/releases/latest';
 const localistLatestReleaseUrl =
     'https://github.com/$_localistRepoOwner/$_localistRepoName/releases/latest';
+const _windowsCurlExecutable = 'curl.exe';
 
 class AppUpdateService {
   AppUpdateService({NativeBridgeService? bridge})
@@ -84,6 +85,45 @@ class AppUpdateService {
     required String platformName,
     required void Function(int received, int total) onProgress,
   }) async {
+    try {
+      return await _downloadAssetWithDartHttp(
+        asset,
+        directory: directory,
+        platformName: platformName,
+        onProgress: onProgress,
+      );
+    } catch (error) {
+      if (!Platform.isWindows || !isCertificateVerificationFailure(error)) {
+        rethrow;
+      }
+      _logs.warning(
+        '$platformName updater TLS verification failed in Dart; '
+        'retrying with the Windows certificate store.',
+      );
+      try {
+        return await _downloadAssetWithWindowsCurl(
+          asset,
+          directory: directory,
+          platformName: platformName,
+          onProgress: onProgress,
+        );
+      } catch (fallbackError, fallbackStack) {
+        _logs.debug(
+          '$platformName Windows certificate-store download failed',
+          error: fallbackError,
+          stack: fallbackStack,
+        );
+        Error.throwWithStackTrace(fallbackError, fallbackStack);
+      }
+    }
+  }
+
+  Future<File> _downloadAssetWithDartHttp(
+    UpdateAsset asset, {
+    required Directory directory,
+    required String platformName,
+    required void Function(int received, int total) onProgress,
+  }) async {
     final client = HttpClient();
     try {
       _logs.debug('$platformName update download started asset=${asset.name}');
@@ -135,6 +175,21 @@ class AppUpdateService {
   }
 
   Future<AppRelease> _fetchLatestRelease() async {
+    try {
+      return await _fetchLatestReleaseWithDartHttp();
+    } catch (error) {
+      if (!Platform.isWindows || !isCertificateVerificationFailure(error)) {
+        rethrow;
+      }
+      _logs.warning(
+        'GitHub updater TLS verification failed in Dart; '
+        'retrying with the Windows certificate store.',
+      );
+      return _fetchLatestReleaseWithWindowsCurl();
+    }
+  }
+
+  Future<AppRelease> _fetchLatestReleaseWithDartHttp() async {
     final client = HttpClient();
     try {
       _logs.debug('Fetching latest GitHub release: $_latestReleaseApi');
@@ -173,6 +228,144 @@ class AppUpdateService {
     }
   }
 
+  Future<AppRelease> _fetchLatestReleaseWithWindowsCurl() async {
+    _logs.debug(
+      'Fetching latest GitHub release with Windows certificate store',
+    );
+    final result = await Process.run(
+      _windowsCurlExecutable,
+      [
+        '--fail',
+        '--silent',
+        '--show-error',
+        '--location',
+        '--connect-timeout',
+        '20',
+        '--max-time',
+        '45',
+        '--user-agent',
+        'Localist updater',
+        '--header',
+        'Accept: application/vnd.github+json',
+        _latestReleaseApi,
+      ],
+      runInShell: false,
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
+    final body = result.stdout.toString();
+    final error = result.stderr.toString().trim();
+    _logs.debug(
+      'Windows certificate-store release response exit=${result.exitCode} '
+      'bytes=${body.length}',
+    );
+    if (result.exitCode != 0) {
+      throw HttpException(
+        'Windows certificate-store request failed '
+        '(curl exit ${result.exitCode})${error.isEmpty ? '' : ': $error'}',
+        uri: Uri.parse(_latestReleaseApi),
+      );
+    }
+    try {
+      final release = AppRelease.fromJson(
+        jsonDecode(body) as Map<String, Object?>,
+      );
+      _logs.debug(
+        'Latest GitHub release parsed with Windows certificate store '
+        'tag=${release.tagName} assets=${release.assets.map((asset) => asset.name).join(', ')}',
+      );
+      return release;
+    } on Object catch (parseError, stack) {
+      _logs.debug(
+        'Parsing the Windows certificate-store release response failed',
+        error: parseError,
+        stack: stack,
+      );
+      rethrow;
+    }
+  }
+
+  Future<File> _downloadAssetWithWindowsCurl(
+    UpdateAsset asset, {
+    required Directory directory,
+    required String platformName,
+    required void Function(int received, int total) onProgress,
+  }) async {
+    if (!directory.existsSync()) {
+      await directory.create(recursive: true);
+    }
+    final fileName = p.basename(asset.name);
+    final file = File(p.join(directory.path, fileName));
+    final partial = File('${file.path}.part');
+    if (partial.existsSync()) {
+      await partial.delete();
+    }
+
+    _logs.debug(
+      '$platformName update download started with Windows certificate store '
+      'asset=${asset.name}',
+    );
+    try {
+      final result = await Process.run(
+        _windowsCurlExecutable,
+        [
+          '--fail',
+          '--silent',
+          '--show-error',
+          '--location',
+          '--connect-timeout',
+          '20',
+          '--max-time',
+          '600',
+          '--retry',
+          '2',
+          '--retry-delay',
+          '1',
+          '--user-agent',
+          'Localist updater',
+          '--output',
+          partial.path,
+          asset.downloadUrl,
+        ],
+        runInShell: false,
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
+      final error = result.stderr.toString().trim();
+      if (result.exitCode != 0) {
+        throw HttpException(
+          'Windows certificate-store download failed '
+          '(curl exit ${result.exitCode})${error.isEmpty ? '' : ': $error'}',
+          uri: Uri.parse(asset.downloadUrl),
+        );
+      }
+      if (!partial.existsSync()) {
+        throw FileSystemException(
+          'Windows certificate-store download did not create a file.',
+        );
+      }
+      final received = await partial.length();
+      if (received == 0) {
+        throw FileSystemException(
+          'Windows certificate-store download returned an empty file.',
+        );
+      }
+      onProgress(received, received);
+      if (file.existsSync()) {
+        await file.delete();
+      }
+      final saved = await partial.rename(file.path);
+      _logs.debug(
+        '$platformName update saved with Windows certificate store to ${saved.path}',
+      );
+      return saved;
+    } finally {
+      if (partial.existsSync()) {
+        await partial.delete();
+      }
+    }
+  }
+
   static String _runtimeAndroidAbi() {
     return switch (Abi.current()) {
       Abi.androidArm => 'armeabi-v7a',
@@ -182,6 +375,13 @@ class AppUpdateService {
       _ => '',
     };
   }
+}
+
+bool isCertificateVerificationFailure(Object error) {
+  final message = error.toString().toLowerCase();
+  return message.contains('certificate_verify_failed') ||
+      message.contains('certificate verify failed') ||
+      message.contains('unable to get local issuer certificate');
 }
 
 class AppUpdateCheck {

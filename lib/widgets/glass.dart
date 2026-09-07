@@ -2,9 +2,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-const localistDesktopNavigationBreakpoint = 840.0;
-const localistExpandedNavigationBreakpoint = 1380.0;
-
 class LocalistVisualStyle extends InheritedWidget {
   const LocalistVisualStyle({
     super.key,
@@ -173,9 +170,6 @@ class PageSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final windowWidth = MediaQuery.sizeOf(context).width;
-        final desktopNavigation =
-            windowWidth >= localistDesktopNavigationBreakpoint;
         final horizontalPadding = constraints.maxWidth < 420
             ? 12.0
             : constraints.maxWidth < 900
@@ -184,7 +178,7 @@ class PageSurface extends StatelessWidget {
         final usableWidth = constraints.maxWidth - (horizontalPadding * 2);
         final useColumns = usableWidth >= 1000 && children.length > 2;
         final maxContentWidth = useColumns ? 1400.0 : 760.0;
-        final bottomPadding = desktopNavigation ? 88.0 : 112.0;
+        const bottomPadding = 112.0;
 
         Widget item(Widget child) {
           return RepaintBoundary(
@@ -385,10 +379,14 @@ class AnimatedNavIcon extends StatelessWidget {
     super.key,
     required this.icon,
     required this.selected,
+    this.selectedColor,
+    this.unselectedColor,
   });
 
   final IconData icon;
   final bool selected;
+  final Color? selectedColor;
+  final Color? unselectedColor;
 
   @override
   Widget build(BuildContext context) {
@@ -404,7 +402,11 @@ class AnimatedNavIcon extends StatelessWidget {
             angle: value * .08,
             child: Icon(
               icon,
-              color: Color.lerp(scheme.onSurfaceVariant, scheme.primary, value),
+              color: Color.lerp(
+                unselectedColor ?? scheme.onSurfaceVariant,
+                selectedColor ?? scheme.primary,
+                value,
+              ),
             ),
           ),
         );

@@ -247,6 +247,23 @@ void main() {
     );
   });
 
+  test(
+    'recognizes Windows certificate verification failures for updater fallback',
+    () {
+      expect(
+        isCertificateVerificationFailure(
+          'HandshakeException: CERTIFICATE_VERIFY_FAILED: '
+          'unable to get local issuer certificate',
+        ),
+        isTrue,
+      );
+      expect(
+        isCertificateVerificationFailure(const FormatException('invalid JSON')),
+        isFalse,
+      );
+    },
+  );
+
   test('update asset picker falls back to universal apk', () {
     final release = AppRelease(
       name: 'Localist v3.5.1',

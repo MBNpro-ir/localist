@@ -31,6 +31,7 @@ import 'services/localist_peer_service.dart';
 import 'services/native_bridge_service.dart';
 import 'services/quick_send_service.dart';
 import 'widgets/glass.dart';
+import 'widgets/localist_bottom_navigation.dart';
 
 const _onboardingSeenKey = 'localist.onboarding.v2.seen';
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
@@ -45,8 +46,8 @@ Future<void> main(List<String> args) async {
         await CrashReporterService.instance.initialize();
         await _bootstrapWindowsWindow();
         await _bootstrapWindowsSettings(args);
-        final useSimpleAndroidTheme = Platform.isAndroid;
-        if (!useSimpleAndroidTheme) {
+        final useSimpleTheme = Platform.isAndroid || Platform.isWindows;
+        if (!useSimpleTheme) {
           await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         }
         final settings = await AppSettings.load();
@@ -68,7 +69,7 @@ Future<void> main(List<String> args) async {
             ],
             child: _LocalistApp(
               settings: settings,
-              useSimpleAndroidTheme: useSimpleAndroidTheme,
+              useSimpleTheme: useSimpleTheme,
             ),
           ),
         );
@@ -83,13 +84,10 @@ Future<void> main(List<String> args) async {
 }
 
 class _LocalistApp extends StatelessWidget {
-  const _LocalistApp({
-    required this.settings,
-    required this.useSimpleAndroidTheme,
-  });
+  const _LocalistApp({required this.settings, required this.useSimpleTheme});
 
   final AppSettings settings;
-  final bool useSimpleAndroidTheme;
+  final bool useSimpleTheme;
 
   @override
   Widget build(BuildContext context) {
@@ -105,20 +103,20 @@ class _LocalistApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
       ],
-      builder: _windowsCompactBuilder,
+      builder: (context, child) => child ?? const Offstage(),
       debugShowCheckedModeBanner: false,
       themeAnimationDuration: Duration.zero,
       themeAnimationCurve: Curves.easeInOutCubic,
       home: StartupGate(
         settings: settings,
-        simple: useSimpleAndroidTheme,
+        simple: useSimpleTheme,
         childBuilder: (onBackToLanguage) {
           return AndroidPermissionGate(
-            simple: useSimpleAndroidTheme,
+            simple: useSimpleTheme,
             onBackToLanguage: onBackToLanguage,
             child: LocalistShell(
               settings: settings,
-              useSimpleAndroidTheme: useSimpleAndroidTheme,
+              useSimpleTheme: useSimpleTheme,
             ),
           );
         },
@@ -132,50 +130,6 @@ Future<void> _bootstrapWindowsWindow() async {
     return;
   }
   await windowManager.ensureInitialized();
-}
-
-Widget _windowsCompactBuilder(BuildContext context, Widget? child) {
-  if (!Platform.isWindows) {
-    return child ?? const Offstage();
-  }
-  final theme = Theme.of(context);
-  final mediaQuery = MediaQuery.of(context);
-  final width = mediaQuery.size.width;
-  final uiScale = width >= localistExpandedNavigationBreakpoint
-      ? 1.0
-      : width >= localistDesktopNavigationBreakpoint
-      ? .92
-      : .86;
-  final platformTextScale = mediaQuery.textScaler.scale(16) / 16;
-  final density = width >= localistExpandedNavigationBreakpoint
-      ? VisualDensity.standard
-      : width >= localistDesktopNavigationBreakpoint
-      ? const VisualDensity(horizontal: -1, vertical: -1)
-      : VisualDensity.compact;
-  final toolbarHeight = width >= localistExpandedNavigationBreakpoint
-      ? 56.0
-      : width >= localistDesktopNavigationBreakpoint
-      ? 52.0
-      : 46.0;
-  return MediaQuery(
-    data: mediaQuery.copyWith(
-      textScaler: TextScaler.linear(platformTextScale * uiScale),
-    ),
-    child: Theme(
-      data: theme.copyWith(
-        visualDensity: density,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        iconTheme: theme.iconTheme.copyWith(
-          size: width >= localistDesktopNavigationBreakpoint ? 22 : 20,
-        ),
-        appBarTheme: theme.appBarTheme.copyWith(toolbarHeight: toolbarHeight),
-        navigationBarTheme: theme.navigationBarTheme.copyWith(
-          height: width >= localistDesktopNavigationBreakpoint ? 68 : 62,
-        ),
-      ),
-      child: child ?? const Offstage(),
-    ),
-  );
 }
 
 Future<void> _bootstrapWindowsSettings(List<String> args) async {
@@ -204,11 +158,11 @@ class LocalistShell extends StatefulWidget {
   const LocalistShell({
     super.key,
     required this.settings,
-    required this.useSimpleAndroidTheme,
+    required this.useSimpleTheme,
   });
 
   final AppSettings settings;
-  final bool useSimpleAndroidTheme;
+  final bool useSimpleTheme;
 
   @override
   State<LocalistShell> createState() => _LocalistShellState();
@@ -1384,8 +1338,7 @@ class _LocalistShellState extends State<LocalistShell>
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final themeSettings = context.watch<ThemeSettingsModel>();
-    final statsAvailable = _statsAvailable;
-    final simpleVisuals = widget.useSimpleAndroidTheme;
+    final simpleVisuals = widget.useSimpleTheme;
     final navItems = _navItems(l10n);
     final quickSendVpnActive = Platform.isWindows
         ? _snapshot.receivingRunning && _snapshot.deviceVpnActive
@@ -1444,196 +1397,101 @@ class _LocalistShellState extends State<LocalistShell>
       ),
     ];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final desktopNavigation =
-            Platform.isWindows &&
-            constraints.maxWidth >= localistDesktopNavigationBreakpoint;
-        final extendedNavigation =
-            desktopNavigation &&
-            constraints.maxWidth >= localistExpandedNavigationBreakpoint;
-
-        return AnnotatedRegion<SystemUiOverlayStyle>(
-          value: overlayStyle,
-          child: GlassBackground(
-            simple: widget.useSimpleAndroidTheme,
-            child: Scaffold(
-              extendBody: !simpleVisuals && !desktopNavigation,
-              backgroundColor: simpleVisuals
-                  ? Theme.of(context).colorScheme.surface
-                  : Colors.transparent,
-              appBar: GlassAppBar(
-                title: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Localist'),
-                    const SizedBox(width: 6),
-                    IconButton(
-                      tooltip: l10n.appGuide,
-                      onPressed: _showOnboardingGuide,
-                      icon: const Icon(Icons.help_outline),
-                    ),
-                  ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: overlayStyle,
+      child: GlassBackground(
+        simple: simpleVisuals,
+        child: Scaffold(
+          extendBody: !simpleVisuals,
+          backgroundColor: simpleVisuals
+              ? Theme.of(context).colorScheme.surface
+              : Colors.transparent,
+          appBar: GlassAppBar(
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Localist'),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: l10n.appGuide,
+                  onPressed: _showOnboardingGuide,
+                  icon: const Icon(Icons.help_outline),
                 ),
-                actions: [
-                  IconButton(
-                    tooltip: l10n.logs,
-                    onPressed: _showLogsSheet,
-                    icon: const Icon(Icons.subject_outlined),
-                  ),
-                  if (!Platform.isWindows)
-                    IconButton(
-                      tooltip: l10n.shareApk,
-                      onPressed: _shareApk,
-                      icon: const Icon(Icons.ios_share),
-                    ),
-                  IconButton(
-                    tooltip: themeSettings.isDarkMode
-                        ? l10n.lightMode
-                        : l10n.darkMode,
-                    onPressed: () => _toggleTheme(themeSettings),
-                    icon: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 260),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      transitionBuilder: (child, animation) {
-                        return RotationTransition(
-                          turns: Tween<double>(begin: -.12, end: 0).animate(
-                            CurvedAnimation(
-                              parent: animation,
-                              curve: Curves.easeOut,
-                            ),
-                          ),
-                          child: FadeTransition(
-                            opacity: animation,
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: Icon(
-                        themeSettings.isDarkMode
-                            ? Icons.light_mode_outlined
-                            : Icons.dark_mode_outlined,
-                        key: ValueKey(themeSettings.isDarkMode),
-                      ),
-                    ),
-                  ),
-                ],
+              ],
+            ),
+            actions: [
+              IconButton(
+                tooltip: l10n.logs,
+                onPressed: _showLogsSheet,
+                icon: const Icon(Icons.subject_outlined),
               ),
-              body: SafeArea(
-                bottom: false,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (desktopNavigation)
-                      _buildDesktopNavigation(
-                        context,
-                        navItems,
-                        extended: extendedNavigation,
+              if (!Platform.isWindows)
+                IconButton(
+                  tooltip: l10n.shareApk,
+                  onPressed: _shareApk,
+                  icon: const Icon(Icons.ios_share),
+                ),
+              IconButton(
+                tooltip: themeSettings.isDarkMode
+                    ? l10n.lightMode
+                    : l10n.darkMode,
+                onPressed: () => _toggleTheme(themeSettings),
+                icon: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return RotationTransition(
+                      turns: Tween<double>(begin: -.12, end: 0).animate(
+                        CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOut,
+                        ),
                       ),
-                    Expanded(
-                      child: PageView(
-                        controller: _pageController,
-                        physics: const PageScrollPhysics(),
-                        onPageChanged: _handlePageChanged,
-                        children: pages,
-                      ),
-                    ),
-                  ],
+                      child: FadeTransition(opacity: animation, child: child),
+                    );
+                  },
+                  child: Icon(
+                    themeSettings.isDarkMode
+                        ? Icons.light_mode_outlined
+                        : Icons.dark_mode_outlined,
+                    key: ValueKey(themeSettings.isDarkMode),
+                  ),
                 ),
               ),
-              floatingActionButton: statsAvailable
-                  ? FloatingActionButton.extended(
-                      heroTag: 'stats-button',
-                      onPressed: _showStatsSheet,
-                      icon: const Icon(Icons.query_stats),
-                      label: Text(l10n.stats),
-                    )
-                  : null,
-              floatingActionButtonLocation:
-                  FloatingActionButtonLocation.endFloat,
-              bottomNavigationBar: desktopNavigation
-                  ? null
-                  : _buildBottomNavigation(context, navItems),
+            ],
+          ),
+          body: SafeArea(
+            bottom: false,
+            child: PageView(
+              controller: _pageController,
+              physics: const PageScrollPhysics(),
+              onPageChanged: _handlePageChanged,
+              children: pages,
             ),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDesktopNavigation(
-    BuildContext context,
-    List<_NavItem> navItems, {
-    required bool extended,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 0, 12),
-      child: GlassPanel(
-        padding: EdgeInsets.zero,
-        child: NavigationRail(
-          selectedIndex: _index,
-          onDestinationSelected: _goToPage,
-          extended: extended,
-          minWidth: 78,
-          minExtendedWidth: 220,
-          groupAlignment: -.82,
-          labelType: extended
-              ? NavigationRailLabelType.none
-              : NavigationRailLabelType.all,
-          backgroundColor: Colors.transparent,
-          indicatorColor: scheme.primary.withValues(alpha: .18),
-          destinations: [
-            for (var i = 0; i < navItems.length; i++)
-              NavigationRailDestination(
-                icon: Tooltip(
-                  message: navItems[i].label,
-                  child: AnimatedNavIcon(
-                    icon: navItems[i].icon,
-                    selected: _index == i,
-                  ),
-                ),
-                selectedIcon: AnimatedNavIcon(
-                  icon: navItems[i].selectedIcon,
-                  selected: true,
-                ),
-                label: Text(navItems[i].label),
-              ),
-          ],
+          bottomNavigationBar: _buildBottomNavigation(context, navItems),
         ),
       ),
     );
   }
 
   Widget _buildBottomNavigation(BuildContext context, List<_NavItem> navItems) {
-    return SafeArea(
-      minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: GlassPanel(
-        padding: EdgeInsets.zero,
-        child: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: _goToPage,
-          backgroundColor: Colors.transparent,
-          indicatorColor: Theme.of(
-            context,
-          ).colorScheme.primary.withValues(alpha: .18),
-          destinations: [
-            for (var i = 0; i < navItems.length; i++)
-              NavigationDestination(
-                icon: AnimatedNavIcon(
-                  icon: navItems[i].icon,
-                  selected: _index == i,
-                ),
-                selectedIcon: AnimatedNavIcon(
-                  icon: navItems[i].selectedIcon,
-                  selected: true,
-                ),
-                label: navItems[i].label,
-              ),
-          ],
-        ),
-      ),
+    return LocalistBottomNavigationBar(
+      currentIndex: _index,
+      onDestinationSelected: _goToPage,
+      items: [
+        for (final item in navItems)
+          LocalistBottomNavigationItem(
+            label: item.label,
+            icon: item.icon,
+            selectedIcon: item.selectedIcon,
+          ),
+      ],
+      showActionButton: _statsAvailable,
+      actionIcon: Icons.query_stats,
+      actionTooltip: context.l10n.stats,
+      onActionPressed: _showStatsSheet,
     );
   }
 
