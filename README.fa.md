@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.3-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-5.0.0-blue"></a>
 </p>
 
 ## راهنمای کاربران
@@ -33,6 +33,13 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 - Android می‌تواند یک Local-only Hotspot و صفحه انتقال مرورگری محافظت‌شده با Token بسازد تا بدون نصب Localist روی دستگاه اپل، فایل به‌صورت دوطرفه با iPhone، iPad و Mac جابه‌جا شود.
 - Windows نیز همین صفحه انتقال مرورگری محافظت‌شده با Token را روی Wi-Fi، Ethernet، مودم یا Windows Mobile Hotspot اجرا می‌کند و QR ورود مستقیم را برای iPhone، iPad و Mac نشان می‌دهد.
 - زبان فارسی و انگلیسی، تم روشن و تیره، رنگ پویا در اندروید و رنگ Accent ویندوز پشتیبانی می‌شوند.
+
+### رابط و تنظیمات نسخه ۵
+
+- در Windows، نوار عنوان برنامه با Flutter رسم می‌شود، اما Minimize، Maximize/Restore، Close و مدیریت خود پنجره همچنان native ویندوز هستند. نوار سمت چپ به‌صورت آیکن فشرده است و با Hover، متن دکمه‌ها را بدون جابه‌جایی یا Reflow صفحه نشان می‌دهد.
+- گزینه **Settings** در بالای سمت راست Android و Windows قرار دارد و صفحهٔ تنظیمات مستقل را باز می‌کند. وضعیت اتصال Quick Send، گزینه‌های دریافت، شبکه، پوشه مقصد و امنیت همگی در همان صفحه هستند.
+- تغییرات معتبر Quick Send خودکار ذخیره می‌شوند. اگر نام دستگاه، پورت، آدرس Multicast، پوشه مقصد یا PIN لازم نامعتبر باشد، Localist آن را مشخص می‌کند و پیش از خروج از Settings یا بستن پنجره، امکان بازگردانی آخرین مقدار معتبر را می‌دهد.
+- [تغییرات کامل نسخه ۵](CHANGELOG.md#500---2026-09-07) و [مقایسهٔ کامل GitHub از v4.1.5 تا v5.0.0](https://github.com/MBNpro-ir/localist/compare/v4.1.5...v5.0.0) را ببینید.
 
 ### دانلود و نصب
 
@@ -104,6 +111,8 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 
 Quick Save فایل‌ها را بدون سؤال می‌پذیرد؛ آن را فقط در شبکه‌های قابل اعتماد فعال کنید. دریافت پیام متنی همیشه نیازمند تأیید صریح است.
 
+اگر درخواست جدید زمانی برسد که Quick Send صفحهٔ فعال نیست، Localist یک اعلان داخلی نمایش می‌دهد. Android علاوه بر آن Notification سیستم را می‌فرستد و Windows از Notification ویندوز ۱۰/۱۱ استفاده می‌کند؛ برای پردازش‌های elevated ویندوز، Flash شدن Taskbar نیز به‌عنوان fallback وجود دارد. با زدن روی اعلان، Localist به جلو می‌آید، Quick Send باز می‌شود و به درخواست در انتظار می‌رود.
+
 ### حالت‌های هر پلتفرم
 
 | پلتفرم | Sharing | Receiving | Quick Send |
@@ -128,6 +137,7 @@ Quick Save فایل‌ها را بدون سؤال می‌پذیرد؛ آن را 
 - صفحه **Logs** امکان مشاهده، Copy و ذخیره گزارش تشخیصی را می‌دهد.
 - Active Debug Mode رویدادهای دقیق سرویس، Native Bridge و شبکه را ثبت می‌کند.
 - در ویندوز فایل `debug.log` کنار `Localist.exe` ساخته می‌شود. اندازه پیام‌ها و فایل محدود است و لاگ بزرگ خودکار Rotate می‌شود.
+- اگر بررسی آپدیت ویندوز با خطای اعتبارسنجی گواهی روبه‌رو شود، Localist درخواست GitHub را فقط از طریق `curl.exe` و Certificate Store ویندوز دوباره امتحان می‌کند. خطاهای دیگر شبکه همچنان به‌شکل عادی گزارش می‌شوند.
 - خطاهای قابل‌بازیابی UI فقط ثبت می‌شوند و دیگر پنجره Crash را پشت‌سرهم باز نمی‌کنند. گزارش خطای Fatal نیز تکراری نمایش داده نمی‌شود.
 - اگر Nearby Devices خالی است، یکسان بودن Subnet یا فعال بودن USB Tethering، خاموش بودن Guest/Client Isolation و دکمه Refresh را بررسی کنید یا مقصد را دستی وارد کنید.
 - اگر هشدار قرمز VPN دیده می‌شود، پیش از تلاش دوباره برای Quick Send یا سرویس مرورگری Apple/Mac، VPN دستگاه را متوقف کنید.
@@ -191,7 +201,7 @@ flutter build windows --release `
 
 ### Workflow انتشار
 
-فایل `.github/workflows/release.yml` با اجرای دستی یا Push تگ `v*` شروع می‌شود. نسخه را از `pubspec.yaml` می‌خواند، Android و Windows را هم‌زمان Build می‌کند، فایل‌های کامپایل‌شده را Stage می‌کند و GitHub Release متناظر را می‌سازد یا به‌روزرسانی می‌کند.
+فایل `.github/workflows/release.yml` با اجرای دستی روی `master` یا Push تگ `v*` شروع می‌شود. نسخه را از `pubspec.yaml` می‌خواند، Android و Windows را هم‌زمان Build می‌کند، فایل‌های کامپایل‌شده را Stage می‌کند و GitHub Release متناظر را می‌سازد یا به‌روزرسانی می‌کند. متن Release از بخش متناظر `## [x.y.z]` در `CHANGELOG.md` خوانده می‌شود و اگر آن بخش وجود نداشته باشد، انتشار قبل از Publish متوقف می‌شود.
 
 خروجی‌های انتشار:
 
@@ -208,6 +218,12 @@ git push origin "v$version"
 ```
 
 برای اجرای دستی، از صفحه Actions مخزن workflow با نام **Release** را اجرا کنید و `release_tag` را خالی بگذارید تا نسخه `pubspec.yaml` استفاده شود.
+
+برای انتشار صریح یک نسخه از `master`، ابتدا کامیت انتشار را Push کنید و سپس اجرا کنید:
+
+```powershell
+gh workflow run release.yml --repo MBNpro-ir/localist --ref master -f release_tag="v5.0.0"
+```
 
 ### نکات معماری
 

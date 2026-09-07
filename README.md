@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-4.1.3-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-5.0.0-blue"></a>
 </p>
 
 ## User Guide
@@ -33,6 +33,13 @@ Localist lets devices on the same local network share VPN/proxy access and trans
 - Android can create a local-only hotspot and token-protected browser transfer page for bidirectional file exchange with iPhone, iPad, and Mac without installing Localist on the Apple device.
 - Windows can host the same token-protected browser transfer page on Wi-Fi, Ethernet, a router, or Windows Mobile Hotspot and displays a QR that opens it directly on iPhone, iPad, or Mac.
 - English and Persian, light/dark themes, Android dynamic colors, and Windows accent colors are supported.
+
+### Version 5 interface and settings
+
+- Windows uses a Flutter-rendered title bar with native minimize, maximize/restore, close, and window-management behavior. The compact left rail expands with animated labels on hover without moving or reflowing the current page.
+- The **Settings** action is available at the top right on Android and Windows and opens a dedicated Settings page. Quick Send connection information, receiving options, network values, destination, and security controls all live there.
+- Valid Quick Send edits save automatically. If a device name, port, multicast address, destination, or required PIN is invalid, Localist highlights it and offers to restore the last valid saved values before the user leaves Settings or closes the window.
+- Read the complete [v5.0.0 changelog](CHANGELOG.md#500---2026-09-07), including the [full GitHub comparison from v4.1.5](https://github.com/MBNpro-ir/localist/compare/v4.1.5...v5.0.0).
 
 ### Download and install
 
@@ -104,6 +111,8 @@ Quick Send settings include:
 
 Quick Save accepts files without asking. Enable it only on trusted local networks. Text messages always require an explicit acceptance.
 
+When an incoming request arrives while Quick Send is not the active screen, Localist shows an in-app notice. Android also posts a system notification, while Windows uses a Windows 10/11 notification and a taskbar fallback for elevated processes. Selecting the notification brings Localist forward, opens Quick Send, and takes the user to the pending request.
+
 ### Platform modes
 
 | Platform | Sharing | Receiving | Quick Send |
@@ -128,6 +137,7 @@ Windows VPN mode requires administrator access plus `tun2socks.exe` and `wintun.
 - Open **Logs** to inspect, copy, or save a diagnostic report.
 - Active Debug Mode records detailed service, native bridge, and network events.
 - On Windows, Debug Mode writes `debug.log` beside `Localist.exe`. Individual messages and the file itself are size-limited and oversized logs are rotated.
+- If a Windows update check fails with a certificate-verification error, Localist retries the GitHub request through `curl.exe` and the Windows certificate store. Other network errors are still reported normally.
 - Recoverable Flutter UI diagnostics are logged without being reported as repeated process crashes. Fatal errors are de-duplicated before showing a crash notice.
 - If Nearby Devices is empty, confirm both devices are on the same subnet (or USB tethering is enabled), disable guest/client isolation, and use Refresh or a manual target.
 - If the red VPN warning is visible, stop the device VPN before retrying Quick Send or the Apple/Mac browser service.
@@ -190,7 +200,7 @@ The compiled application is written to `build/windows/x64/runner/Release/`. A di
 
 ### Release workflow
 
-`.github/workflows/release.yml` can be started manually or by pushing a `v*` tag. It reads the application version from `pubspec.yaml`, builds Android and Windows in parallel, stages compiled files, and publishes or updates the matching GitHub Release.
+`.github/workflows/release.yml` can be started manually on `master` or by pushing a `v*` tag. It reads the application version from `pubspec.yaml`, builds Android and Windows in parallel, stages compiled files, and publishes or updates the matching GitHub Release. Its notes are extracted from the matching `## [x.y.z]` section in `CHANGELOG.md`; a release stops before publishing if that section is missing.
 
 Published assets include:
 
@@ -207,6 +217,12 @@ git push origin "v$version"
 ```
 
 For a manual release, open the repository Actions page, run **Release**, and leave `release_tag` empty to use the version from `pubspec.yaml`.
+
+To explicitly publish a version from `master`, push the release commit first and run:
+
+```powershell
+gh workflow run release.yml --repo MBNpro-ir/localist --ref master -f release_tag="v5.0.0"
+```
 
 ### Architecture notes
 
