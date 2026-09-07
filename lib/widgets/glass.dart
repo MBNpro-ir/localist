@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
+
+import '../l10n/app_localizations.dart';
 
 class LocalistVisualStyle extends InheritedWidget {
   const LocalistVisualStyle({
@@ -129,10 +134,15 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   final List<Widget>? actions;
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => Size.fromHeight(
+    Platform.isWindows ? _WindowsGlassAppBar.height : kToolbarHeight,
+  );
 
   @override
   Widget build(BuildContext context) {
+    if (Platform.isWindows) {
+      return _WindowsGlassAppBar(title: title, actions: actions);
+    }
     if (LocalistVisualStyle.simpleOf(context)) {
       return AppBar(
         title: title,
@@ -156,6 +166,212 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
             context,
           ).colorScheme.surface.withValues(alpha: .55),
         ),
+      ),
+    );
+  }
+}
+
+class _WindowsGlassAppBar extends StatefulWidget {
+  const _WindowsGlassAppBar({required this.title, this.actions});
+
+  static const height = 48.0;
+
+  final Widget title;
+  final List<Widget>? actions;
+
+  @override
+  State<_WindowsGlassAppBar> createState() => _WindowsGlassAppBarState();
+}
+
+class _WindowsGlassAppBarState extends State<_WindowsGlassAppBar>
+    with WindowListener {
+  bool _isMaximized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    unawaited(_syncMaximizedState());
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowMaximize() {
+    _setMaximized(true);
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    _setMaximized(false);
+  }
+
+  @override
+  void onWindowRestore() {
+    _setMaximized(false);
+  }
+
+  Future<void> _syncMaximizedState() async {
+    try {
+      final maximized = await windowManager.isMaximized();
+      _setMaximized(maximized);
+    } catch (error, stackTrace) {
+      debugPrint('Unable to read Windows maximize state: $error\n$stackTrace');
+    }
+  }
+
+  void _setMaximized(bool value) {
+    if (!mounted || _isMaximized == value) {
+      return;
+    }
+    setState(() => _isMaximized = value);
+  }
+
+  Future<void> _runWindowAction(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (error, stackTrace) {
+      debugPrint('Windows title bar action failed: $error\n$stackTrace');
+    }
+  }
+
+  void _toggleMaximize() {
+    unawaited(
+      _runWindowAction(() async {
+        if (_isMaximized) {
+          await windowManager.unmaximize();
+        } else {
+          await windowManager.maximize();
+        }
+      }),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final l10n = Localizations.of<AppLocalizations>(context, AppLocalizations);
+    final minimizeLabel = l10n?.minimizeWindow ?? 'Minimize window';
+    final maximizeLabel = l10n?.maximizeWindow ?? 'Maximize window';
+    final restoreLabel = l10n?.restoreWindow ?? 'Restore window';
+    final closeLabel = l10n?.closeButton ?? 'Close button';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border(
+          bottom: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: .28),
+          ),
+        ),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            scheme.surface,
+            Color.alphaBlend(
+              scheme.primary.withValues(alpha: .055),
+              scheme.surface,
+            ),
+          ],
+        ),
+      ),
+      child: SizedBox(
+        height: _WindowsGlassAppBar.height,
+        child: Row(
+          textDirection: TextDirection.ltr,
+          children: [
+            Expanded(
+              child: _WindowsTitleBarDragArea(
+                onDoubleTap: _toggleMaximize,
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 18),
+                  child: DefaultTextStyle.merge(
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                    child: widget.title,
+                  ),
+                ),
+              ),
+            ),
+            if (widget.actions != null) ...widget.actions!,
+            _WindowsWindowButton(
+              icon: Icons.remove,
+              tooltip: minimizeLabel,
+              onPressed: () =>
+                  unawaited(_runWindowAction(windowManager.minimize)),
+            ),
+            _WindowsWindowButton(
+              icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
+              tooltip: _isMaximized ? restoreLabel : maximizeLabel,
+              onPressed: _toggleMaximize,
+            ),
+            _WindowsWindowButton(
+              icon: Icons.close,
+              tooltip: closeLabel,
+              close: true,
+              onPressed: () => unawaited(_runWindowAction(windowManager.close)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowsTitleBarDragArea extends StatelessWidget {
+  const _WindowsTitleBarDragArea({required this.child, this.onDoubleTap});
+
+  final Widget child;
+  final VoidCallback? onDoubleTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onDoubleTap: onDoubleTap,
+      onPanStart: (_) => unawaited(windowManager.startDragging()),
+      child: SizedBox.expand(child: child),
+    );
+  }
+}
+
+class _WindowsWindowButton extends StatelessWidget {
+  const _WindowsWindowButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.close = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final bool close;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hoverColor = close
+        ? Colors.red.withValues(alpha: .16)
+        : scheme.primary.withValues(alpha: .12);
+    return SizedBox(
+      width: 46,
+      height: _WindowsGlassAppBar.height,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, size: 17),
+        padding: EdgeInsets.zero,
+        splashRadius: 18,
+        color: scheme.onSurfaceVariant,
+        hoverColor: hoverColor,
+        highlightColor: hoverColor,
       ),
     );
   }

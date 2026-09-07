@@ -584,6 +584,9 @@ class AppLocalizations {
   String get savePorts => _s('ذخیره پورت‌ها', 'Save ports');
   String get windowClose => _s('بستن پنجره', 'Window close');
   String get closeButton => _s('دکمه بستن', 'Close button');
+  String get minimizeWindow => _s('کوچک کردن پنجره', 'Minimize window');
+  String get maximizeWindow => _s('بزرگ کردن پنجره', 'Maximize window');
+  String get restoreWindow => _s('بازگردانی پنجره', 'Restore window');
   String get askEveryTime => _s('هر بار بپرس', 'Ask every time');
   String get stopSharingBeforeChangingPorts => _s(
     'قبل از تغییر پورت‌ها، اشتراک‌گذاری را متوقف کنید.',

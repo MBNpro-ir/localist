@@ -130,6 +130,7 @@ Future<void> _bootstrapWindowsWindow() async {
     return;
   }
   await windowManager.ensureInitialized();
+  await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
 }
 
 Future<void> _bootstrapWindowsSettings(List<String> args) async {
