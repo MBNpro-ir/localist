@@ -1,5 +1,24 @@
 # Release Notes
 
+## [5.0.8]
+✨ Makes background Quick Send alerts reliable, adds subtle event sounds, and completes the device-profile experience.
+
+## ✨ Highlights
+
+- 🔔 Delivers incoming Android and Windows notifications immediately while Localist is behind other apps or minimized, without waiting for a new Flutter frame.
+- 📡 Keeps Android Quick Send receiving active while Localist remains in Recents and stops it when the task is swiped away.
+- 🔊 Adds default-on CC0 sound effects for requests, acceptance, cancellation, completion, and failure, with a Settings toggle.
+- 🚀 Adds a first-run Windows startup choice and a matching App behavior setting.
+- 👤 Opens profile and avatar customization directly when the user selects their Quick Send avatar.
+- 🧭 Animates each mobile navigation label and selected icon as one unit.
+- 🪟 Registers the Windows notification identity explicitly, retains taskbar attention fallback, and requests subtly rounded Windows 11 corners.
+
+## 📦 Assets
+
+- 🤖 Android 32-bit APK.
+- 🤖 Android 64-bit APK.
+- 🪟 Windows 64-bit ZIP package.
+
 ## [5.0.7]
 ✨ Evolves Quick Send into a profile-driven, background-ready transfer workspace with a complete received-file history.
 

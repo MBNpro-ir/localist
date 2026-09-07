@@ -346,6 +346,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _hasPortEdits = false;
   bool _portsSaving = false;
   bool _syncingPortControllers = false;
+  bool _startupBusy = false;
   String? _appVersion;
 
   @override
@@ -371,6 +372,22 @@ class _SettingsPageState extends State<SettingsPage> {
     _httpPortController.dispose();
     _socks5PortController.dispose();
     super.dispose();
+  }
+
+  Future<void> _setWindowsLaunchAtStartup(bool enabled) async {
+    setState(() => _startupBusy = true);
+    final changed = await _bridge.setWindowsLaunchAtStartup(enabled);
+    if (changed) {
+      await widget.settings.setWindowsLaunchAtStartup(enabled);
+      await widget.settings.markWindowsLaunchAtStartupPrompted();
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Windows startup setting could not be changed.'),
+        ),
+      );
+    }
+    if (mounted) setState(() => _startupBusy = false);
   }
 
   @override
@@ -510,6 +527,20 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 12),
                     _WindowsCloseBehaviorSelector(settings: widget.settings),
+                    const Divider(height: 28),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(Icons.power_settings_new_rounded),
+                      title: const Text('Start with Windows'),
+                      subtitle: const Text(
+                        'Open Localist automatically after you sign in.',
+                      ),
+                      value: widget.settings.windowsLaunchAtStartup,
+                      onChanged: _startupBusy
+                          ? null
+                          : (value) =>
+                                unawaited(_setWindowsLaunchAtStartup(value)),
+                    ),
                   ],
                 ),
               ),
@@ -569,6 +600,28 @@ class _SettingsPageState extends State<SettingsPage> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(Icons.volume_up_outlined),
+                      title: Text(
+                        context.l10n.isPersian
+                            ? 'صداهای برنامه'
+                            : 'App sound effects',
+                      ),
+                      subtitle: Text(
+                        context.l10n.isPersian
+                            ? 'برای درخواست، لغو، تکمیل و خطا صدای کوتاه پخش شود.'
+                            : 'Play subtle sounds for requests, cancellation, completion, and errors.',
+                      ),
+                      value: widget.settings.soundEffectsEnabled,
+                      onChanged: (value) async {
+                        await widget.settings.setSoundEffectsEnabled(value);
+                        if (value) {
+                          await _bridge.playAppSound(AppSoundEvent.accepted);
+                        }
+                      },
+                    ),
+                    const Divider(height: 28),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       secondary: const Icon(Icons.bug_report_outlined),

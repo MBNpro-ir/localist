@@ -18,9 +18,14 @@ import '../widgets/quick_send_profile.dart';
 import 'transfer_history_page.dart';
 
 class QuickSendPage extends StatefulWidget {
-  const QuickSendPage({super.key, required this.deviceVpnActive});
+  const QuickSendPage({
+    super.key,
+    required this.deviceVpnActive,
+    required this.onOpenProfileSettings,
+  });
 
   final bool deviceVpnActive;
+  final VoidCallback onOpenProfileSettings;
 
   @override
   State<QuickSendPage> createState() => QuickSendPageState();
@@ -240,11 +245,18 @@ class QuickSendPageState extends State<QuickSendPage> {
     return GlassPanel(
       child: Row(
         children: [
-          QuickSendAvatar(
-            preset: settings.avatarPreset,
-            colorValue: settings.avatarColorValue,
-            imagePath: settings.profileImagePath,
-            size: 58,
+          Tooltip(
+            message: _t('ویرایش پروفایل', 'Edit profile'),
+            child: InkResponse(
+              onTap: widget.onOpenProfileSettings,
+              radius: 38,
+              child: QuickSendAvatar(
+                preset: settings.avatarPreset,
+                colorValue: settings.avatarColorValue,
+                imagePath: settings.profileImagePath,
+                size: 58,
+              ),
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(

@@ -175,59 +175,48 @@ class _LocalistNavigationDestination extends StatelessWidget {
       duration: duration,
       curve: Curves.easeInOutCubicEmphasized,
       alignment: Alignment.center,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedSwitcher(
-            duration: duration,
-            switchInCurve: Curves.easeOutBack,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) => FadeTransition(
-              opacity: animation,
-              child: ScaleTransition(
-                scale: Tween<double>(begin: .72, end: 1).animate(animation),
-                child: child,
-              ),
-            ),
-            child: selected
-                ? DecoratedBox(
-                    key: ValueKey('selected-${item.label}'),
-                    decoration: BoxDecoration(
-                      color: scheme.onPrimaryContainer.withValues(alpha: .10),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(7),
-                      child: AnimatedNavIcon(
-                        icon: item.selectedIcon,
-                        selected: true,
-                        selectedColor: scheme.onPrimaryContainer,
-                        unselectedColor: scheme.onPrimaryContainer,
-                      ),
-                    ),
-                  )
-                : SizedBox(
-                    key: ValueKey('unselected-${item.label}'),
-                    width: 0,
-                    height: 32,
+      child: AnimatedSwitcher(
+        duration: duration,
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: .92, end: 1).animate(animation),
+            child: child,
+          ),
+        ),
+        child: selected
+            ? Row(
+                key: ValueKey(item.label),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedNavIcon(
+                    icon: item.selectedIcon,
+                    selected: true,
+                    selectedColor: scheme.onPrimaryContainer,
+                    unselectedColor: scheme.onPrimaryContainer,
                   ),
-          ),
-          AnimatedContainer(
-            duration: duration,
-            curve: Curves.easeInOutCubicEmphasized,
-            width: selected ? 8 : 0,
-          ),
-          Text(
-            item.label,
-            maxLines: 1,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: selected
-                  ? scheme.onPrimaryContainer
-                  : scheme.onSurfaceVariant,
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-            ),
-          ),
-        ],
+                  const SizedBox(width: 8),
+                  Text(
+                    item.label,
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: scheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              )
+            : Text(
+                item.label,
+                key: const ValueKey('unselected'),
+                maxLines: 1,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
       ),
     );
     return Tooltip(

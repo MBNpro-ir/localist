@@ -1,5 +1,14 @@
 # Third-party notices
 
+## Kenney Interface Sounds
+
+Localist's optional transfer sound effects are adapted from Interface Sounds
+1.0 by Kenney and distributed under Creative Commons Zero (CC0 1.0).
+
+Source: https://kenney.nl/assets/interface-sounds
+
+License: https://creativecommons.org/publicdomain/zero/1.0/
+
 ## LocalSend
 
 The Quick Send protocol integration and related networking behavior are based

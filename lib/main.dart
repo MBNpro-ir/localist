@@ -336,6 +336,8 @@ class _LocalistShellState extends State<LocalistShell>
   String? _announcedQuickSendRequestId;
   String? _announcedAutoAcceptedRequestId;
   String? _activeQuickSendDialogRequestId;
+  final Map<String, QuickSendTransferState> _knownTransferStates = {};
+  bool _transferSoundsPrimed = false;
 
   @override
   void initState() {
@@ -368,6 +370,7 @@ class _LocalistShellState extends State<LocalistShell>
       _openQuickSendForPendingSharedFiles();
       _openQuickSendForPendingNotification();
       _showWindowsUpdateSuccessNotice();
+      unawaited(_configureWindowsStartupPreference());
     });
   }
 
@@ -924,15 +927,12 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   void _handleQuickSendChanged() {
+    _handleQuickSendTransferSounds();
     final autoAccepted = _quickSend.lastAutoAcceptedRequest;
     if (autoAccepted != null &&
         _announcedAutoAcceptedRequestId != autoAccepted.id) {
       _announcedAutoAcceptedRequestId = autoAccepted.id;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _showAutoAcceptedQuickSendNotice(autoAccepted);
-        }
-      });
+      _showAutoAcceptedQuickSendNotice(autoAccepted);
     }
     final pending = _quickSend.pendingRequest;
     if (pending == null) {
@@ -943,11 +943,37 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     _announcedQuickSendRequestId = pending.id;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _showQuickSendRequestNotice(pending);
+    _showQuickSendRequestNotice(pending);
+  }
+
+  void _handleQuickSendTransferSounds() {
+    final transfers = _quickSend.transfers;
+    if (!_transferSoundsPrimed) {
+      _knownTransferStates
+        ..clear()
+        ..addEntries(transfers.map((item) => MapEntry(item.id, item.state)));
+      _transferSoundsPrimed = true;
+      return;
+    }
+    AppSoundEvent? event;
+    for (final transfer in transfers) {
+      final previous = _knownTransferStates[transfer.id];
+      if (previous != transfer.state) {
+        if (transfer.state == QuickSendTransferState.failed) {
+          event = AppSoundEvent.failed;
+        } else if (transfer.state == QuickSendTransferState.completed &&
+            event != AppSoundEvent.failed) {
+          event = AppSoundEvent.completed;
+        }
       }
-    });
+      _knownTransferStates[transfer.id] = transfer.state;
+    }
+    _knownTransferStates.removeWhere(
+      (id, _) => !transfers.any((transfer) => transfer.id == id),
+    );
+    if (event != null && widget.settings.soundEffectsEnabled) {
+      unawaited(_bridge.playAppSound(event));
+    }
   }
 
   bool get _appIsActive {
@@ -968,9 +994,13 @@ class _LocalistShellState extends State<LocalistShell>
         _bridge.showQuickSendRequestNotification(
           title: title,
           message: message,
+          soundEnabled: widget.settings.soundEffectsEnabled,
         ),
       );
       return;
+    }
+    if (widget.settings.soundEffectsEnabled) {
+      unawaited(_bridge.playAppSound(AppSoundEvent.request));
     }
     unawaited(_showIncomingQuickSendDialog(pending));
   }
@@ -987,9 +1017,13 @@ class _LocalistShellState extends State<LocalistShell>
               ? 'دریافت خودکار Quick Send'
               : 'Quick Send auto receive',
           message: message,
+          soundEnabled: widget.settings.soundEffectsEnabled,
         ),
       );
       return;
+    }
+    if (widget.settings.soundEffectsEnabled) {
+      unawaited(_bridge.playAppSound(AppSoundEvent.accepted));
     }
     if (_index == _quickSendPageIndex) {
       return;
@@ -1031,8 +1065,14 @@ class _LocalistShellState extends State<LocalistShell>
         return;
       }
       if (accepted == true) {
+        if (widget.settings.soundEffectsEnabled) {
+          unawaited(_bridge.playAppSound(AppSoundEvent.accepted));
+        }
         _quickSend.acceptPending();
       } else {
+        if (widget.settings.soundEffectsEnabled) {
+          unawaited(_bridge.playAppSound(AppSoundEvent.cancelled));
+        }
         _quickSend.declinePending();
       }
     } finally {
@@ -1701,6 +1741,8 @@ class _LocalistShellState extends State<LocalistShell>
         child: QuickSendPage(
           key: _quickSendPageKey,
           deviceVpnActive: quickSendVpnActive,
+          onOpenProfileSettings: () =>
+              unawaited(_openSettings(SettingsSection.quickSend)),
         ),
       ),
       KeepAlivePage(
@@ -1944,7 +1986,7 @@ class _LocalistShellState extends State<LocalistShell>
     ];
   }
 
-  Future<void> _openSettings() async {
+  Future<void> _openSettings([SettingsSection? section]) async {
     if (!mounted) {
       return;
     }
@@ -1957,9 +1999,46 @@ class _LocalistShellState extends State<LocalistShell>
           deviceVpnActive: Platform.isWindows
               ? _snapshot.receivingRunning && _snapshot.deviceVpnActive
               : _snapshot.deviceVpnActive,
+          section: section,
         ),
       ),
     );
+  }
+
+  Future<void> _configureWindowsStartupPreference() async {
+    if (!Platform.isWindows || !mounted) return;
+    if (widget.settings.windowsLaunchAtStartupPrompted) {
+      if (widget.settings.windowsLaunchAtStartup) {
+        await _bridge.setWindowsLaunchAtStartup(true);
+      }
+      return;
+    }
+    final enable = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.power_settings_new_rounded),
+        title: const Text('Start Localist with Windows?'),
+        content: const Text(
+          'Localist can open automatically when you sign in to Windows. '
+          'You can change this later in App behavior.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Enable'),
+          ),
+        ],
+      ),
+    );
+    await widget.settings.markWindowsLaunchAtStartupPrompted();
+    if (enable == true && await _bridge.setWindowsLaunchAtStartup(true)) {
+      await widget.settings.setWindowsLaunchAtStartup(true);
+    }
   }
 
   void _toggleTheme(ThemeSettingsModel themeSettings) {

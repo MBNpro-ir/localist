@@ -15,6 +15,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.VpnService
 import android.net.wifi.WifiManager
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -135,6 +136,7 @@ class MainActivity : FlutterActivity() {
                 "hasQuickSendSharedFiles" -> result.success(hasQuickSendSharedFiles())
                 "showQuickSendRequestNotification" ->
                     showQuickSendRequestNotification(call, result)
+                "playAppSound" -> playAppSound(call, result)
                 "takeQuickSendNotificationTap" ->
                     result.success(takeQuickSendNotificationTap())
                 "getDeviceDetails" -> result.success(deviceDetails())
@@ -165,6 +167,13 @@ class MainActivity : FlutterActivity() {
         stopLocalOnlyHotspot(notifyFlutter = false)
         unregisterNativeLogReceiver()
         methodChannel = null
+        if (isFinishing && !isChangingConfigurations) {
+            QuickSendForegroundService.setEnabled(
+                applicationContext,
+                false,
+                "",
+            )
+        }
         super.onDestroy()
     }
 
@@ -1138,13 +1147,6 @@ class MainActivity : FlutterActivity() {
         call: MethodCall,
         result: MethodChannel.Result,
     ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-                PackageManager.PERMISSION_GRANTED
-        ) {
-            result.success(false)
-            return
-        }
         val title = call.argument<String>("title")
             ?.trim()
             ?.ifBlank { "Localist" }
@@ -1154,60 +1156,43 @@ class MainActivity : FlutterActivity() {
             result.success(false)
             return
         }
-        runCatching {
-            val manager = getSystemService(NotificationManager::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                manager.createNotificationChannel(
-                    NotificationChannel(
-                        QUICK_SEND_NOTIFICATION_CHANNEL,
-                        "Quick Send requests",
-                        NotificationManager.IMPORTANCE_HIGH,
-                    ).apply {
-                        description = "Incoming Localist Quick Send requests"
-                        setShowBadge(true)
-                    },
-                )
-            }
-            val tapIntent = Intent(this, MainActivity::class.java).apply {
-                action = ACTION_QUICK_SEND_NOTIFICATION
-                addFlags(
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                )
-            }
-            val tapPendingIntent = PendingIntent.getActivity(
-                this,
-                QUICK_SEND_NOTIFICATION_REQUEST_CODE,
-                tapIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val icon = applicationInfo.icon.takeIf { it != 0 }
-                ?: android.R.drawable.stat_notify_more
-            val notification = Notification.Builder(
-                this,
-                QUICK_SEND_NOTIFICATION_CHANNEL,
-            )
-                .setSmallIcon(icon)
-                .setContentTitle(title)
-                .setContentText(message)
-                .setStyle(Notification.BigTextStyle().bigText(message))
-                .setCategory(Notification.CATEGORY_MESSAGE)
-                .setPriority(Notification.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .setContentIntent(tapPendingIntent)
-                .setDefaults(Notification.DEFAULT_ALL)
-                .build()
-            manager.notify(QUICK_SEND_NOTIFICATION_ID, notification)
-        }.onSuccess {
-            result.success(true)
-        }.onFailure { error ->
-            Log.w("Localist", "Quick Send notification failed", error)
-            result.success(false)
+        result.success(
+            QuickSendForegroundService.showEventNotification(
+                applicationContext,
+                title,
+                message,
+                call.argument<Boolean>("soundEnabled") != false,
+            ),
+        )
+    }
+
+    private fun playAppSound(call: MethodCall, result: MethodChannel.Result) {
+        val resource = when (call.argument<String>("event")) {
+            "request" -> R.raw.localist_request
+            "accepted" -> R.raw.localist_accepted
+            "cancelled" -> R.raw.localist_cancelled
+            "completed" -> R.raw.localist_completed
+            "failed" -> R.raw.localist_failed
+            else -> null
         }
+        if (resource == null) {
+            result.success(false)
+            return
+        }
+        runCatching {
+            MediaPlayer.create(applicationContext, resource)?.apply {
+                setOnCompletionListener { it.release() }
+                setOnErrorListener { player, _, _ -> player.release(); true }
+                start()
+            } ?: error("Could not create MediaPlayer")
+        }.onSuccess { result.success(true) }
+            .onFailure { result.success(false) }
     }
 
     private fun receiveQuickSendNotificationTap(incomingIntent: Intent?) {
-        if (incomingIntent?.action != ACTION_QUICK_SEND_NOTIFICATION) {
+        if (incomingIntent?.action != ACTION_QUICK_SEND_NOTIFICATION &&
+            incomingIntent?.getBooleanExtra("openQuickSendRequest", false) != true
+        ) {
             return
         }
         pendingQuickSendNotificationTap = true

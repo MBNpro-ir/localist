@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-5.0.7-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-5.0.8-blue"></a>
 </p>
 
 ## راهنمای کاربران
@@ -41,7 +41,9 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 - در اولین اجرا، نام پیشنهادی دستگاه قابل ویرایش است و کاربر می‌تواند آواتار رنگی Material یا عکس محلی انتخاب کند. همین تنظیمات هویت بعداً نیز در Settings در دسترس است.
 - گزینه **Settings** در بالای سمت راست Android و Windows قرار دارد و یک نمای مستقل و دسته‌بندی‌شده برای Profile، Quick Send، Network/Proxy، Appearance/Language، رفتار برنامه و Updates/About باز می‌کند.
 - تغییرات معتبر Quick Send خودکار ذخیره می‌شوند. اگر نام دستگاه، پورت، آدرس Multicast، پوشه مقصد یا PIN لازم نامعتبر باشد، Localist آن را مشخص می‌کند و پیش از خروج از Settings یا بستن پنجره، امکان بازگردانی آخرین مقدار معتبر را می‌دهد.
-- [تغییرات کامل نسخه ۵.۰.۷](CHANGELOG.md#507---2026-09-07) و [مقایسهٔ کامل GitHub از v5.0.0 تا v5.0.7](https://github.com/MBNpro-ir/localist/compare/v5.0.0...v5.0.7) را ببینید.
+- اعلان درخواست در Android و Windows اکنون بدون انتظار برای بازگشت برنامه فوراً ارسال می‌شود. دریافت Android تا وقتی Localist در Recent باقی مانده فعال است و با Swipe کردن برنامه متوقف می‌شود.
+- با لمس آواتار Quick Send مستقیماً تنظیمات پروفایل باز می‌شود. بخش رفتار برنامه صداهای رویداد را دارد و در Windows گزینه اجرای خودکار هنگام ورود نیز اضافه شده است.
+- [تغییرات کامل نسخه ۵.۰.۸](CHANGELOG.md#508---2026-09-07) و [مقایسهٔ کامل GitHub از v5.0.7 تا v5.0.8](https://github.com/MBNpro-ir/localist/compare/v5.0.7...v5.0.8) را ببینید.
 
 ### دانلود و نصب
 
@@ -225,7 +227,7 @@ git push origin "v$version"
 برای انتشار صریح یک نسخه از `master`، ابتدا کامیت انتشار را Push کنید و سپس اجرا کنید:
 
 ```powershell
-gh workflow run release.yml --repo MBNpro-ir/localist --ref master -f release_tag="v5.0.7"
+gh workflow run release.yml --repo MBNpro-ir/localist --ref master -f release_tag="v5.0.8"
 ```
 
 ### نکات معماری

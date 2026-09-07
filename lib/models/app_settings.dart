@@ -66,6 +66,9 @@ class AppSettings extends ChangeNotifier {
     required this._windowsCloseBehavior,
     required this._windowsVpnProxyEnabled,
     required int windowsVpnProxyPort,
+    required this._windowsLaunchAtStartup,
+    required this._windowsLaunchAtStartupPrompted,
+    required this._soundEffectsEnabled,
     required this._language,
     required this._languageSelected,
     required this._activeDebugMode,
@@ -89,6 +92,10 @@ class AppSettings extends ChangeNotifier {
   static const _windowsCloseBehaviorKey = 'windows.closeBehavior';
   static const _windowsVpnProxyEnabledKey = 'windows.vpnProxy.enabled';
   static const _windowsVpnProxyPortKey = 'windows.vpnProxy.port';
+  static const _windowsLaunchAtStartupKey = 'windows.launchAtStartup';
+  static const _windowsLaunchAtStartupPromptedKey =
+      'windows.launchAtStartupPrompted';
+  static const _soundEffectsEnabledKey = 'app.soundEffectsEnabled';
   static const _languageKey = 'app.language';
   static const _activeDebugModeKey = 'debug.activeMode';
 
@@ -100,6 +107,9 @@ class AppSettings extends ChangeNotifier {
   WindowsCloseBehavior _windowsCloseBehavior;
   bool _windowsVpnProxyEnabled;
   int _windowsVpnProxyPort;
+  bool _windowsLaunchAtStartup;
+  bool _windowsLaunchAtStartupPrompted;
+  bool _soundEffectsEnabled;
   AppLanguage _language;
   bool _languageSelected;
   bool _activeDebugMode;
@@ -115,6 +125,9 @@ class AppSettings extends ChangeNotifier {
   WindowsCloseBehavior get windowsCloseBehavior => _windowsCloseBehavior;
   bool get windowsVpnProxyEnabled => _windowsVpnProxyEnabled;
   int get windowsVpnProxyPort => _windowsVpnProxyPort;
+  bool get windowsLaunchAtStartup => _windowsLaunchAtStartup;
+  bool get windowsLaunchAtStartupPrompted => _windowsLaunchAtStartupPrompted;
+  bool get soundEffectsEnabled => _soundEffectsEnabled;
   AppLanguage get language => _language;
   bool get languageSelected => _languageSelected;
   Locale? get locale => _language.locale;
@@ -170,6 +183,11 @@ class AppSettings extends ChangeNotifier {
           prefs.getBool(_windowsVpnProxyEnabledKey) ?? false,
       windowsVpnProxyPort:
           prefs.getInt(_windowsVpnProxyPortKey) ?? _defaultWindowsVpnProxyPort,
+      windowsLaunchAtStartup:
+          prefs.getBool(_windowsLaunchAtStartupKey) ?? false,
+      windowsLaunchAtStartupPrompted:
+          prefs.getBool(_windowsLaunchAtStartupPromptedKey) ?? false,
+      soundEffectsEnabled: prefs.getBool(_soundEffectsEnabledKey) ?? true,
       language: AppLanguage.fromStorage(storedLanguage),
       languageSelected: storedLanguage != null,
       activeDebugMode: prefs.getBool(_activeDebugModeKey) ?? false,
@@ -301,6 +319,38 @@ class AppSettings extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_windowsVpnProxyEnabledKey, enabled);
     await prefs.setInt(_windowsVpnProxyPortKey, safePort);
+  }
+
+  Future<void> setWindowsLaunchAtStartup(bool value) async {
+    if (_windowsLaunchAtStartup == value) {
+      return;
+    }
+    _windowsLaunchAtStartup = value;
+    LogService.instance.debug('Settings: Windows launch at startup -> $value');
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_windowsLaunchAtStartupKey, value);
+  }
+
+  Future<void> markWindowsLaunchAtStartupPrompted() async {
+    if (_windowsLaunchAtStartupPrompted) {
+      return;
+    }
+    _windowsLaunchAtStartupPrompted = true;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_windowsLaunchAtStartupPromptedKey, true);
+  }
+
+  Future<void> setSoundEffectsEnabled(bool value) async {
+    if (_soundEffectsEnabled == value) {
+      return;
+    }
+    _soundEffectsEnabled = value;
+    LogService.instance.debug('Settings: sound effects -> $value');
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_soundEffectsEnabledKey, value);
   }
 
   Future<void> setLanguage(AppLanguage value) async {

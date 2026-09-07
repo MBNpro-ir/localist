@@ -10,6 +10,8 @@ import 'log_service.dart';
 import 'localist_discovery_protocol.dart';
 import 'windows_localist_service.dart';
 
+enum AppSoundEvent { request, accepted, cancelled, completed, failed }
+
 class NativeBridgeService {
   NativeBridgeService._() {
     _channel.setMethodCallHandler(_handleNativeCall);
@@ -434,6 +436,9 @@ class NativeBridgeService {
       await WindowsNotification.registerAumid(
         aumid: _windowsNotificationAppId,
         displayName: 'Localist',
+        iconPath: File(
+          Platform.resolvedExecutable,
+        ).parent.uri.resolve('data/flutter_assets/ico/logo.ico').toFilePath(),
       );
       final notifier = WindowsNotification(
         applicationId: _windowsNotificationAppId,
@@ -462,11 +467,13 @@ class NativeBridgeService {
   Future<bool> showQuickSendRequestNotification({
     required String title,
     required String message,
+    bool soundEnabled = true,
   }) async {
     if (Platform.isAndroid) {
       return await _invoke<bool>('showQuickSendRequestNotification', {
             'title': title,
             'message': message,
+            'soundEnabled': soundEnabled,
           }) ??
           false;
     }
@@ -486,21 +493,44 @@ class NativeBridgeService {
           message,
           launch: _quickSendNotificationAction,
           activationType: NotificationActivationType.foreground,
-          scenario: NotificationScenario.reminder,
+          scenario: NotificationScenario.defaultScenario,
+          audio: const NotificationAudio.silent(),
         ),
       );
-      // Localist's Windows runner is elevated for VPN support. Windows
-      // silently rejects app notifications for elevated processes, so keep a
-      // visible taskbar fallback in that mode.
-      final admin = await WindowsLocalistService.instance.checkAdminAccess();
-      if (admin.available) {
-        await flashWindowsTaskbar();
+      if (soundEnabled) {
+        await playAppSound(AppSoundEvent.request);
       }
+      // Keep a taskbar-attention fallback even when Windows accepts the toast.
+      await flashWindowsTaskbar();
       return true;
     } catch (error, stack) {
       _logs.warning('Windows Quick Send notification failed: $error\n$stack');
       return await flashWindowsTaskbar();
     }
+  }
+
+  Future<bool> playAppSound(AppSoundEvent event) async {
+    if (!Platform.isAndroid && !Platform.isWindows) {
+      return false;
+    }
+    return await _invoke<bool>('playAppSound', {'event': event.name}) ?? false;
+  }
+
+  Future<bool> setWindowsLaunchAtStartup(bool enabled) async {
+    if (!Platform.isWindows) {
+      return false;
+    }
+    return await _invoke<bool>('setWindowsLaunchAtStartup', {
+          'enabled': enabled,
+        }) ??
+        false;
+  }
+
+  Future<bool> getWindowsLaunchAtStartup() async {
+    if (!Platform.isWindows) {
+      return false;
+    }
+    return await _invoke<bool>('getWindowsLaunchAtStartup') ?? false;
   }
 
   Future<bool> takeQuickSendNotificationTap() async {

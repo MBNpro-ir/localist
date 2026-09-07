@@ -1,6 +1,7 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <shobjidl.h>
 
 #include <cctype>
 #include <csignal>
@@ -414,6 +415,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
   WriteRunMarker(debug_preference_enabled);
   InstallCrashHandlers();
+  const HRESULT app_id_result =
+      ::SetCurrentProcessExplicitAppUserModelID(L"PRS.Localist");
+  if (debug_preference_enabled && FAILED(app_id_result)) {
+    AppendNativeDebugLog("SetCurrentProcessExplicitAppUserModelID failed.");
+  }
 
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.

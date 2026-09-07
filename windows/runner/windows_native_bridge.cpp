@@ -5,10 +5,12 @@
 #include <fstream>
 #include <mfapi.h>
 #include <mfidl.h>
+#include <mmsystem.h>
 #include <shellapi.h>
 #include <wininet.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -28,6 +30,9 @@ using flutter::MethodResult;
 constexpr wchar_t kThemeRegKey[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 constexpr wchar_t kAppsUseLightTheme[] = L"AppsUseLightTheme";
+constexpr wchar_t kStartupRegKey[] =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+constexpr wchar_t kStartupValueName[] = L"Localist";
 
 std::wstring Utf8ToWide(const std::string& value) {
   if (value.empty()) {
@@ -183,6 +188,45 @@ bool IsRegularFile(const std::wstring& path) {
 
 std::wstring QuoteArgument(const std::wstring& value) {
   return L"\"" + value + L"\"";
+}
+
+bool SetLaunchAtStartup(bool enabled) {
+  if (!enabled) {
+    const LSTATUS status = RegDeleteKeyValueW(
+        HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName);
+    return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
+  }
+  const std::wstring command = QuoteArgument(GetModulePath());
+  return RegSetKeyValueW(
+             HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName, REG_SZ,
+             command.c_str(),
+             static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t))) ==
+         ERROR_SUCCESS;
+}
+
+bool GetLaunchAtStartup() {
+  wchar_t value[32768] = {};
+  DWORD size = sizeof(value);
+  const LSTATUS status =
+      RegGetValueW(HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName,
+                   RRF_RT_REG_SZ, nullptr, value, &size);
+  return status == ERROR_SUCCESS &&
+         _wcsicmp(value, QuoteArgument(GetModulePath()).c_str()) == 0;
+}
+
+bool PlayAppSound(const std::string& event) {
+  static const std::vector<std::string> allowed = {
+      "request", "accepted", "cancelled", "completed", "failed"};
+  if (std::find(allowed.begin(), allowed.end(), event) == allowed.end()) {
+    return false;
+  }
+  const std::wstring path =
+      ParentDirectory(GetModulePath()) +
+      L"\\data\\flutter_assets\\assets\\sounds\\" + Utf8ToWide(event) +
+      L".wav";
+  return IsRegularFile(path) &&
+         PlaySoundW(path.c_str(), nullptr,
+                    SND_FILENAME | SND_ASYNC | SND_NODEFAULT) != FALSE;
 }
 
 bool OpenFile(HWND window, const std::string& path) {
@@ -602,6 +646,23 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
                   MB_OK | (warning ? MB_ICONWARNING : MB_ICONINFORMATION) |
                       MB_SETFOREGROUND);
     result->Success(EncodableValue(true));
+    return;
+  }
+
+  if (method == "playAppSound") {
+    result->Success(
+        EncodableValue(PlayAppSound(GetStringArgument(arguments, "event"))));
+    return;
+  }
+
+  if (method == "setWindowsLaunchAtStartup") {
+    result->Success(EncodableValue(SetLaunchAtStartup(
+        GetBoolArgument(arguments, "enabled", false))));
+    return;
+  }
+
+  if (method == "getWindowsLaunchAtStartup") {
+    result->Success(EncodableValue(GetLaunchAtStartup()));
     return;
   }
 

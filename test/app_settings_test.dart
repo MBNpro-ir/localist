@@ -27,6 +27,23 @@ void main() {
     expect(settings.language, AppLanguage.system);
     expect(settings.languageSelected, isFalse);
     expect(settings.activeDebugMode, isFalse);
+    expect(settings.windowsLaunchAtStartup, isFalse);
+    expect(settings.windowsLaunchAtStartupPrompted, isFalse);
+    expect(settings.soundEffectsEnabled, isTrue);
+  });
+
+  test('persists startup choice and sound effects preference', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = await AppSettings.load();
+
+    await settings.setWindowsLaunchAtStartup(true);
+    await settings.markWindowsLaunchAtStartupPrompted();
+    await settings.setSoundEffectsEnabled(false);
+    final reloaded = await AppSettings.load();
+
+    expect(reloaded.windowsLaunchAtStartup, isTrue);
+    expect(reloaded.windowsLaunchAtStartupPrompted, isTrue);
+    expect(reloaded.soundEffectsEnabled, isFalse);
   });
 
   test('saves active debug mode setting', () async {

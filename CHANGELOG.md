@@ -2,6 +2,32 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [5.0.8] - 2026-09-07
+
+### Notifications and background receiving
+
+- Removed the Flutter post-frame dependency from incoming request alerts, so system notifications are dispatched immediately while Localist is backgrounded.
+- Android now holds the CPU, high-performance Wi-Fi, and multicast resources required by Quick Send while its foreground receiver remains in Recents.
+- Android stops the Quick Send foreground receiver when the user removes Localist from Recents.
+- Added separate high-importance Android request channels with an optional bundled notification sound and unique notification IDs.
+- Registered the Windows process AUMID explicitly before notification initialization, while retaining taskbar flashing as a fallback for restricted desktop toast environments.
+
+### Sounds, startup, profile, and polish
+
+- Added subtle CC0 Kenney sounds for incoming requests, acceptance, cancellation, completed transfers, and failed transfers.
+- Added a default-on App sound effects option under App behavior.
+- Added a first-run Windows prompt for launch-at-sign-in and a persistent Start with Windows toggle backed by the current-user Run registry entry.
+- Made the device avatar on Quick Send open its profile, avatar, image, and color settings.
+- Changed mobile bottom navigation so the active icon and label transition as one visual unit, while all three labels remain visible.
+- Requested the small Windows 11 corner style for a lightly rounded native window.
+
+### Validation
+
+- Added preference persistence coverage for startup and sound choices.
+- Passed Flutter static analysis, all unit/widget/integration tests, Android debug compilation, and Windows native debug compilation.
+
+**Full Changelog:** [v5.0.7...v5.0.8](https://github.com/MBNpro-ir/localist/compare/v5.0.7...v5.0.8)
+
 ## [5.0.7] - 2026-09-07
 
 ### Highlights
