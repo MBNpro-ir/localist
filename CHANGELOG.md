@@ -2,6 +2,62 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [5.0.7] - 2026-09-07
+
+### Highlights
+
+- Quick Send is now the first screen on Android and Windows, with Sharing and Receiving following it in the primary navigation.
+- Added a first-run Quick Send identity setup with a prefilled device name, editable emoji-aware validation, six dynamically colored Material avatars, and an optional local profile photo.
+- Reorganized Settings into a clear overview and separate Quick Send, network/proxy, appearance/language, app-behavior, updates/about, and profile experiences.
+
+### Incoming requests and background reliability
+
+- Replaced the inline manual incoming-request card with an Accept/Decline popup that appears over the active app regardless of the current page.
+- Quick Save continues to accept trusted file requests automatically. When the user is outside Quick Send, an unobtrusive in-app notice reports the accepted receive instead of showing the manual popup.
+- Added a connected-device foreground service so Android keeps the Quick Send receiver available during normal background use instead of allowing the sender to fail merely because Localist is behind another app.
+- Added Android and Windows system notifications for requests that arrive while Localist is not foregrounded. Selecting a notification opens Quick Send, brings the Windows window forward when applicable, and navigates to the pending receive.
+- Preserved the Windows taskbar-attention fallback for elevated processes that cannot publish a normal desktop toast.
+- Added Android 17 local-network permission handling and the required connected-device foreground-service declarations.
+
+### Transfers and history
+
+- Added a dedicated **Transfer history** page for received files with concise completed, failed, active, and byte totals.
+- History rows show sender, timestamp, destination path, status, progress, availability, and a useful failure summary.
+- Added per-file **Share** and **Open** actions while keeping a single global **Open received folder** action for the complete destination.
+- Persisted up to 250 received-file history entries in platform app data and merged active receives into the same view.
+- Added confirmed history clearing that removes history metadata without deleting downloaded files.
+- Added **Clear** beside the live Transfers section and moved **Send to iPhone or Mac** to the bottom of Quick Send.
+
+### Navigation, motion, and visual design
+
+- Redesigned the three-item Android bottom navigation so every label remains visible and only the selected destination displays its icon.
+- Added smoother, slightly slower navigation and theme/color transitions while honoring the operating system's disabled-animation accessibility setting.
+- Refined Material 3 cards, dialogs, controls, and responsive spacing with rounder surfaces for current Android and Windows layouts.
+- Stabilized the Windows hover rail so opening and closing its labels does not resize, overflow, or reflow page content.
+- Preserved the user's/system's initial Windows size and enforced only a practical minimum size to prevent unusable layouts.
+
+### Profile and settings
+
+- Removed the Android device-name lock. Device names can now be edited safely on all supported platforms, include emoji, and are limited to 32 user-perceived characters with control characters rejected.
+- Added profile editing to Settings, including avatar preset, dynamic avatar color, and local photo replacement/removal.
+- Included bounded profile identity data in Quick Send discovery and request metadata without placing photo data in UDP announcements.
+- Kept valid Quick Send settings automatically saved and retained guarded exit behavior that warns about invalid drafts before restoring the last valid values.
+
+### Android build and compatibility
+
+- Raised `compileSdk` and `targetSdk` to Android API 37.
+- Updated Android Gradle Plugin to 9.2.1 and Gradle to 9.4.1 while retaining Flutter's documented legacy Kotlin compatibility bridge until all plugins support built-in Kotlin.
+- Updated `file_picker` to 12.2.0 and migrated selection calls to its current API.
+- Updated the release workflow to Flutter 3.47.2 and the package SDK floor to Dart 3.12.
+
+### Testing and documentation
+
+- Added regression tests for navigation order/animation behavior, profile persistence and validation, bounded remote avatars, and transfer-history serialization.
+- Re-ran formatting, static analysis, all Flutter tests, and an isolated Android AGP 9 compile using clean Gradle state and repository mirrors.
+- Updated the English and Persian guides for the new default page, identity setup, request behavior, background notifications, transfer history, Settings organization, permissions, and current release toolchain.
+
+**Full Changelog:** [v5.0.0...v5.0.7](https://github.com/MBNpro-ir/localist/compare/v5.0.0...v5.0.7)
+
 ## [5.0.0] - 2026-09-07
 
 ### Highlights
@@ -43,4 +99,5 @@ All notable user-facing changes are documented here. Version numbers follow [Sem
 
 **Full Changelog:** [v4.1.5...v5.0.0](https://github.com/MBNpro-ir/localist/compare/v4.1.5...v5.0.0)
 
+[5.0.7]: https://github.com/MBNpro-ir/localist/compare/v5.0.0...v5.0.7
 [5.0.0]: https://github.com/MBNpro-ir/localist/compare/v4.1.5...v5.0.0

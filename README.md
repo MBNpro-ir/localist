@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-5.0.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-5.0.7-blue"></a>
 </p>
 
 ## User Guide
@@ -34,12 +34,14 @@ Localist lets devices on the same local network share VPN/proxy access and trans
 - Windows can host the same token-protected browser transfer page on Wi-Fi, Ethernet, a router, or Windows Mobile Hotspot and displays a QR that opens it directly on iPhone, iPad, or Mac.
 - English and Persian, light/dark themes, Android dynamic colors, and Windows accent colors are supported.
 
-### Version 5 interface and settings
+### Version 5.0.7 interface and settings
 
 - Windows uses a Flutter-rendered title bar with native minimize, maximize/restore, close, and window-management behavior. The compact left rail expands with animated labels on hover without moving or reflowing the current page.
-- The **Settings** action is available at the top right on Android and Windows and opens a dedicated Settings page. Quick Send connection information, receiving options, network values, destination, and security controls all live there.
+- Quick Send opens first. On Android its three navigation labels remain visible, only the active destination shows its icon, and navigation plus theme/color changes animate smoothly unless OS animations are disabled.
+- First launch offers a prefilled, editable device name plus a colorful Material avatar or local profile photo. The same identity controls remain available in Settings.
+- The **Settings** action is available at the top right on Android and Windows and opens a dedicated overview with separate profile, Quick Send, network/proxy, appearance/language, behavior, and updates/about pages.
 - Valid Quick Send edits save automatically. If a device name, port, multicast address, destination, or required PIN is invalid, Localist highlights it and offers to restore the last valid saved values before the user leaves Settings or closes the window.
-- Read the complete [v5.0.0 changelog](CHANGELOG.md#500---2026-09-07), including the [full GitHub comparison from v4.1.5](https://github.com/MBNpro-ir/localist/compare/v4.1.5...v5.0.0).
+- Read the complete [v5.0.7 changelog](CHANGELOG.md#507---2026-09-07), including the [full GitHub comparison from v5.0.0](https://github.com/MBNpro-ir/localist/compare/v5.0.0...v5.0.7).
 
 ### Download and install
 
@@ -71,16 +73,16 @@ Raw `http://` and `socks5://` configurations are still accepted. A raw configura
 
 Turn off the device VPN before starting Quick Send. A red warning appears and all Quick Send network services remain suspended while any Android or Localist VPN transport is active.
 
-1. Open **Quick Send** on both devices.
+1. Open **Quick Send** on both devices; it is the default page when Localist starts.
 2. Choose **File**, **Media**, **Paste**, **Text**, or **Folder**.
 3. Tap a destination, or press and hold devices to select several recipients and send concurrently.
 4. Accept the request on the receiving device unless Quick Save is enabled.
 
-On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files or folders can be dropped anywhere on the Localist window; Quick Send opens automatically and keeps the dropped items selected. Completed Android receives offer **Share again** and **Open file**. The folder button beside **Transfers** opens the main `/Localist` folder in view mode without asking Localist to use that folder. **Share again** asks whether to select the file inside Localist or open the Android system share sheet for other apps. Windows retains the per-file open-folder and open-file actions.
+On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files or folders can be dropped anywhere on the Localist window; Quick Send opens automatically and keeps the dropped items selected. **Transfer history** gives received files a concise status report plus per-file **Share** and **Open** actions. A single **Open received folder** action opens the complete destination, and clearing history removes only its records—not downloaded files. The live **Transfers** list also has a **Clear** action.
 
 For a manual Quick Send connection, open Quick Send on the destination and copy one of the IP chips under **Manual connection address for this device**. On the sender, tap **+** beside **Nearby devices**, then enter that IP with the destination's displayed port and HTTP/HTTPS mode. Both devices must use the same Wi-Fi or hotspot and their VPN must be off.
 
-For an iPhone, iPad, or Mac, use the **Send to iPhone or Mac** card between Selection and Nearby Devices.
+For an iPhone, iPad, or Mac, use the **Send to iPhone or Mac** card at the bottom of Quick Send.
 
 On Android:
 
@@ -102,7 +104,7 @@ Use Refresh to repeat multicast, directed-broadcast, and active subnet discovery
 
 Quick Send settings include:
 
-- Device name, receive port, and multicast group. Android advertises the actual phone model automatically instead of `localhost`.
+- Device profile, receive port, and multicast group. Localist prefills the Android model but lets the user choose a validated name of up to 32 user-perceived characters, including emoji, plus an avatar or photo.
 - Destination folder and duplicate-file overwrite behavior. On Android, the default is `/storage/emulated/0/Localist`, with `Images`, `Videos`, `Audio`, `Documents`, `Archives`, `Apps`, and `Other` subfolders. Choosing a custom destination disables this automatic grouping.
 - HTTPS encryption with certificate fingerprint verification.
 - Optional receiver PIN.
@@ -111,7 +113,7 @@ Quick Send settings include:
 
 Quick Save accepts files without asking. Enable it only on trusted local networks. Text messages always require an explicit acceptance.
 
-When an incoming request arrives while Quick Send is not the active screen, Localist shows an in-app notice. Android also posts a system notification, while Windows uses a Windows 10/11 notification and a taskbar fallback for elevated processes. Selecting the notification brings Localist forward, opens Quick Send, and takes the user to the pending request.
+Manual incoming requests use an Accept/Decline popup over the active app instead of a passive page card. During normal background use Android keeps the receiver available and Android or Windows posts a system notification when Localist is behind other apps. Selecting it brings Localist forward, opens Quick Send, and focuses the pending receive. Quick Save does not show the manual popup; when an automatically accepted receive arrives while the user is elsewhere inside Localist, a small in-app notice reports it.
 
 ### Platform modes
 
@@ -124,13 +126,14 @@ Windows VPN mode requires administrator access plus `tun2socks.exe` and `wintun.
 
 ### Permissions and local data
 
-- Android asks for notifications and battery-optimization access so long-running VPN/proxy transfers can continue in the background.
+- Android asks for notifications and battery-optimization access so long-running VPN/proxy transfers can continue in the background. Quick Send uses a low-importance connected-device foreground service while receiving is enabled.
+- Android 17 asks for local-network access before discovery and receiving; older supported Android releases do not expose that runtime permission.
 - Camera access is requested only when the QR scanner is opened.
 - Android VPN permission is requested only when VPN Receiving is started.
 - Android requests Nearby Wi-Fi access when creating the private Apple/Mac transfer hotspot (location access is used instead on Android 12 and older).
 - Android requests file-management access only when the default root-level `/Localist` receive folder is used.
 - Files sent through Quick Send stay on the local network. HTTPS mode verifies the destination certificate fingerprint.
-- Preferences, favorites, certificate identity, and transfer settings are stored in the platform app-data directory.
+- Preferences, profile identity, favorites, certificate identity, transfer settings, and received-file history are stored in the platform app-data directory. A selected profile photo is normalized to a small local thumbnail.
 
 ### Logs and troubleshooting
 
@@ -158,8 +161,8 @@ ico/                       Application icons
 
 ### Toolchain
 
-- Flutter stable with Windows desktop support.
-- Android SDK Platform 35 or newer and JDK 17.
+- Flutter 3.47.2 stable with Windows desktop support (Dart 3.12 or newer).
+- Android SDK Platform 37 and JDK 17.
 - Visual Studio 2022 with **Desktop development with C++**.
 - Windows 10/11 WebView2 Runtime for webcam QR scanning.
 
@@ -221,7 +224,7 @@ For a manual release, open the repository Actions page, run **Release**, and lea
 To explicitly publish a version from `master`, push the release commit first and run:
 
 ```powershell
-gh workflow run release.yml --repo MBNpro-ir/localist --ref master -f release_tag="v5.0.0"
+gh workflow run release.yml --repo MBNpro-ir/localist --ref master -f release_tag="v5.0.7"
 ```
 
 ### Architecture notes

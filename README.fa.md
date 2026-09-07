@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-5.0.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-5.0.7-blue"></a>
 </p>
 
 ## راهنمای کاربران
@@ -34,12 +34,14 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 - Windows نیز همین صفحه انتقال مرورگری محافظت‌شده با Token را روی Wi-Fi، Ethernet، مودم یا Windows Mobile Hotspot اجرا می‌کند و QR ورود مستقیم را برای iPhone، iPad و Mac نشان می‌دهد.
 - زبان فارسی و انگلیسی، تم روشن و تیره، رنگ پویا در اندروید و رنگ Accent ویندوز پشتیبانی می‌شوند.
 
-### رابط و تنظیمات نسخه ۵
+### رابط و تنظیمات نسخه ۵.۰.۷
 
 - در Windows، نوار عنوان برنامه با Flutter رسم می‌شود، اما Minimize، Maximize/Restore، Close و مدیریت خود پنجره همچنان native ویندوز هستند. نوار سمت چپ به‌صورت آیکن فشرده است و با Hover، متن دکمه‌ها را بدون جابه‌جایی یا Reflow صفحه نشان می‌دهد.
-- گزینه **Settings** در بالای سمت راست Android و Windows قرار دارد و صفحهٔ تنظیمات مستقل را باز می‌کند. وضعیت اتصال Quick Send، گزینه‌های دریافت، شبکه، پوشه مقصد و امنیت همگی در همان صفحه هستند.
+- Quick Send صفحهٔ آغازین برنامه است. در Android متن هر سه دکمهٔ ناوبری همیشه دیده می‌شود، فقط مقصد فعال آیکن دارد و جابه‌جایی صفحه و تغییر تم/رنگ نرم انجام می‌شود؛ مگر اینکه Animation سیستم خاموش باشد.
+- در اولین اجرا، نام پیشنهادی دستگاه قابل ویرایش است و کاربر می‌تواند آواتار رنگی Material یا عکس محلی انتخاب کند. همین تنظیمات هویت بعداً نیز در Settings در دسترس است.
+- گزینه **Settings** در بالای سمت راست Android و Windows قرار دارد و یک نمای مستقل و دسته‌بندی‌شده برای Profile، Quick Send، Network/Proxy، Appearance/Language، رفتار برنامه و Updates/About باز می‌کند.
 - تغییرات معتبر Quick Send خودکار ذخیره می‌شوند. اگر نام دستگاه، پورت، آدرس Multicast، پوشه مقصد یا PIN لازم نامعتبر باشد، Localist آن را مشخص می‌کند و پیش از خروج از Settings یا بستن پنجره، امکان بازگردانی آخرین مقدار معتبر را می‌دهد.
-- [تغییرات کامل نسخه ۵](CHANGELOG.md#500---2026-09-07) و [مقایسهٔ کامل GitHub از v4.1.5 تا v5.0.0](https://github.com/MBNpro-ir/localist/compare/v4.1.5...v5.0.0) را ببینید.
+- [تغییرات کامل نسخه ۵.۰.۷](CHANGELOG.md#507---2026-09-07) و [مقایسهٔ کامل GitHub از v5.0.0 تا v5.0.7](https://github.com/MBNpro-ir/localist/compare/v5.0.0...v5.0.7) را ببینید.
 
 ### دانلود و نصب
 
@@ -71,16 +73,16 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 
 پیش از انتقال فایل، VPN خود دستگاه را خاموش کنید. هنگام فعال بودن هر VPN، هشدار قرمز نمایش داده می‌شود و سرویس‌های شبکه Quick Send تا خاموش شدن VPN متوقف می‌مانند.
 
-1. روی هر دو دستگاه **Quick Send** را باز کنید.
+1. روی هر دو دستگاه **Quick Send** را باز کنید؛ این صفحه هنگام شروع Localist به‌صورت پیش‌فرض باز می‌شود.
 2. یکی از گزینه‌های **File**، **Media**، **Paste**، **Text** یا **Folder** را انتخاب کنید.
 3. روی یک مقصد بزنید؛ یا روی دستگاه‌ها نگه دارید تا چند مقصد انتخاب شوند و انتقال هم‌زمان انجام شود.
 4. اگر Quick Save فعال نیست، درخواست را روی دستگاه دریافت‌کننده تأیید کنید.
 
-در Android می‌توانید از منوی Share برنامه‌های دیگر، **Localist** را انتخاب کنید تا فایل‌ها خودکار در Quick Send آماده شوند. در Windows می‌توانید فایل یا پوشه را روی هر قسمت پنجره Localist رها کنید؛ Quick Send خودکار باز می‌شود و موارد Drop‌شده انتخاب‌شده باقی می‌مانند. جلوی فایل‌های دریافت‌شده Android گزینه‌های **Share again** و **Open file** قرار دارند. دکمه پوشه کنار عنوان **Transfers**، پوشه اصلی `/Localist` را فقط برای مشاهده در فایل‌منیجر باز می‌کند و دیگر از کاربر نمی‌خواهد اجازه «Use this folder» بدهد. گزینه Share again از کاربر می‌پرسد فایل دوباره داخل Localist انتخاب شود یا منوی Share سیستم Android برای برنامه‌های دیگر باز شود. در Windows گزینه‌های بازکردن پوشه و فایل هر انتقال همچنان در دسترس هستند.
+در Android می‌توانید از منوی Share برنامه‌های دیگر، **Localist** را انتخاب کنید تا فایل‌ها خودکار در Quick Send آماده شوند. در Windows می‌توانید فایل یا پوشه را روی هر قسمت پنجره Localist رها کنید؛ Quick Send خودکار باز می‌شود و موارد Drop‌شده انتخاب‌شده باقی می‌مانند. صفحهٔ **Transfer history** برای فایل‌های دریافتی گزارش کوتاه وضعیت و دکمه‌های **Share** و **Open** هر فایل را نشان می‌دهد. فقط یک گزینهٔ **Open received folder** برای کل پوشه مقصد وجود دارد و پاک‌کردن تاریخچه فقط رکوردها را حذف می‌کند، نه فایل‌های دانلودشده. فهرست زندهٔ **Transfers** نیز دکمهٔ **Clear** دارد.
 
 برای اتصال دستی Quick Send، در دستگاه مقصد Quick Send را باز کنید و یکی از IPهای بخش **آدرس اتصال دستی این دستگاه** را کپی کنید. در دستگاه فرستنده کنار **Nearby devices** روی **+** بزنید و همان IP را همراه پورت و حالت HTTP/HTTPS نمایش‌داده‌شده در مقصد وارد کنید. هر دو دستگاه باید روی یک Wi-Fi یا Hotspot مشترک باشند و VPN آن‌ها خاموش باشد.
 
-برای iPhone، iPad یا Mac از کارت **Send to iPhone or Mac** بین Selection و Nearby Devices استفاده کنید.
+برای iPhone، iPad یا Mac از کارت **Send to iPhone or Mac** در انتهای صفحهٔ Quick Send استفاده کنید.
 
 در Android:
 
@@ -102,7 +104,7 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 
 تنظیمات Quick Send شامل موارد زیر است:
 
-- نام دستگاه، پورت دریافت و گروه Multicast. در Android مدل واقعی گوشی به‌صورت خودکار جای `localhost` استفاده می‌شود.
+- پروفایل دستگاه، پورت دریافت و گروه Multicast. Localist مدل Android را پیشنهاد می‌دهد، اما کاربر می‌تواند یک نام معتبر تا ۳۲ کاراکتر قابل‌درک برای کاربر، همراه ایموجی، و یک آواتار یا عکس انتخاب کند.
 - پوشه مقصد و رفتار جایگزینی فایل تکراری. مسیر پیش‌فرض Android برابر `/storage/emulated/0/Localist` است و فایل‌ها داخل پوشه‌های `Images`، `Videos`، `Audio`، `Documents`، `Archives`، `Apps` و `Other` قرار می‌گیرند؛ با انتخاب مسیر سفارشی این دسته‌بندی خودکار غیرفعال می‌شود.
 - رمزنگاری HTTPS همراه تطبیق Fingerprint گواهی.
 - PIN اختیاری برای دستگاه دریافت‌کننده.
@@ -111,7 +113,7 @@ Localist به دستگاه‌های داخل یک شبکه محلی اجازه �
 
 Quick Save فایل‌ها را بدون سؤال می‌پذیرد؛ آن را فقط در شبکه‌های قابل اعتماد فعال کنید. دریافت پیام متنی همیشه نیازمند تأیید صریح است.
 
-اگر درخواست جدید زمانی برسد که Quick Send صفحهٔ فعال نیست، Localist یک اعلان داخلی نمایش می‌دهد. Android علاوه بر آن Notification سیستم را می‌فرستد و Windows از Notification ویندوز ۱۰/۱۱ استفاده می‌کند؛ برای پردازش‌های elevated ویندوز، Flash شدن Taskbar نیز به‌عنوان fallback وجود دارد. با زدن روی اعلان، Localist به جلو می‌آید، Quick Send باز می‌شود و به درخواست در انتظار می‌رود.
+درخواست دستی دریافتی به‌صورت Popup تأیید/رد روی صفحهٔ فعال نمایش داده می‌شود و دیگر کارت غیرفعال داخل صفحه نیست. در استفادهٔ عادی پس‌زمینه، Android سرویس دریافت را فعال نگه می‌دارد و وقتی Localist پشت برنامه‌های دیگر است، Android یا Windows اعلان سیستمی می‌فرستد. با زدن روی اعلان، Localist به جلو می‌آید، Quick Send باز می‌شود و درخواست در انتظار نمایش داده می‌شود. Quick Save Popup دستی ندارد؛ اگر دریافت خودکار زمانی انجام شود که کاربر در صفحه‌ای دیگر داخل Localist است، یک اعلان داخلی کوچک نمایش داده می‌شود.
 
 ### حالت‌های هر پلتفرم
 
@@ -124,13 +126,14 @@ Quick Save فایل‌ها را بدون سؤال می‌پذیرد؛ آن را 
 
 ### Permission و اطلاعات محلی
 
-- اندروید برای ادامه سرویس‌های VPN/Proxy در پس‌زمینه، Notification و Battery Optimization access درخواست می‌کند.
+- اندروید برای ادامه سرویس‌های VPN/Proxy در پس‌زمینه، Notification و Battery Optimization access درخواست می‌کند. هنگام فعال بودن دریافت Quick Send، یک Foreground Service کم‌اهمیت از نوع Connected Device اجرا می‌شود.
+- Android 17 پیش از Discovery و دریافت، مجوز Local Network را درخواست می‌کند؛ نسخه‌های قدیمی‌تر این مجوز Runtime را ندارند.
 - دسترسی دوربین فقط هنگام باز کردن QR Scanner درخواست می‌شود.
 - مجوز Android VPN فقط هنگام شروع VPN در Receiving درخواست می‌شود.
 - برای ساخت هات‌اسپات خصوصی انتقال به Apple/Mac، دسترسی Nearby Wi-Fi درخواست می‌شود؛ در Android 12 و قدیمی‌تر مجوز Location جای آن استفاده می‌شود.
 - مجوز مدیریت فایل Android فقط برای استفاده از پوشه پیش‌فرض `/Localist` در ریشه حافظه مشترک درخواست می‌شود.
 - فایل‌های Quick Send داخل شبکه محلی باقی می‌مانند و حالت HTTPS اثرانگشت گواهی مقصد را بررسی می‌کند.
-- تنظیمات، Favorites، هویت گواهی و تنظیمات انتقال در پوشه App Data همان پلتفرم ذخیره می‌شوند.
+- تنظیمات، هویت Profile، Favorites، هویت گواهی، تنظیمات انتقال و تاریخچهٔ فایل دریافتی در App Data همان پلتفرم ذخیره می‌شوند. عکس Profile به یک Thumbnail محلی کوچک تبدیل می‌شود.
 
 ### لاگ و رفع مشکل
 
@@ -158,8 +161,8 @@ ico/                       آیکن‌های برنامه
 
 ### ابزارهای لازم
 
-- Flutter Stable با Windows Desktop Support.
-- Android SDK Platform 35 یا جدیدتر و JDK 17.
+- Flutter 3.47.2 Stable با Windows Desktop Support و Dart 3.12 یا جدیدتر.
+- Android SDK Platform 37 و JDK 17.
 - Visual Studio 2022 با **Desktop development with C++**.
 - WebView2 Runtime روی Windows 10/11 برای QR Scanner وب‌کم.
 - 7-Zip برای بسته‌بندی محلی نسخه ویندوز.
@@ -222,7 +225,7 @@ git push origin "v$version"
 برای انتشار صریح یک نسخه از `master`، ابتدا کامیت انتشار را Push کنید و سپس اجرا کنید:
 
 ```powershell
-gh workflow run release.yml --repo MBNpro-ir/localist --ref master -f release_tag="v5.0.0"
+gh workflow run release.yml --repo MBNpro-ir/localist --ref master -f release_tag="v5.0.7"
 ```
 
 ### نکات معماری

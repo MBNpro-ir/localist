@@ -57,32 +57,25 @@ enum WindowsCloseBehavior {
 }
 
 class AppSettings extends ChangeNotifier {
-  AppSettings({
+  AppSettings._({
     required Set<ProxyProtocol> enabledProtocols,
     required Map<ProxyProtocol, int> protocolPorts,
-    required bool shareAllRoutes,
+    required this._shareAllRoutes,
     required Set<String> selectedLocalIps,
-    required bool rootRoutingEnabled,
-    required WindowsCloseBehavior windowsCloseBehavior,
-    required bool windowsVpnProxyEnabled,
+    required this._rootRoutingEnabled,
+    required this._windowsCloseBehavior,
+    required this._windowsVpnProxyEnabled,
     required int windowsVpnProxyPort,
-    required AppLanguage language,
-    required bool languageSelected,
-    required bool activeDebugMode,
+    required this._language,
+    required this._languageSelected,
+    required this._activeDebugMode,
   }) : _enabledProtocols = _coerceProtocols(enabledProtocols),
        _protocolPorts = _coerceProtocolPorts(protocolPorts),
-       _shareAllRoutes = shareAllRoutes,
        _selectedLocalIps = {...selectedLocalIps},
-       _rootRoutingEnabled = rootRoutingEnabled,
-       _windowsCloseBehavior = windowsCloseBehavior,
-       _windowsVpnProxyEnabled = windowsVpnProxyEnabled,
        _windowsVpnProxyPort = _coercePort(
          windowsVpnProxyPort,
          fallback: _defaultWindowsVpnProxyPort,
-       ),
-       _language = language,
-       _languageSelected = languageSelected,
-       _activeDebugMode = activeDebugMode;
+       );
 
   static const _protocolKey = 'proxy.protocol';
   static const _protocolsKey = 'proxy.protocols';
@@ -146,7 +139,7 @@ class AppSettings extends ChangeNotifier {
     final legacyPort = prefs.getInt(_portKey);
     final storedSocks5Port = prefs.getInt(_socks5PortKey);
     final storedLanguage = prefs.getString(_languageKey);
-    final settings = AppSettings(
+    final settings = AppSettings._(
       enabledProtocols: storedProtocols == null && legacyProtocol == null
           ? _defaultProtocols
           : storedProtocols == null
