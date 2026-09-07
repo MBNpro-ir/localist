@@ -66,4 +66,34 @@ void main() {
     expect(find.text('Quick Send'), findsNothing);
     expect(find.text('Settings'), findsNothing);
   });
+
+  testWidgets('gradient overlay does not block page gestures', (tester) async {
+    var taps = 0;
+    final bodyKey = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          extendBody: true,
+          body: GestureDetector(
+            key: bodyKey,
+            behavior: HitTestBehavior.opaque,
+            onTap: () => taps++,
+            child: const SizedBox.expand(child: ColoredBox(color: Colors.blue)),
+          ),
+          bottomNavigationBar: LocalistBottomNavigationBar(
+            currentIndex: 0,
+            onDestinationSelected: (_) {},
+            items: items,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.getSize(find.byType(LocalistBottomNavigationBar)).height,
+      144,
+    );
+    await tester.tapAt(const Offset(100, 100));
+    expect(taps, 1);
+  });
 }

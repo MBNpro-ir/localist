@@ -34,59 +34,69 @@ class LocalistBottomNavigationBar extends StatelessWidget {
   final String? actionTooltip;
   final VoidCallback? onActionPressed;
 
+  static const double _gradientHeight = 144;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: const [0, .42, .74, 1],
-          colors: [
-            Colors.transparent,
-            scheme.primary.withValues(alpha: .02),
-            scheme.primaryContainer.withValues(alpha: .07),
-            scheme.tertiary.withValues(alpha: .14),
-          ],
-        ),
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 144),
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: SafeArea(
-            top: false,
-            minimum: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final compact = constraints.maxWidth < 560;
-                final showAction = showActionButton && onActionPressed != null;
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Flexible(
-                      child: _LocalistNavigationPill(
-                        currentIndex: currentIndex,
-                        onDestinationSelected: onDestinationSelected,
-                        items: items,
-                        compact: compact,
-                      ),
-                    ),
-                    if (showAction) ...[
-                      const SizedBox(width: 10),
-                      _LocalistActionButton(
-                        icon: actionIcon,
-                        tooltip: actionTooltip,
-                        onPressed: onActionPressed!,
-                      ),
-                    ],
+    return SizedBox(
+      height: _gradientHeight,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const [0, .42, .74, 1],
+                  colors: [
+                    Colors.transparent,
+                    scheme.primary.withValues(alpha: .02),
+                    scheme.primaryContainer.withValues(alpha: .07),
+                    scheme.tertiary.withValues(alpha: .14),
                   ],
-                );
-              },
+                ),
+              ),
             ),
           ),
-        ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SafeArea(
+              top: false,
+              minimum: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 560;
+                  final showAction =
+                      showActionButton && onActionPressed != null;
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: _LocalistNavigationPill(
+                          currentIndex: currentIndex,
+                          onDestinationSelected: onDestinationSelected,
+                          items: items,
+                          compact: compact,
+                        ),
+                      ),
+                      if (showAction) ...[
+                        const SizedBox(width: 10),
+                        _LocalistActionButton(
+                          icon: actionIcon,
+                          tooltip: actionTooltip,
+                          onPressed: onActionPressed!,
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
