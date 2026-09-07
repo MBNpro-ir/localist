@@ -23,6 +23,10 @@ class Win32Window {
     unsigned int height;
     Size(unsigned int width, unsigned int height)
         : width(width), height(height) {}
+
+    static Size SystemDefault() { return Size(0, 0); }
+
+    bool is_system_default() const { return width == 0 || height == 0; }
   };
 
   Win32Window();

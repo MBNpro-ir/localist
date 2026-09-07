@@ -200,7 +200,6 @@ class _QuickSendPageState extends State<QuickSendPage> {
           key: const PageStorageKey<String>('quick-send-page'),
           children: [
             if (widget.deviceVpnActive) _vpnWarningPanel(),
-            _statusPanel(settings),
             if (_service.pendingRequest case final pending?)
               _pendingPanel(pending),
             _selectionPanel(),
@@ -580,157 +579,6 @@ class _QuickSendPageState extends State<QuickSendPage> {
     );
   }
 
-  Widget _statusPanel(QuickSendSettings settings) {
-    final running = _service.serverRunning && !widget.deviceVpnActive;
-    final localAddresses = _service.localAddresses;
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Quick Send',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              IconButton(
-                tooltip: _t('تنظیمات Quick Send', 'Quick Send settings'),
-                onPressed: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (_) => QuickSendSettingsPage(
-                      simple: LocalistVisualStyle.simpleOf(context),
-                    ),
-                  ),
-                ),
-                icon: const Icon(Icons.tune_outlined),
-              ),
-            ],
-          ),
-          Text(
-            _t(
-              'ارسال امن فایل و پیام به دستگاه‌های داخل شبکه، بدون اینترنت.',
-              'Send files and messages to nearby devices without the internet.',
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              Chip(
-                avatar: Icon(
-                  running ? Icons.wifi_tethering : Icons.wifi_tethering_off,
-                  size: 18,
-                ),
-                label: Text(
-                  running
-                      ? _t('آماده دریافت', 'Ready to receive')
-                      : widget.deviceVpnActive
-                      ? _t('غیرفعال به‌دلیل VPN', 'Disabled by VPN')
-                      : _t('فقط ارسال', 'Send only'),
-                ),
-              ),
-              Chip(
-                avatar: const Icon(Icons.numbers, size: 18),
-                label: Text('${settings.port}'),
-              ),
-              Chip(
-                avatar: Icon(
-                  settings.encryption
-                      ? Icons.lock_outline
-                      : Icons.no_encryption_outlined,
-                  size: 18,
-                ),
-                label: Text(settings.encryption ? 'HTTPS' : 'HTTP'),
-              ),
-              if (settings.quickSave)
-                Chip(
-                  avatar: const Icon(Icons.bolt_outlined, size: 18),
-                  label: Text(_t('ذخیره سریع', 'Quick Save')),
-                ),
-            ],
-          ),
-          if (running) ...[
-            const SizedBox(height: 12),
-            Text(
-              _t(
-                'آدرس اتصال دستی این دستگاه',
-                'Manual connection address for this device',
-              ),
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 6),
-            if (localAddresses.isEmpty)
-              Text(
-                _t(
-                  'هنوز IP شبکه محلی پیدا نشده است؛ پس از اتصال به Wi-Fi یا Hotspot دکمه Refresh را بزنید.',
-                  'No local-network IP is available yet. Connect to Wi-Fi or a hotspot, then tap Refresh.',
-                ),
-                style: Theme.of(context).textTheme.bodySmall,
-              )
-            else ...[
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final address in localAddresses)
-                    ActionChip(
-                      avatar: const Icon(Icons.copy_outlined, size: 17),
-                      label: Text(address),
-                      tooltip: _t('کپی IP', 'Copy IP'),
-                      onPressed: () => _copyManualAddress(address),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _t(
-                  'در دستگاه فرستنده، کنار Nearby devices روی + بزنید و یکی از این IPها را با پورت ${settings.port} و حالت ${settings.encryption ? 'HTTPS' : 'HTTP'} وارد کنید.',
-                  'On the sender, tap + beside Nearby devices and enter one of these IPs with port ${settings.port} and ${settings.encryption ? 'HTTPS' : 'HTTP'}.',
-                ),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ],
-          if (_service.lastError.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            ServiceLockNotice(
-              message: _t(
-                'سرویس شبکه کامل اجرا نشد: ${_service.lastError}',
-                'The network service did not fully start: ${_service.lastError}',
-              ),
-              icon: Icons.warning_amber_outlined,
-            ),
-          ],
-          if (Platform.isAndroid && !_service.storageAccessGranted) ...[
-            const SizedBox(height: 10),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Icon(Icons.folder_off_outlined),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _t(
-                      'برای ذخیره فایل‌ها در پوشه /Localist دسترسی فایل لازم است.',
-                      'File access is required to save received files in /Localist.',
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _requestStorageAccess,
-                  child: Text(_t('اعطا', 'Grant')),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _pendingPanel(QuickSendPendingRequest pending) {
     return GlassPanel(
       child: Column(
@@ -944,9 +792,21 @@ class _QuickSendPageState extends State<QuickSendPage> {
             children: [
               Expanded(
                 child: Text(
-                  _t('انتخاب محتوا', 'Selection'),
+                  'Quick Send',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
+              ),
+              IconButton(
+                tooltip: _t('تنظیمات Quick Send', 'Quick Send settings'),
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => QuickSendSettingsPage(
+                      simple: LocalistVisualStyle.simpleOf(context),
+                      deviceVpnActive: widget.deviceVpnActive,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.tune_outlined),
               ),
               if (hasSelection)
                 IconButton(
@@ -1922,13 +1782,6 @@ class _QuickSendPageState extends State<QuickSendPage> {
     }
   }
 
-  Future<void> _copyManualAddress(String address) async {
-    await Clipboard.setData(ClipboardData(text: address));
-    if (mounted) {
-      _notice(_t('IP کپی شد.', 'IP address copied.'));
-    }
-  }
-
   Future<void> _openWebTransferHotspotSettings() async {
     try {
       final opened = await _bridge.openHotspotSettings();
@@ -1949,22 +1802,6 @@ class _QuickSendPageState extends State<QuickSendPage> {
         );
       }
     }
-  }
-
-  Future<void> _requestStorageAccess() async {
-    final granted = await _service.ensureReceiveStorageAccess();
-    if (!mounted) {
-      return;
-    }
-    _notice(
-      granted
-          ? _t('دسترسی فایل فعال شد.', 'File access was enabled.')
-          : _t(
-              'دسترسی فایل داده نشد؛ مسیر پیش‌فرض /Localist قابل نوشتن نیست.',
-              'File access was not granted; the default /Localist path is not writable.',
-            ),
-      warning: !granted,
-    );
   }
 
   void _notice(String message, {bool warning = false}) {
@@ -1991,6 +1828,192 @@ class _QuickSendPageState extends State<QuickSendPage> {
 }
 
 enum _ReceivedFileShareChoice { quickSend, androidShare }
+
+class QuickSendStatusPanel extends StatelessWidget {
+  const QuickSendStatusPanel({
+    super.key,
+    required this.settings,
+    required this.deviceVpnActive,
+  });
+
+  final QuickSendSettings settings;
+  final bool deviceVpnActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final service = QuickSendService.instance;
+    final running = service.serverRunning && !deviceVpnActive;
+    final localAddresses = service.localAddresses;
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Quick Send', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            _t(
+              context,
+              'ارسال امن فایل و پیام به دستگاه‌های داخل شبکه، بدون اینترنت.',
+              'Send files and messages to nearby devices without the internet.',
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Chip(
+                avatar: Icon(
+                  running ? Icons.wifi_tethering : Icons.wifi_tethering_off,
+                  size: 18,
+                ),
+                label: Text(
+                  running
+                      ? _t(context, 'آماده دریافت', 'Ready to receive')
+                      : deviceVpnActive
+                      ? _t(context, 'غیرفعال به‌دلیل VPN', 'Disabled by VPN')
+                      : _t(context, 'فقط ارسال', 'Send only'),
+                ),
+              ),
+              Chip(
+                avatar: const Icon(Icons.numbers, size: 18),
+                label: Text('${settings.port}'),
+              ),
+              Chip(
+                avatar: Icon(
+                  settings.encryption
+                      ? Icons.lock_outline
+                      : Icons.no_encryption_outlined,
+                  size: 18,
+                ),
+                label: Text(settings.encryption ? 'HTTPS' : 'HTTP'),
+              ),
+              if (settings.quickSave)
+                Chip(
+                  avatar: const Icon(Icons.bolt_outlined, size: 18),
+                  label: Text(_t(context, 'ذخیره سریع', 'Quick Save')),
+                ),
+            ],
+          ),
+          if (running) ...[
+            const SizedBox(height: 12),
+            Text(
+              _t(
+                context,
+                'آدرس اتصال دستی این دستگاه',
+                'Manual connection address for this device',
+              ),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            if (localAddresses.isEmpty)
+              Text(
+                _t(
+                  context,
+                  'هنوز IP شبکه محلی پیدا نشده است؛ پس از اتصال به Wi-Fi یا Hotspot دکمه Refresh را بزنید.',
+                  'No local-network IP is available yet. Connect to Wi-Fi or a hotspot, then tap Refresh.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              )
+            else ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final address in localAddresses)
+                    ActionChip(
+                      avatar: const Icon(Icons.copy_outlined, size: 17),
+                      label: Text(address),
+                      tooltip: _t(context, 'کپی IP', 'Copy IP'),
+                      onPressed: () => _copyManualAddress(context, address),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _t(
+                  context,
+                  'در دستگاه فرستنده، کنار Nearby devices روی + بزنید و یکی از این IPها را با پورت ${settings.port} و حالت ${settings.encryption ? 'HTTPS' : 'HTTP'} وارد کنید.',
+                  'On the sender, tap + beside Nearby devices and enter one of these IPs with port ${settings.port} and ${settings.encryption ? 'HTTPS' : 'HTTP'}.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+          if (service.lastError.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            ServiceLockNotice(
+              message: _t(
+                context,
+                'سرویس شبکه کامل اجرا نشد: ${service.lastError}',
+                'The network service did not fully start: ${service.lastError}',
+              ),
+              icon: Icons.warning_amber_outlined,
+            ),
+          ],
+          if (Platform.isAndroid && !service.storageAccessGranted) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Icon(Icons.folder_off_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _t(
+                      context,
+                      'برای ذخیره فایل‌ها در پوشه /Localist دسترسی فایل لازم است.',
+                      'File access is required to save received files in /Localist.',
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _requestStorageAccess(context),
+                  child: Text(_t(context, 'اعطا', 'Grant')),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static Future<void> _copyManualAddress(
+    BuildContext context,
+    String address,
+  ) async {
+    await Clipboard.setData(ClipboardData(text: address));
+    if (context.mounted) {
+      showLocalistNotice(
+        context,
+        message: _t(context, 'IP کپی شد.', 'IP address copied.'),
+      );
+    }
+  }
+
+  static Future<void> _requestStorageAccess(BuildContext context) async {
+    final granted = await QuickSendService.instance
+        .ensureReceiveStorageAccess();
+    if (!context.mounted) {
+      return;
+    }
+    showLocalistNotice(
+      context,
+      message: granted
+          ? _t(context, 'دسترسی فایل فعال شد.', 'File access was enabled.')
+          : _t(
+              context,
+              'دسترسی فایل داده نشد؛ مسیر پیش‌فرض /Localist قابل نوشتن نیست.',
+              'File access was not granted; the default /Localist path is not writable.',
+            ),
+      tone: granted ? InAppNoticeTone.success : InAppNoticeTone.warning,
+    );
+  }
+
+  static String _t(BuildContext context, String fa, String en) {
+    return context.l10n.isPersian ? fa : en;
+  }
+}
 
 class _SelectionCard extends StatelessWidget {
   const _SelectionCard({
@@ -2037,9 +2060,14 @@ class _SelectionCard extends StatelessWidget {
 }
 
 class QuickSendSettingsPage extends StatefulWidget {
-  const QuickSendSettingsPage({super.key, required this.simple});
+  const QuickSendSettingsPage({
+    super.key,
+    required this.simple,
+    this.deviceVpnActive = false,
+  });
 
   final bool simple;
+  final bool deviceVpnActive;
 
   @override
   State<QuickSendSettingsPage> createState() => _QuickSendSettingsPageState();
@@ -2070,6 +2098,7 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
 
   Future<void> _load() async {
     await _service.initialize();
+    await _service.refreshLocalAddresses();
     final value = _service.settings!;
     if (!mounted) {
       return;
@@ -2115,6 +2144,19 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
             : PageSurface(
                 key: const PageStorageKey<String>('quick-send-settings-page'),
                 children: [
+                  AnimatedBuilder(
+                    animation: _service,
+                    builder: (context, _) {
+                      final settings = _service.settings;
+                      if (settings == null) {
+                        return const SizedBox.shrink();
+                      }
+                      return QuickSendStatusPanel(
+                        settings: settings,
+                        deviceVpnActive: widget.deviceVpnActive,
+                      );
+                    },
+                  ),
                   GlassPanel(
                     child: Column(
                       children: [

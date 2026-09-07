@@ -141,18 +141,27 @@ bool Win32Window::Create(const std::wstring& title,
   const wchar_t* window_class =
       WindowClassRegistrar::GetInstance()->GetWindowClass();
 
-  const POINT target_point = {static_cast<LONG>(origin.x),
-                              static_cast<LONG>(origin.y)};
-  HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
-  UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
-  double scale_factor = dpi / 96.0;
+  int window_x = CW_USEDEFAULT;
+  int window_y = CW_USEDEFAULT;
+  int window_width = CW_USEDEFAULT;
+  int window_height = CW_USEDEFAULT;
+  if (!size.is_system_default()) {
+    const POINT target_point = {static_cast<LONG>(origin.x),
+                                static_cast<LONG>(origin.y)};
+    HMONITOR monitor =
+        MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
+    UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+    double scale_factor = dpi / 96.0;
+    RECT adjusted_bounds = GetAdjustedWindowBounds(size, scale_factor);
+    window_x = Scale(origin.x, scale_factor);
+    window_y = Scale(origin.y, scale_factor);
+    window_width = adjusted_bounds.right - adjusted_bounds.left;
+    window_height = adjusted_bounds.bottom - adjusted_bounds.top;
+  }
 
-  RECT adjusted_bounds = GetAdjustedWindowBounds(size, scale_factor);
   HWND window = CreateWindow(
       window_class, title.c_str(), kWindowStyle,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      adjusted_bounds.right - adjusted_bounds.left,
-      adjusted_bounds.bottom - adjusted_bounds.top, nullptr, nullptr,
+      window_x, window_y, window_width, window_height, nullptr, nullptr,
       GetModuleHandle(nullptr), this);
 
   if (!window) {

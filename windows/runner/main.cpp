@@ -438,7 +438,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1080, 600);
+  Win32Window::Size size = Win32Window::Size::SystemDefault();
   if (!window.Create(L"Localist", origin, size)) {
     AppendNativeDebugLog("Flutter window creation failed.");
     SetDebugPreferenceEnabled(true);
