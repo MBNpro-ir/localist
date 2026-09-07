@@ -32,6 +32,7 @@ import 'services/native_bridge_service.dart';
 import 'services/quick_send_service.dart';
 import 'widgets/glass.dart';
 import 'widgets/localist_bottom_navigation.dart';
+import 'widgets/localist_windows_navigation.dart';
 
 const _onboardingSeenKey = 'localist.onboarding.v2.seen';
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
@@ -286,7 +287,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _configureWindowsWindow() async {
-    const initialSize = Size(440, 680);
+    const initialSize = Size(1080, 600);
     const minimumSize = Size(360, 560);
     try {
       final iconPath = _windowsBundledAssetPath('ico/logo.ico');
@@ -1462,17 +1463,53 @@ class _LocalistShellState extends State<LocalistShell>
               ),
             ],
           ),
-          body: SafeArea(
-            bottom: false,
-            child: PageView(
-              controller: _pageController,
-              physics: const PageScrollPhysics(),
-              onPageChanged: _handlePageChanged,
-              children: pages,
-            ),
-          ),
-          bottomNavigationBar: _buildBottomNavigation(context, navItems),
+          body: _buildMainContent(context, pages, navItems),
+          bottomNavigationBar: Platform.isWindows
+              ? null
+              : _buildBottomNavigation(context, navItems),
         ),
+      ),
+    );
+  }
+
+  Widget _buildMainContent(
+    BuildContext context,
+    List<Widget> pages,
+    List<_NavItem> navItems,
+  ) {
+    final pageView = PageView(
+      controller: _pageController,
+      physics: const PageScrollPhysics(),
+      onPageChanged: _handlePageChanged,
+      children: pages,
+    );
+    if (!Platform.isWindows) {
+      return SafeArea(bottom: false, child: pageView);
+    }
+
+    return SafeArea(
+      bottom: false,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LocalistWindowsNavigation(
+            currentIndex: _index,
+            onDestinationSelected: _goToPage,
+            items: [
+              for (final item in navItems)
+                LocalistBottomNavigationItem(
+                  label: item.label,
+                  icon: item.icon,
+                  selectedIcon: item.selectedIcon,
+                ),
+            ],
+            showActionButton: _statsAvailable,
+            actionIcon: Icons.query_stats,
+            actionTooltip: context.l10n.stats,
+            onActionPressed: _showStatsSheet,
+          ),
+          Expanded(child: pageView),
+        ],
       ),
     );
   }
