@@ -200,7 +200,7 @@ The compiled application is written to `build/windows/x64/runner/Release/`. A di
 
 ### Release workflow
 
-`.github/workflows/release.yml` can be started manually on `master` or by pushing a `v*` tag. It reads the application version from `pubspec.yaml`, builds Android and Windows in parallel, stages compiled files, and publishes or updates the matching GitHub Release. Its notes are extracted from the matching `## [x.y.z]` section in `CHANGELOG.md`; a release stops before publishing if that section is missing.
+`.github/workflows/release.yml` can be started manually on `master` or by pushing a `v*` tag. It reads the application version from `pubspec.yaml`, builds Android and Windows in parallel, stages compiled files, and publishes or updates the matching GitHub Release. Its concise GitHub Release body is extracted from the matching `## [x.y.z]` section in `RELEASE_NOTES.md`; the full detailed record remains in `CHANGELOG.md`. A release stops before publishing if its release-notes section is missing.
 
 Published assets include:
 

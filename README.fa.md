@@ -201,7 +201,7 @@ flutter build windows --release `
 
 ### Workflow انتشار
 
-فایل `.github/workflows/release.yml` با اجرای دستی روی `master` یا Push تگ `v*` شروع می‌شود. نسخه را از `pubspec.yaml` می‌خواند، Android و Windows را هم‌زمان Build می‌کند، فایل‌های کامپایل‌شده را Stage می‌کند و GitHub Release متناظر را می‌سازد یا به‌روزرسانی می‌کند. متن Release از بخش متناظر `## [x.y.z]` در `CHANGELOG.md` خوانده می‌شود و اگر آن بخش وجود نداشته باشد، انتشار قبل از Publish متوقف می‌شود.
+فایل `.github/workflows/release.yml` با اجرای دستی روی `master` یا Push تگ `v*` شروع می‌شود. نسخه را از `pubspec.yaml` می‌خواند، Android و Windows را هم‌زمان Build می‌کند، فایل‌های کامپایل‌شده را Stage می‌کند و GitHub Release متناظر را می‌سازد یا به‌روزرسانی می‌کند. متن کوتاه GitHub Release از بخش متناظر `## [x.y.z]` در `RELEASE_NOTES.md` خوانده می‌شود و changelog کامل همچنان داخل `CHANGELOG.md` می‌ماند. اگر بخش Release Notes وجود نداشته باشد، انتشار قبل از Publish متوقف می‌شود.
 
 خروجی‌های انتشار:
 
