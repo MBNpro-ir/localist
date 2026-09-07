@@ -1402,7 +1402,7 @@ class _LocalistShellState extends State<LocalistShell>
       child: GlassBackground(
         simple: simpleVisuals,
         child: Scaffold(
-          extendBody: !simpleVisuals,
+          extendBody: true,
           backgroundColor: simpleVisuals
               ? Theme.of(context).colorScheme.surface
               : Colors.transparent,

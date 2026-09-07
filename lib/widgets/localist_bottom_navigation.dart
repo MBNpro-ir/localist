@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
 import 'glass.dart';
@@ -36,35 +38,60 @@ class LocalistBottomNavigationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      minimum: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 560;
-          final showAction = showActionButton && onActionPressed != null;
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: _LocalistNavigationPill(
-                  currentIndex: currentIndex,
-                  onDestinationSelected: onDestinationSelected,
-                  items: items,
-                  compact: compact,
-                ),
+    final scheme = Theme.of(context).colorScheme;
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: .12),
               ),
-              if (showAction) ...[
-                const SizedBox(width: 10),
-                _LocalistActionButton(
-                  icon: actionIcon,
-                  tooltip: actionTooltip,
-                  onPressed: onActionPressed!,
-                ),
+            ),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: const [0, .36, 1],
+              colors: [
+                scheme.surface.withValues(alpha: .02),
+                scheme.surface.withValues(alpha: .72),
+                scheme.surfaceContainer.withValues(alpha: .96),
               ],
-            ],
-          );
-        },
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            minimum: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 560;
+                final showAction = showActionButton && onActionPressed != null;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: _LocalistNavigationPill(
+                        currentIndex: currentIndex,
+                        onDestinationSelected: onDestinationSelected,
+                        items: items,
+                        compact: compact,
+                      ),
+                    ),
+                    if (showAction) ...[
+                      const SizedBox(width: 10),
+                      _LocalistActionButton(
+                        icon: actionIcon,
+                        tooltip: actionTooltip,
+                        onPressed: onActionPressed!,
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
       ),
     );
   }
