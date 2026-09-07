@@ -128,9 +128,15 @@ class GlassPanel extends StatelessWidget {
 }
 
 class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
-  const GlassAppBar({super.key, required this.title, this.actions});
+  const GlassAppBar({
+    super.key,
+    required this.title,
+    this.leading,
+    this.actions,
+  });
 
   final Widget title;
+  final Widget? leading;
   final List<Widget>? actions;
 
   @override
@@ -141,11 +147,16 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     if (Platform.isWindows) {
-      return _WindowsGlassAppBar(title: title, actions: actions);
+      return _WindowsGlassAppBar(
+        title: title,
+        leading: leading,
+        actions: actions,
+      );
     }
     if (LocalistVisualStyle.simpleOf(context)) {
       return AppBar(
         title: title,
+        leading: leading,
         actions: actions,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -159,6 +170,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
         filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
         child: AppBar(
           title: title,
+          leading: leading,
           actions: actions,
           elevation: 0,
           centerTitle: false,
@@ -172,11 +184,12 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
 }
 
 class _WindowsGlassAppBar extends StatefulWidget {
-  const _WindowsGlassAppBar({required this.title, this.actions});
+  const _WindowsGlassAppBar({required this.title, this.leading, this.actions});
 
   static const height = 48.0;
 
   final Widget title;
+  final Widget? leading;
   final List<Widget>? actions;
 
   @override
@@ -285,6 +298,12 @@ class _WindowsGlassAppBarState extends State<_WindowsGlassAppBar>
         child: Row(
           textDirection: TextDirection.ltr,
           children: [
+            if (widget.leading != null)
+              SizedBox(
+                width: 46,
+                height: _WindowsGlassAppBar.height,
+                child: widget.leading,
+              ),
             Expanded(
               child: _WindowsTitleBarDragArea(
                 onDoubleTap: _toggleMaximize,

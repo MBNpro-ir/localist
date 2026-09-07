@@ -37,7 +37,6 @@ class AppLocalizations {
   String get settings => _s('تنظیمات', 'Settings');
   String get logs => _s('گزارش‌ها', 'Logs');
   String get stats => _s('آمار', 'Stats');
-  String get appGuide => _s('راهنمای برنامه', 'App guide');
   String get shareApk => _s('اشتراک‌گذاری APK', 'Share APK');
   String get lightMode => _s('حالت روشن', 'Light mode');
   String get darkMode => _s('حالت تاریک', 'Dark mode');

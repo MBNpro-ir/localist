@@ -15,7 +15,6 @@ import 'l10n/app_localizations.dart';
 import 'models/app_settings.dart';
 import 'models/service_state.dart';
 import 'screens/android_permission_gate.dart';
-import 'screens/app_guide_page.dart';
 import 'screens/logs_page.dart';
 import 'screens/quick_send_page.dart';
 import 'screens/receiving_page.dart';
@@ -35,7 +34,6 @@ import 'widgets/glass.dart';
 import 'widgets/localist_bottom_navigation.dart';
 import 'widgets/localist_windows_navigation.dart';
 
-const _onboardingSeenKey = 'localist.onboarding.v3.seen';
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
 const _windowsAdminBootstrapArg = '--enable-admin';
 
@@ -237,7 +235,6 @@ class _LocalistShellState extends State<LocalistShell>
       (_) => _refreshState(quiet: true),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showOnboardingGuideIfNeeded();
       _checkForStartupUpdate();
       _openQuickSendForPendingSharedFiles();
       _openQuickSendForPendingNotification();
@@ -1526,15 +1523,7 @@ class _LocalistShellState extends State<LocalistShell>
           appBar: GlassAppBar(
             title: Row(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Localist'),
-                const SizedBox(width: 6),
-                IconButton(
-                  tooltip: l10n.appGuide,
-                  onPressed: _openAppGuide,
-                  icon: const Icon(Icons.help_outline),
-                ),
-              ],
+              children: [const Text('Localist')],
             ),
             actions: [
               IconButton(
@@ -1728,6 +1717,9 @@ class _LocalistShellState extends State<LocalistShell>
           settings: widget.settings,
           portsLocked: _sharingActive,
           simple: widget.useSimpleTheme,
+          deviceVpnActive: Platform.isWindows
+              ? _snapshot.receivingRunning && _snapshot.deviceVpnActive
+              : _snapshot.deviceVpnActive,
         ),
       ),
     );
@@ -1739,30 +1731,6 @@ class _LocalistShellState extends State<LocalistShell>
     );
     themeSettings.setThemeMode(
       themeSettings.isDarkMode ? ThemeMode.light : ThemeMode.dark,
-    );
-  }
-
-  Future<void> _showOnboardingGuideIfNeeded() async {
-    final prefs = await SharedPreferences.getInstance();
-    final alreadySeen = prefs.getBool(_onboardingSeenKey) ?? false;
-    if (alreadySeen || !mounted) {
-      return;
-    }
-    await prefs.setBool(_onboardingSeenKey, true);
-    if (mounted) {
-      await _openAppGuide();
-    }
-  }
-
-  Future<void> _openAppGuide() async {
-    _logs.debug('App guide opened');
-    if (!mounted) {
-      return;
-    }
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => AppGuidePage(simple: widget.useSimpleTheme),
-      ),
     );
   }
 }

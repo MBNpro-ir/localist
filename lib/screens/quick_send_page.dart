@@ -823,18 +823,6 @@ class QuickSendPageState extends State<QuickSendPage> {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
-              IconButton(
-                tooltip: _t('تنظیمات Quick Send', 'Quick Send settings'),
-                onPressed: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (_) => QuickSendSettingsPage(
-                      simple: LocalistVisualStyle.simpleOf(context),
-                      deviceVpnActive: widget.deviceVpnActive,
-                    ),
-                  ),
-                ),
-                icon: const Icon(Icons.tune_outlined),
-              ),
               if (hasSelection)
                 IconButton(
                   tooltip: _t('پاک کردن انتخاب‌ها', 'Clear selection'),
@@ -2086,21 +2074,17 @@ class _SelectionCard extends StatelessWidget {
   }
 }
 
-class QuickSendSettingsPage extends StatefulWidget {
-  const QuickSendSettingsPage({
-    super.key,
-    required this.simple,
-    this.deviceVpnActive = false,
-  });
+class QuickSendSettingsSection extends StatefulWidget {
+  const QuickSendSettingsSection({super.key, this.deviceVpnActive = false});
 
-  final bool simple;
   final bool deviceVpnActive;
 
   @override
-  State<QuickSendSettingsPage> createState() => _QuickSendSettingsPageState();
+  State<QuickSendSettingsSection> createState() =>
+      _QuickSendSettingsSectionState();
 }
 
-class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
+class _QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
   final QuickSendService _service = QuickSendService.instance;
   final TextEditingController _alias = TextEditingController();
   final TextEditingController _port = TextEditingController();
@@ -2159,205 +2143,189 @@ class _QuickSendSettingsPageState extends State<QuickSendSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassBackground(
-      simple: widget.simple,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: GlassAppBar(
-          title: Text(_t('تنظیمات Quick Send', 'Quick Send settings')),
+    if (!_loaded) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return Column(
+      children: [
+        AnimatedBuilder(
+          animation: _service,
+          builder: (context, _) {
+            final settings = _service.settings;
+            if (settings == null) {
+              return const SizedBox.shrink();
+            }
+            return QuickSendStatusPanel(
+              settings: settings,
+              deviceVpnActive: widget.deviceVpnActive,
+            );
+          },
         ),
-        body: !_loaded
-            ? const Center(child: CircularProgressIndicator())
-            : PageSurface(
-                key: const PageStorageKey<String>('quick-send-settings-page'),
-                children: [
-                  AnimatedBuilder(
-                    animation: _service,
-                    builder: (context, _) {
-                      final settings = _service.settings;
-                      if (settings == null) {
-                        return const SizedBox.shrink();
-                      }
-                      return QuickSendStatusPanel(
-                        settings: settings,
-                        deviceVpnActive: widget.deviceVpnActive,
-                      );
-                    },
-                  ),
-                  GlassPanel(
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: _alias,
-                          readOnly: Platform.isAndroid,
-                          decoration: InputDecoration(
-                            labelText: _t('نام دستگاه', 'Device name'),
-                            prefixIcon: const Icon(Icons.badge_outlined),
-                            helperText: Platform.isAndroid
-                                ? _t(
-                                    'مدل واقعی گوشی به‌صورت خودکار استفاده می‌شود.',
-                                    'The phone model is used automatically.',
-                                  )
-                                : null,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _port,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: _t('پورت', 'Port'),
-                            prefixIcon: const Icon(Icons.numbers),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _multicast,
-                          decoration: InputDecoration(
-                            labelText: _t('گروه Multicast', 'Multicast group'),
-                            prefixIcon: const Icon(Icons.hub_outlined),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  GlassPanel(
-                    child: Column(
-                      children: [
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            _t('فعال بودن دریافت', 'Enable receiving'),
-                          ),
-                          subtitle: Text(
-                            _t(
-                              'این دستگاه در شبکه دیده می‌شود و فایل می‌پذیرد.',
-                              'This device is visible and can receive files.',
-                            ),
-                          ),
-                          value: _receiveEnabled,
-                          onChanged: (value) =>
-                              setState(() => _receiveEnabled = value),
-                        ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(_t('رمزنگاری HTTPS', 'HTTPS encryption')),
-                          subtitle: Text(
-                            _t(
-                              'گواهی اختصاصی دستگاه و بررسی اثرانگشت استفاده شود.',
-                              'Use a device certificate with fingerprint verification.',
-                            ),
-                          ),
-                          value: _encryption,
-                          onChanged: (value) =>
-                              setState(() => _encryption = value),
-                        ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Quick Save'),
-                          subtitle: Text(
-                            _t(
-                              'تمام درخواست‌ها خودکار پذیرفته شوند.',
-                              'Automatically accept every request.',
-                            ),
-                          ),
-                          value: _quickSave,
-                          onChanged: (value) =>
-                              setState(() => _quickSave = value),
-                        ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            _t(
-                              'ذخیره سریع برای علاقه‌مندی‌ها',
-                              'Quick Save for favorites',
-                            ),
-                          ),
-                          value: _quickSaveFavorites,
-                          onChanged: (value) =>
-                              setState(() => _quickSaveFavorites = value),
-                        ),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            _t(
-                              'جایگزینی فایل موجود',
-                              'Overwrite existing files',
-                            ),
-                          ),
-                          value: _overwrite,
-                          onChanged: (value) =>
-                              setState(() => _overwrite = value),
-                        ),
-                      ],
-                    ),
-                  ),
-                  GlassPanel(
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: _destination,
-                          readOnly: true,
-                          decoration: InputDecoration(
-                            labelText: _t('پوشه ذخیره', 'Destination folder'),
-                            prefixIcon: const Icon(Icons.folder_outlined),
-                            suffixIcon: IconButton(
-                              tooltip: _t('انتخاب پوشه', 'Choose folder'),
-                              onPressed: _chooseDestination,
-                              icon: const Icon(Icons.folder_open_outlined),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: Text(
-                            _destinationCustomized
-                                ? _t(
-                                    'فایل‌ها مستقیم در مسیر انتخابی ذخیره می‌شوند.',
-                                    'Files are saved directly in the selected folder.',
-                                  )
-                                : _t(
-                                    'مسیر پیش‌فرض Localist است و فایل‌ها در پوشه‌های Images، Videos، Audio، Documents، Archives، Apps و Other دسته‌بندی می‌شوند.',
-                                    'The Localist default groups files into Images, Videos, Audio, Documents, Archives, Apps, and Other.',
-                                  ),
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(_t('نیاز به PIN', 'Require PIN')),
-                          value: _requirePin,
-                          onChanged: (value) =>
-                              setState(() => _requirePin = value),
-                        ),
-                        if (_requirePin)
-                          TextField(
-                            controller: _pin,
-                            obscureText: true,
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              labelText: 'PIN',
-                              prefixIcon: const Icon(Icons.pin_outlined),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  FilledButton.icon(
-                    onPressed: _saving ? null : _save,
-                    icon: _saving
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined),
-                    label: Text(_t('ذخیره تنظیمات', 'Save settings')),
-                  ),
-                ],
+        GlassPanel(
+          child: Column(
+            children: [
+              TextField(
+                controller: _alias,
+                readOnly: Platform.isAndroid,
+                decoration: InputDecoration(
+                  labelText: _t('نام دستگاه', 'Device name'),
+                  prefixIcon: const Icon(Icons.badge_outlined),
+                  helperText: Platform.isAndroid
+                      ? _t(
+                          'مدل واقعی گوشی به‌صورت خودکار استفاده می‌شود.',
+                          'The phone model is used automatically.',
+                        )
+                      : null,
+                ),
               ),
-      ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _port,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: _t('پورت', 'Port'),
+                  prefixIcon: const Icon(Icons.numbers),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _multicast,
+                decoration: InputDecoration(
+                  labelText: _t('گروه Multicast', 'Multicast group'),
+                  prefixIcon: const Icon(Icons.hub_outlined),
+                ),
+              ),
+            ],
+          ),
+        ),
+        GlassPanel(
+          child: Column(
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(_t('فعال بودن دریافت', 'Enable receiving')),
+                subtitle: Text(
+                  _t(
+                    'این دستگاه در شبکه دیده می‌شود و فایل می‌پذیرد.',
+                    'This device is visible and can receive files.',
+                  ),
+                ),
+                value: _receiveEnabled,
+                onChanged: (value) => setState(() => _receiveEnabled = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(_t('رمزنگاری HTTPS', 'HTTPS encryption')),
+                subtitle: Text(
+                  _t(
+                    'گواهی اختصاصی دستگاه و بررسی اثرانگشت استفاده شود.',
+                    'Use a device certificate with fingerprint verification.',
+                  ),
+                ),
+                value: _encryption,
+                onChanged: (value) => setState(() => _encryption = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Quick Save'),
+                subtitle: Text(
+                  _t(
+                    'تمام درخواست‌ها خودکار پذیرفته شوند.',
+                    'Automatically accept every request.',
+                  ),
+                ),
+                value: _quickSave,
+                onChanged: (value) => setState(() => _quickSave = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  _t(
+                    'ذخیره سریع برای علاقه‌مندی‌ها',
+                    'Quick Save for favorites',
+                  ),
+                ),
+                value: _quickSaveFavorites,
+                onChanged: (value) =>
+                    setState(() => _quickSaveFavorites = value),
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  _t('جایگزینی فایل موجود', 'Overwrite existing files'),
+                ),
+                value: _overwrite,
+                onChanged: (value) => setState(() => _overwrite = value),
+              ),
+            ],
+          ),
+        ),
+        GlassPanel(
+          child: Column(
+            children: [
+              TextField(
+                controller: _destination,
+                readOnly: true,
+                decoration: InputDecoration(
+                  labelText: _t('پوشه ذخیره', 'Destination folder'),
+                  prefixIcon: const Icon(Icons.folder_outlined),
+                  suffixIcon: IconButton(
+                    tooltip: _t('انتخاب پوشه', 'Choose folder'),
+                    onPressed: _chooseDestination,
+                    icon: const Icon(Icons.folder_open_outlined),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  _destinationCustomized
+                      ? _t(
+                          'فایل‌ها مستقیم در مسیر انتخابی ذخیره می‌شوند.',
+                          'Files are saved directly in the selected folder.',
+                        )
+                      : _t(
+                          'مسیر پیش‌فرض Localist است و فایل‌ها در پوشه‌های Images، Videos، Audio، Documents، Archives، Apps و Other دسته‌بندی می‌شوند.',
+                          'The Localist default groups files into Images, Videos, Audio, Documents, Archives, Apps, and Other.',
+                        ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(_t('نیاز به PIN', 'Require PIN')),
+                value: _requirePin,
+                onChanged: (value) => setState(() => _requirePin = value),
+              ),
+              if (_requirePin)
+                TextField(
+                  controller: _pin,
+                  obscureText: true,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'PIN',
+                    prefixIcon: Icon(Icons.pin_outlined),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        FilledButton.icon(
+          onPressed: _saving ? null : _save,
+          icon: _saving
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.save_outlined),
+          label: Text(_t('ذخیره تنظیمات', 'Save settings')),
+        ),
+      ],
     );
   }
 

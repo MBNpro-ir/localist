@@ -11,6 +11,7 @@ import '../models/app_settings.dart';
 import '../services/app_update_service.dart';
 import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
+import 'quick_send_page.dart';
 import '../widgets/glass.dart';
 
 const _appName = 'Localist';
@@ -24,11 +25,13 @@ class SettingsRoutePage extends StatelessWidget {
     required this.settings,
     required this.portsLocked,
     required this.simple,
+    this.deviceVpnActive = false,
   });
 
   final AppSettings settings;
   final bool portsLocked;
   final bool simple;
+  final bool deviceVpnActive;
 
   @override
   Widget build(BuildContext context) {
@@ -41,19 +44,19 @@ class SettingsRoutePage extends StatelessWidget {
             : Colors.transparent,
         appBar: GlassAppBar(
           title: Text(l10n.settings),
-          actions: Platform.isWindows
-              ? [
-                  IconButton(
-                    tooltip: l10n.close,
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back),
-                  ),
-                ]
-              : null,
+          leading: IconButton(
+            tooltip: l10n.close,
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back),
+          ),
         ),
         body: SafeArea(
           bottom: false,
-          child: SettingsPage(settings: settings, portsLocked: portsLocked),
+          child: SettingsPage(
+            settings: settings,
+            portsLocked: portsLocked,
+            deviceVpnActive: deviceVpnActive,
+          ),
         ),
       ),
     );
@@ -65,10 +68,12 @@ class SettingsPage extends StatefulWidget {
     super.key,
     required this.settings,
     required this.portsLocked,
+    this.deviceVpnActive = false,
   });
 
   final AppSettings settings;
   final bool portsLocked;
+  final bool deviceVpnActive;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -226,6 +231,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ),
+            QuickSendSettingsSection(deviceVpnActive: widget.deviceVpnActive),
             if (isWindows)
               GlassPanel(
                 child: Column(
