@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
+  flutter_desktop_notifications
   permission_handler_windows
   screen_retriever_windows
   tray_manager

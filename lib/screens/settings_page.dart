@@ -18,6 +18,48 @@ const _appDeveloper = 'PRS';
 const _appPackageName = 'com.prs.localist';
 const _windowsAppId = 'PRS.Localist';
 
+class SettingsRoutePage extends StatelessWidget {
+  const SettingsRoutePage({
+    super.key,
+    required this.settings,
+    required this.portsLocked,
+    required this.simple,
+  });
+
+  final AppSettings settings;
+  final bool portsLocked;
+  final bool simple;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return GlassBackground(
+      simple: simple,
+      child: Scaffold(
+        backgroundColor: simple
+            ? Theme.of(context).colorScheme.surface
+            : Colors.transparent,
+        appBar: GlassAppBar(
+          title: Text(l10n.settings),
+          actions: Platform.isWindows
+              ? [
+                  IconButton(
+                    tooltip: l10n.close,
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.arrow_back),
+                  ),
+                ]
+              : null,
+        ),
+        body: SafeArea(
+          bottom: false,
+          child: SettingsPage(settings: settings, portsLocked: portsLocked),
+        ),
+      ),
+    );
+  }
+}
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
     super.key,

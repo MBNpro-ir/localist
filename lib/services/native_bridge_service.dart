@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter_desktop_notifications/flutter_desktop_notifications.dart';
 import 'package:flutter/services.dart';
 
 import '../models/app_settings.dart';
@@ -16,17 +17,25 @@ class NativeBridgeService {
 
   static final NativeBridgeService instance = NativeBridgeService._();
   static const MethodChannel _channel = MethodChannel('com.prs.localist.vpn');
+  static const _windowsNotificationAppId = 'PRS.Localist';
+  static const _quickSendNotificationAction = 'quick-send-request';
   final LogService _logs = LogService.instance;
   final StreamController<List<QuickSendSharedFile>> _sharedFilesController =
       StreamController<List<QuickSendSharedFile>>.broadcast();
   final StreamController<void> _localOnlyHotspotStoppedController =
       StreamController<void>.broadcast();
+  final StreamController<void> _quickSendNotificationTapController =
+      StreamController<void>.broadcast();
   final Map<String, QuickSendSharedFile> _pendingSharedFiles = {};
+  WindowsNotification? _windowsNotifier;
+  Future<void>? _windowsNotificationsInitialization;
 
   Stream<List<QuickSendSharedFile>> get sharedQuickSendFiles =>
       _sharedFilesController.stream;
   Stream<void> get localOnlyHotspotStopped =>
       _localOnlyHotspotStoppedController.stream;
+  Stream<void> get quickSendNotificationTaps =>
+      _quickSendNotificationTapController.stream;
 
   Future<void> _handleNativeCall(MethodCall call) async {
     if (call.method == 'quickSendSharedFiles') {
@@ -45,6 +54,11 @@ class NativeBridgeService {
     if (call.method == 'localOnlyHotspotStopped') {
       _logs.info('Android local-only hotspot stopped.');
       _localOnlyHotspotStoppedController.add(null);
+      return;
+    }
+    if (call.method == 'quickSendNotificationTapped') {
+      _logs.debug('Quick Send notification was activated.');
+      _quickSendNotificationTapController.add(null);
       return;
     }
     if (call.method != 'nativeLog') {
@@ -377,6 +391,102 @@ class NativeBridgeService {
           'warning': warning,
         }) ??
         false;
+  }
+
+  Future<void> initializeNotifications() {
+    if (!Platform.isWindows) {
+      return Future<void>.value();
+    }
+    return _windowsNotificationsInitialization ??=
+        _initializeWindowsNotifications();
+  }
+
+  Future<void> _initializeWindowsNotifications() async {
+    try {
+      await WindowsNotification.registerAumid(
+        aumid: _windowsNotificationAppId,
+        displayName: 'Localist',
+      );
+      final notifier = WindowsNotification(
+        applicationId: _windowsNotificationAppId,
+      );
+      await notifier.init();
+      await notifier.setCallback((details) {
+        if (details.event != NotificationEvent.activated) {
+          return;
+        }
+        final action = details.arguments ?? details.message.launch;
+        if (action == _quickSendNotificationAction) {
+          _logs.debug('Windows Quick Send notification activated.');
+          _quickSendNotificationTapController.add(null);
+        }
+      });
+      _windowsNotifier = notifier;
+      _logs.info('Windows Quick Send notifications initialized.');
+    } catch (error, stack) {
+      _logs.warning(
+        'Windows notification initialization failed: $error\n$stack',
+      );
+      _windowsNotifier = null;
+    }
+  }
+
+  Future<bool> showQuickSendRequestNotification({
+    required String title,
+    required String message,
+  }) async {
+    if (Platform.isAndroid) {
+      return await _invoke<bool>('showQuickSendRequestNotification', {
+            'title': title,
+            'message': message,
+          }) ??
+          false;
+    }
+    if (!Platform.isWindows) {
+      return false;
+    }
+    await initializeNotifications();
+    final notifier = _windowsNotifier;
+    if (notifier == null) {
+      return await flashWindowsTaskbar();
+    }
+    try {
+      await notifier.showNotificationPluginTemplate(
+        NotificationMessage.fromPluginTemplate(
+          'quick-send-request',
+          title,
+          message,
+          launch: _quickSendNotificationAction,
+          activationType: NotificationActivationType.foreground,
+          scenario: NotificationScenario.reminder,
+        ),
+      );
+      // Localist's Windows runner is elevated for VPN support. Windows
+      // silently rejects app notifications for elevated processes, so keep a
+      // visible taskbar fallback in that mode.
+      final admin = await WindowsLocalistService.instance.checkAdminAccess();
+      if (admin.available) {
+        await flashWindowsTaskbar();
+      }
+      return true;
+    } catch (error, stack) {
+      _logs.warning('Windows Quick Send notification failed: $error\n$stack');
+      return await flashWindowsTaskbar();
+    }
+  }
+
+  Future<bool> takeQuickSendNotificationTap() async {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return await _invoke<bool>('takeQuickSendNotificationTap') ?? false;
+  }
+
+  Future<bool> flashWindowsTaskbar() async {
+    if (!Platform.isWindows) {
+      return false;
+    }
+    return await _invoke<bool>('flashWindowsTaskbar') ?? false;
   }
 
   Future<SavedTextFileResult> saveTextFile({

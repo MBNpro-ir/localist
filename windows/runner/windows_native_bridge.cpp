@@ -605,6 +605,17 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     return;
   }
 
+  if (method == "flashWindowsTaskbar") {
+    FLASHWINFO flash = {};
+    flash.cbSize = sizeof(FLASHWINFO);
+    flash.hwnd = window;
+    flash.dwFlags = FLASHW_CAPTION | FLASHW_TRAY;
+    flash.uCount = 3;
+    flash.dwTimeout = 0;
+    result->Success(EncodableValue(FlashWindowEx(&flash) != FALSE));
+    return;
+  }
+
   if (method == "getDeviceDetails") {
     result->Success(GetWindowsDeviceDetails());
     return;

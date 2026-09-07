@@ -20,10 +20,10 @@ class QuickSendPage extends StatefulWidget {
   final bool deviceVpnActive;
 
   @override
-  State<QuickSendPage> createState() => _QuickSendPageState();
+  State<QuickSendPage> createState() => QuickSendPageState();
 }
 
-class _QuickSendPageState extends State<QuickSendPage> {
+class QuickSendPageState extends State<QuickSendPage> {
   final QuickSendService _service = QuickSendService.instance;
   final AppleWebTransferService _appleWebTransfer =
       AppleWebTransferService.instance;
@@ -34,6 +34,8 @@ class _QuickSendPageState extends State<QuickSendPage> {
   String _selectedText = '';
   bool _sending = false;
   StreamSubscription<List<QuickSendSharedFile>>? _sharedFilesSubscription;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _pendingPanelKey = GlobalKey();
 
   @override
   void initState() {
@@ -81,7 +83,27 @@ class _QuickSendPageState extends State<QuickSendPage> {
   @override
   void dispose() {
     _sharedFilesSubscription?.cancel();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> revealPendingRequest() async {
+    for (var attempt = 0; attempt < 4; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (_pendingPanelKey.currentContext != null) {
+        break;
+      }
+    }
+    final target = _pendingPanelKey.currentContext;
+    if (!mounted || target == null || !target.mounted) {
+      return;
+    }
+    await Scrollable.ensureVisible(
+      target,
+      alignment: .08,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _loadExternallySharedFiles() async {
@@ -191,6 +213,7 @@ class _QuickSendPageState extends State<QuickSendPage> {
         if (settings == null) {
           return PageSurface(
             key: const PageStorageKey<String>('quick-send-page'),
+            controller: _scrollController,
             children: const [
               GlassPanel(child: Center(child: CircularProgressIndicator())),
             ],
@@ -198,10 +221,14 @@ class _QuickSendPageState extends State<QuickSendPage> {
         }
         return PageSurface(
           key: const PageStorageKey<String>('quick-send-page'),
+          controller: _scrollController,
           children: [
             if (widget.deviceVpnActive) _vpnWarningPanel(),
             if (_service.pendingRequest case final pending?)
-              _pendingPanel(pending),
+              KeyedSubtree(
+                key: _pendingPanelKey,
+                child: _pendingPanel(pending),
+              ),
             _selectionPanel(),
             if (Platform.isAndroid || Platform.isWindows)
               _appleWebTransferPanel(),

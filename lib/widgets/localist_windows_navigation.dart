@@ -33,8 +33,6 @@ class LocalistWindowsNavigation extends StatefulWidget {
 }
 
 class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
-  static const _labelRevealWidth = 72.0;
-
   int? _hoveredIndex;
 
   bool get _expanded => _hoveredIndex != null;
@@ -141,10 +139,7 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
             duration: const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
             width: double.infinity,
-            padding: EdgeInsets.symmetric(
-              horizontal: _expanded ? 12 : 0,
-              vertical: 11,
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 11),
             decoration: BoxDecoration(
               color: selected
                   ? scheme.primaryContainer
@@ -155,49 +150,56 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
             ),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final showLabel =
-                    _expanded &&
-                    constraints.maxWidth >=
-                        _LocalistWindowsNavigationState._labelRevealWidth;
-                return Row(
-                  mainAxisSize: MainAxisSize.max,
-                  mainAxisAlignment: showLabel
-                      ? MainAxisAlignment.start
-                      : MainAxisAlignment.center,
-                  children: [
-                    AnimatedNavIcon(
-                      icon: selected ? item.selectedIcon : item.icon,
-                      selected: selected,
-                      selectedColor: foreground,
-                      unselectedColor: foreground,
-                    ),
-                    if (showLabel)
-                      Expanded(
-                        child: TweenAnimationBuilder<double>(
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                          tween: Tween(begin: 0, end: 1),
-                          builder: (context, opacity, child) {
-                            return Opacity(opacity: opacity, child: child);
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 12),
-                            child: Text(
-                              item.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelLarge
-                                  ?.copyWith(
-                                    color: foreground,
-                                    fontWeight: selected
-                                        ? FontWeight.w700
-                                        : FontWeight.w600,
-                                  ),
+                // During the width animation the container can briefly be
+                // narrower than its expanded padding. Keep the icon centered
+                // until there is enough room for both the icon and a label.
+                final horizontalPadding =
+                    _expanded && constraints.maxWidth >= 48 ? 12.0 : 0.0;
+                final availableWidth =
+                    constraints.maxWidth - horizontalPadding * 2;
+                final showLabel = _expanded && availableWidth >= 88;
+                return Padding(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.max,
+                    mainAxisAlignment: showLabel
+                        ? MainAxisAlignment.start
+                        : MainAxisAlignment.center,
+                    children: [
+                      AnimatedNavIcon(
+                        icon: selected ? item.selectedIcon : item.icon,
+                        selected: selected,
+                        selectedColor: foreground,
+                        unselectedColor: foreground,
+                      ),
+                      if (showLabel)
+                        Expanded(
+                          child: TweenAnimationBuilder<double>(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            tween: Tween(begin: 0, end: 1),
+                            builder: (context, opacity, child) {
+                              return Opacity(opacity: opacity, child: child);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 12),
+                              child: Text(
+                                item.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: foreground,
+                                      fontWeight: selected
+                                          ? FontWeight.w700
+                                          : FontWeight.w600,
+                                    ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 );
               },
             ),
@@ -224,10 +226,7 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
             duration: const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
             width: double.infinity,
-            padding: EdgeInsets.symmetric(
-              horizontal: _expanded ? 12 : 0,
-              vertical: 11,
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 11),
             decoration: BoxDecoration(
               color: hovered
                   ? scheme.primary.withValues(alpha: .10)
@@ -236,46 +235,50 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
             ),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final showLabel =
-                    _expanded &&
-                    constraints.maxWidth >=
-                        _LocalistWindowsNavigationState._labelRevealWidth;
-                return Row(
-                  mainAxisAlignment: showLabel
-                      ? MainAxisAlignment.start
-                      : MainAxisAlignment.center,
-                  children: [
-                    AnimatedNavIcon(
-                      icon: widget.actionIcon,
-                      selected: false,
-                      selectedColor: scheme.primary,
-                      unselectedColor: scheme.primary,
-                    ),
-                    if (showLabel)
-                      Expanded(
-                        child: TweenAnimationBuilder<double>(
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                          tween: Tween(begin: 0, end: 1),
-                          builder: (context, opacity, child) {
-                            return Opacity(opacity: opacity, child: child);
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 12),
-                            child: Text(
-                              label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelLarge
-                                  ?.copyWith(
-                                    color: scheme.primary,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                final horizontalPadding =
+                    _expanded && constraints.maxWidth >= 48 ? 12.0 : 0.0;
+                final availableWidth =
+                    constraints.maxWidth - horizontalPadding * 2;
+                final showLabel = _expanded && availableWidth >= 88;
+                return Padding(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                  child: Row(
+                    mainAxisAlignment: showLabel
+                        ? MainAxisAlignment.start
+                        : MainAxisAlignment.center,
+                    children: [
+                      AnimatedNavIcon(
+                        icon: widget.actionIcon,
+                        selected: false,
+                        selectedColor: scheme.primary,
+                        unselectedColor: scheme.primary,
+                      ),
+                      if (showLabel)
+                        Expanded(
+                          child: TweenAnimationBuilder<double>(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            tween: Tween(begin: 0, end: 1),
+                            builder: (context, opacity, child) {
+                              return Opacity(opacity: opacity, child: child);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 12),
+                              child: Text(
+                                label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: scheme.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 );
               },
             ),

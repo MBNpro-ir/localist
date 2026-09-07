@@ -15,6 +15,7 @@ import 'l10n/app_localizations.dart';
 import 'models/app_settings.dart';
 import 'models/service_state.dart';
 import 'screens/android_permission_gate.dart';
+import 'screens/app_guide_page.dart';
 import 'screens/logs_page.dart';
 import 'screens/quick_send_page.dart';
 import 'screens/receiving_page.dart';
@@ -34,7 +35,7 @@ import 'widgets/glass.dart';
 import 'widgets/localist_bottom_navigation.dart';
 import 'widgets/localist_windows_navigation.dart';
 
-const _onboardingSeenKey = 'localist.onboarding.v2.seen';
+const _onboardingSeenKey = 'localist.onboarding.v3.seen';
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
 const _windowsAdminBootstrapArg = '--enable-admin';
 
@@ -171,7 +172,7 @@ class LocalistShell extends StatefulWidget {
 }
 
 class _LocalistShellState extends State<LocalistShell>
-    with WindowListener, tray.TrayListener {
+    with WidgetsBindingObserver, WindowListener, tray.TrayListener {
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final LocalistDiscoveryService _discovery = LocalistDiscoveryService.instance;
   final LocalistPeerService _peerService = LocalistPeerService.instance;
@@ -180,9 +181,12 @@ class _LocalistShellState extends State<LocalistShell>
       AppleWebTransferService.instance;
   final AppUpdateService _updates = AppUpdateService();
   final LogService _logs = LogService.instance;
+  final GlobalKey<QuickSendPageState> _quickSendPageKey =
+      GlobalKey<QuickSendPageState>();
   late final PageController _pageController;
   StreamSubscription<List<QuickSendSharedFile>>?
   _sharedQuickSendFilesSubscription;
+  StreamSubscription<void>? _quickSendNotificationSubscription;
   Timer? _refreshTimer;
 
   int _index = 0;
@@ -202,10 +206,14 @@ class _LocalistShellState extends State<LocalistShell>
   bool _discoveryScanning = false;
   List<LocalistConnectedPeer> _connectedPeers = const [];
   final Set<String> _announcedDeviceIds = {};
+  AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
+  bool _windowFocused = true;
+  String? _announcedQuickSendRequestId;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pageController = PageController();
     if (Platform.isWindows) {
       windowManager.addListener(this);
@@ -215,9 +223,13 @@ class _LocalistShellState extends State<LocalistShell>
     widget.settings.addListener(_handleSettingsChanged);
     _discovery.addListener(_handleDiscoveryChanged);
     _peerService.addListener(_handlePeersChanged);
+    _quickSend.addListener(_handleQuickSendChanged);
     _sharedQuickSendFilesSubscription = _bridge.sharedQuickSendFiles.listen(
       _handleQuickSendSharedFiles,
     );
+    _quickSendNotificationSubscription = _bridge.quickSendNotificationTaps
+        .listen((_) => unawaited(_openQuickSendRequest()));
+    unawaited(_bridge.initializeNotifications());
     unawaited(_quickSend.initialize());
     _refreshState();
     _refreshTimer = Timer.periodic(
@@ -228,12 +240,14 @@ class _LocalistShellState extends State<LocalistShell>
       _showOnboardingGuideIfNeeded();
       _checkForStartupUpdate();
       _openQuickSendForPendingSharedFiles();
+      _openQuickSendForPendingNotification();
       _showWindowsUpdateSuccessNotice();
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (Platform.isWindows) {
       windowManager.removeListener(this);
       tray.trayManager.removeListener(this);
@@ -241,7 +255,9 @@ class _LocalistShellState extends State<LocalistShell>
     widget.settings.removeListener(_handleSettingsChanged);
     _discovery.removeListener(_handleDiscoveryChanged);
     _peerService.removeListener(_handlePeersChanged);
+    _quickSend.removeListener(_handleQuickSendChanged);
     _sharedQuickSendFilesSubscription?.cancel();
+    _quickSendNotificationSubscription?.cancel();
     unawaited(_discovery.stop());
     unawaited(_peerService.stop());
     unawaited(_quickSend.disposeService());
@@ -257,6 +273,21 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     unawaited(_handleWindowsCloseRequest());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appLifecycleState = state;
+  }
+
+  @override
+  void onWindowFocus() {
+    _windowFocused = true;
+  }
+
+  @override
+  void onWindowBlur() {
+    _windowFocused = false;
   }
 
   @override
@@ -707,7 +738,7 @@ class _LocalistShellState extends State<LocalistShell>
         duration: const Duration(seconds: 9),
         actionLabel: context.l10n.installUpdate,
         actionIcon: Icons.arrow_forward,
-        onTap: () => _setPage(3, force: true),
+        onTap: _openSettings,
       );
     } catch (error) {
       _logs.warning('Startup update check failed: $error');
@@ -740,6 +771,93 @@ class _LocalistShellState extends State<LocalistShell>
         tone: InAppNoticeTone.success,
       );
     });
+  }
+
+  void _handleQuickSendChanged() {
+    final pending = _quickSend.pendingRequest;
+    if (pending == null) {
+      _announcedQuickSendRequestId = null;
+      return;
+    }
+    if (_announcedQuickSendRequestId == pending.id) {
+      return;
+    }
+    _announcedQuickSendRequestId = pending.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _showQuickSendRequestNotice(pending);
+      }
+    });
+  }
+
+  bool get _appIsActive {
+    return _appLifecycleState == AppLifecycleState.resumed &&
+        (!Platform.isWindows || _windowFocused);
+  }
+
+  void _showQuickSendRequestNotice(QuickSendPendingRequest pending) {
+    final persian = _usePersianText;
+    final title = persian
+        ? 'درخواست جدید Quick Send'
+        : 'New Quick Send request';
+    final message = persian
+        ? 'از ${pending.sender.alias} برای دریافت ${pending.files.length} مورد درخواست دارید.'
+        : '${pending.sender.alias} wants to send ${pending.files.length} item${pending.files.length == 1 ? '' : 's'}.';
+    if (!_appIsActive) {
+      unawaited(
+        _bridge.showQuickSendRequestNotification(
+          title: title,
+          message: message,
+        ),
+      );
+    }
+    if (_index == 2) {
+      return;
+    }
+    showLocalistNotice(
+      context,
+      message: message,
+      tone: InAppNoticeTone.info,
+      icon: Icons.markunread_mailbox_outlined,
+      duration: const Duration(seconds: 10),
+      actionLabel: persian ? 'باز کردن' : 'Open',
+      actionIcon: Icons.arrow_forward,
+      onTap: () => unawaited(_openQuickSendRequest(pending.id)),
+    );
+  }
+
+  Future<void> _openQuickSendRequest([String? requestId]) async {
+    if (Platform.isWindows) {
+      try {
+        if (await windowManager.isMinimized()) {
+          await windowManager.restore();
+        }
+        await windowManager.show();
+        await windowManager.focus();
+      } catch (error) {
+        _logs.warning('Could not bring Localist to the foreground: $error');
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    _setPage(2, force: true);
+    await _quickSendPageKey.currentState?.revealPendingRequest();
+  }
+
+  Future<void> _openQuickSendForPendingNotification() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
+    try {
+      if (await _bridge.takeQuickSendNotificationTap()) {
+        await _openQuickSendRequest();
+      }
+    } catch (error) {
+      _logs.warning(
+        'Could not inspect pending Quick Send notification: $error',
+      );
+    }
   }
 
   Future<void> _openQuickSendForPendingSharedFiles() async {
@@ -1388,11 +1506,10 @@ class _LocalistShellState extends State<LocalistShell>
           onRefreshDiscovery: _refreshDiscovery,
         ),
       ),
-      KeepAlivePage(child: QuickSendPage(deviceVpnActive: quickSendVpnActive)),
       KeepAlivePage(
-        child: SettingsPage(
-          settings: widget.settings,
-          portsLocked: _sharingActive,
+        child: QuickSendPage(
+          key: _quickSendPageKey,
+          deviceVpnActive: quickSendVpnActive,
         ),
       ),
     ];
@@ -1414,7 +1531,7 @@ class _LocalistShellState extends State<LocalistShell>
                 const SizedBox(width: 6),
                 IconButton(
                   tooltip: l10n.appGuide,
-                  onPressed: _showOnboardingGuide,
+                  onPressed: _openAppGuide,
                   icon: const Icon(Icons.help_outline),
                 ),
               ],
@@ -1458,6 +1575,11 @@ class _LocalistShellState extends State<LocalistShell>
                     key: ValueKey(themeSettings.isDarkMode),
                   ),
                 ),
+              ),
+              IconButton(
+                tooltip: l10n.settings,
+                onPressed: _openSettings,
+                icon: const Icon(Icons.tune_outlined),
               ),
             ],
           ),
@@ -1593,8 +1715,22 @@ class _LocalistShellState extends State<LocalistShell>
       _NavItem(l10n.sharing, Icons.share_outlined, Icons.share),
       _NavItem(l10n.receiving, Icons.qr_code_scanner, Icons.qr_code_2),
       const _NavItem('Quick Send', Icons.send_outlined, Icons.send),
-      _NavItem(l10n.settings, Icons.tune_outlined, Icons.tune),
     ];
+  }
+
+  Future<void> _openSettings() async {
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsRoutePage(
+          settings: widget.settings,
+          portsLocked: _sharingActive,
+          simple: widget.useSimpleTheme,
+        ),
+      ),
+    );
   }
 
   void _toggleTheme(ThemeSettingsModel themeSettings) {
@@ -1614,35 +1750,19 @@ class _LocalistShellState extends State<LocalistShell>
     }
     await prefs.setBool(_onboardingSeenKey, true);
     if (mounted) {
-      await _showOnboardingGuide();
+      await _openAppGuide();
     }
   }
 
-  Future<void> _showOnboardingGuide() {
-    _logs.debug('Onboarding guide opened');
-    return showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-      barrierColor: Colors.black.withValues(alpha: .32),
-      transitionDuration: const Duration(milliseconds: 280),
-      pageBuilder: (context, animation, secondaryAnimation) {
-        return const SizedBox.shrink();
-      },
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        return FadeTransition(
-          opacity: curved,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: .94, end: 1).animate(curved),
-            child: const _OnboardingGuideDialog(),
-          ),
-        );
-      },
+  Future<void> _openAppGuide() async {
+    _logs.debug('App guide opened');
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => AppGuidePage(simple: widget.useSimpleTheme),
+      ),
     );
   }
 }
@@ -1680,118 +1800,5 @@ class _KeepAlivePageState extends State<KeepAlivePage>
   Widget build(BuildContext context) {
     super.build(context);
     return widget.child;
-  }
-}
-
-class _OnboardingGuideDialog extends StatelessWidget {
-  const _OnboardingGuideDialog();
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.auto_awesome,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        l10n.guideWelcome,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _GuideStep(
-                  emoji: '📤',
-                  title: l10n.guideSharingTitle,
-                  body: Platform.isWindows
-                      ? l10n.guideSharingWindows
-                      : l10n.guideSharingAndroid,
-                ),
-                _GuideStep(
-                  emoji: '📷',
-                  title: l10n.guideQrTitle,
-                  body: l10n.guideQrBody,
-                ),
-                _GuideStep(
-                  emoji: '📥',
-                  title: l10n.guideReceivingTitle,
-                  body: l10n.guideReceivingBody,
-                ),
-                _GuideStep(
-                  emoji: '🛡️',
-                  title: l10n.guideStartVpnTitle,
-                  body: l10n.guideStartVpnBody,
-                ),
-                _GuideStep(
-                  emoji: '🧭',
-                  title: l10n.guideMenusTitle,
-                  body: l10n.guideMenusBody,
-                ),
-                const SizedBox(height: 4),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(l10n.gotIt),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GuideStep extends StatelessWidget {
-  const _GuideStep({
-    required this.emoji,
-    required this.title,
-    required this.body,
-  });
-
-  final String emoji;
-  final String title;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(emoji, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 2),
-                Text(body, style: Theme.of(context).textTheme.bodyMedium),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

@@ -2,6 +2,10 @@ package com.prs.localist
 
 import android.Manifest
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -17,6 +21,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Log
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
@@ -45,6 +50,7 @@ class MainActivity : FlutterActivity() {
     private var pendingLocalOnlyHotspotResult: MethodChannel.Result? = null
     private val pendingQuickSendFiles = mutableListOf<Map<String, String>>()
     private val pendingQuickSendFilesLock = Any()
+    private var pendingQuickSendNotificationTap = false
     private var nativeLogReceiverRegistered = false
     private val nativeLogReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -70,12 +76,14 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         LocalistCrashReporter.install(this)
         receiveQuickSendFiles(intent)
+        receiveQuickSendNotificationTap(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         receiveQuickSendFiles(intent)
+        receiveQuickSendNotificationTap(intent)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -122,6 +130,10 @@ class MainActivity : FlutterActivity() {
                 "saveTextFile" -> saveTextFile(call, result)
                 "takeQuickSendSharedFiles" -> result.success(takeQuickSendSharedFiles())
                 "hasQuickSendSharedFiles" -> result.success(hasQuickSendSharedFiles())
+                "showQuickSendRequestNotification" ->
+                    showQuickSendRequestNotification(call, result)
+                "takeQuickSendNotificationTap" ->
+                    result.success(takeQuickSendNotificationTap())
                 "getDeviceDetails" -> result.success(deviceDetails())
                 "setQuickSendMulticastLock" -> {
                     result.success(setQuickSendMulticastLock(call.argument<Boolean>("enabled") == true))
@@ -1071,6 +1083,92 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun showQuickSendRequestNotification(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            result.success(false)
+            return
+        }
+        val title = call.argument<String>("title")
+            ?.trim()
+            ?.ifBlank { "Localist" }
+            ?: "Localist"
+        val message = call.argument<String>("message")?.trim().orEmpty()
+        if (message.isBlank()) {
+            result.success(false)
+            return
+        }
+        runCatching {
+            val manager = getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        QUICK_SEND_NOTIFICATION_CHANNEL,
+                        "Quick Send requests",
+                        NotificationManager.IMPORTANCE_HIGH,
+                    ).apply {
+                        description = "Incoming Localist Quick Send requests"
+                        setShowBadge(true)
+                    },
+                )
+            }
+            val tapIntent = Intent(this, MainActivity::class.java).apply {
+                action = ACTION_QUICK_SEND_NOTIFICATION
+                addFlags(
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+            }
+            val tapPendingIntent = PendingIntent.getActivity(
+                this,
+                QUICK_SEND_NOTIFICATION_REQUEST_CODE,
+                tapIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val icon = applicationInfo.icon.takeIf { it != 0 }
+                ?: android.R.drawable.stat_notify_more
+            val notification = Notification.Builder(
+                this,
+                QUICK_SEND_NOTIFICATION_CHANNEL,
+            )
+                .setSmallIcon(icon)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(Notification.BigTextStyle().bigText(message))
+                .setCategory(Notification.CATEGORY_MESSAGE)
+                .setPriority(Notification.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(tapPendingIntent)
+                .setDefaults(Notification.DEFAULT_ALL)
+                .build()
+            manager.notify(QUICK_SEND_NOTIFICATION_ID, notification)
+        }.onSuccess {
+            result.success(true)
+        }.onFailure { error ->
+            Log.w("Localist", "Quick Send notification failed", error)
+            result.success(false)
+        }
+    }
+
+    private fun receiveQuickSendNotificationTap(incomingIntent: Intent?) {
+        if (incomingIntent?.action != ACTION_QUICK_SEND_NOTIFICATION) {
+            return
+        }
+        pendingQuickSendNotificationTap = true
+        methodChannel?.invokeMethod("quickSendNotificationTapped", null)
+    }
+
+    private fun takeQuickSendNotificationTap(): Boolean {
+        val tapped = pendingQuickSendNotificationTap
+        pendingQuickSendNotificationTap = false
+        return tapped
+    }
+
     private fun displayNameFor(uri: Uri): String {
         var displayName = ""
         runCatching {
@@ -1158,6 +1256,12 @@ class MainActivity : FlutterActivity() {
         private const val EXTRA_NATIVE_LOG_SOURCE = "source"
         private const val VPN_REQUEST_CODE = 41088
         private const val SAVE_FILE_REQUEST_CODE = 41089
+        private const val QUICK_SEND_NOTIFICATION_REQUEST_CODE = 41090
+        private const val QUICK_SEND_NOTIFICATION_ID = 41090
+        private const val QUICK_SEND_NOTIFICATION_CHANNEL =
+            "localist.quick_send.requests"
+        private const val ACTION_QUICK_SEND_NOTIFICATION =
+            "com.prs.localist.QUICK_SEND_NOTIFICATION"
         private const val HOTSPOT_ADDRESS_SETTLE_DELAY_MS = 700L
 
         fun broadcastNativeLog(context: Context, source: String, message: String) {

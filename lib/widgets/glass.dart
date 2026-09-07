@@ -378,9 +378,10 @@ class _WindowsWindowButton extends StatelessWidget {
 }
 
 class PageSurface extends StatelessWidget {
-  const PageSurface({super.key, required this.children});
+  const PageSurface({super.key, required this.children, this.controller});
 
   final List<Widget> children;
+  final ScrollController? controller;
 
   @override
   Widget build(BuildContext context) {
@@ -447,6 +448,7 @@ class PageSurface extends StatelessWidget {
           behavior: const _StableScrollBehavior(),
           child: SingleChildScrollView(
             key: key,
+            controller: controller,
             padding: EdgeInsets.fromLTRB(
               horizontalPadding,
               16,
