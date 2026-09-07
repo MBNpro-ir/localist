@@ -44,9 +44,7 @@ void main() {
     );
   }
 
-  testWidgets('shows pill destinations and the circular action', (
-    tester,
-  ) async {
+  testWidgets('shows transparent destinations and the action', (tester) async {
     await tester.pumpWidget(harness(width: 900));
 
     expect(find.text('Sharing'), findsOneWidget);
