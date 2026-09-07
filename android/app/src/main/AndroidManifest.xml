@@ -21,6 +21,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <application
         android:label="Localist"
         android:name="${applicationName}"
@@ -67,6 +69,11 @@
                 <action android:name="android.net.VpnService" />
             </intent-filter>
         </service>
+        <service
+            android:name=".QuickSendForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="connectedDevice" />
         <receiver
             android:name=".LocalistWidgetProvider"
             android:exported="true">

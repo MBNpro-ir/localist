@@ -62,6 +62,36 @@ void main() {
     );
   });
 
+  test('received transfer history survives JSON persistence', () {
+    final updatedAt = DateTime.utc(2026, 9, 7, 8, 26, 23);
+    final transfer = QuickSendTransfer(
+      id: 'receive-session-file',
+      deviceName: 'Pixel 📱',
+      fileName: 'photo.jpg',
+      path: r'C:\Received\photo.jpg',
+      totalBytes: 4096,
+      transferredBytes: 4096,
+      direction: QuickSendDirection.receiving,
+      state: QuickSendTransferState.completed,
+      message: '',
+      updatedAt: updatedAt,
+    );
+
+    final restored = QuickSendTransfer.fromJson(
+      jsonDecode(jsonEncode(transfer.toJson())) as Map<String, dynamic>,
+    );
+
+    expect(restored.id, transfer.id);
+    expect(restored.deviceName, transfer.deviceName);
+    expect(restored.fileName, transfer.fileName);
+    expect(restored.path, transfer.path);
+    expect(restored.totalBytes, transfer.totalBytes);
+    expect(restored.transferredBytes, transfer.transferredBytes);
+    expect(restored.direction, QuickSendDirection.receiving);
+    expect(restored.state, QuickSendTransferState.completed);
+    expect(restored.updatedAt, updatedAt);
+  });
+
   test('Apple web transfer builds iPhone-compatible Wi-Fi QR payloads', () {
     expect(
       AppleWebTransferService.buildWifiQrPayload(
@@ -177,6 +207,52 @@ void main() {
     expect(oldDefault.destinationCustomized, isFalse);
   });
 
+  test('Quick Send accepts emoji names and rejects unsafe aliases', () {
+    expect(QuickSendSettings.isValidAlias('MBN PC 🚀'), isTrue);
+    expect(QuickSendSettings.validateAlias('   '), 'empty');
+    expect(QuickSendSettings.validateAlias('name\nline'), 'controlCharacter');
+    expect(
+      QuickSendSettings.validateAlias(
+        List.filled(QuickSendSettings.maxAliasCharacters + 1, 'a').join(),
+      ),
+      'tooLong',
+    );
+  });
+
+  test('Quick Send persists profile identity settings', () async {
+    SharedPreferences.setMockInitialValues({
+      'quickSend.alias': 'Desk ✨',
+      'quickSend.profile.completed': true,
+      'quickSend.profile.avatarPreset': 'spark',
+      'quickSend.profile.avatarColor': 0xFF6750A4,
+      'quickSend.profile.imagePath': r'C:\avatar.png',
+    });
+    final settings = await QuickSendSettings.load();
+
+    expect(settings.alias, 'Desk ✨');
+    expect(settings.profileSetupCompleted, isTrue);
+    expect(settings.avatarPreset, 'spark');
+    expect(settings.avatarColorValue, 0xFF6750A4);
+    expect(settings.profileImagePath, r'C:\avatar.png');
+  });
+
+  test('Quick Send accepts only bounded profile thumbnails from peers', () {
+    final thumbnail = base64Encode(const [0x89, 0x50, 0x4E, 0x47]);
+    final device = QuickSendDevice.fromWire({
+      'alias': 'Nearby device',
+      'avatarPreset': 'spark',
+      'avatarColor': 0xFF6750A4,
+      'avatarImage': thumbnail,
+    }, ip: '192.168.1.20');
+    final invalid = QuickSendDevice.fromWire({
+      'alias': 'Invalid image',
+      'avatarImage': '%%%not-base64',
+    }, ip: '192.168.1.21');
+
+    expect(device.avatarImageBase64, thumbnail);
+    expect(invalid.avatarImageBase64, isEmpty);
+  });
+
   test(
     'active discovery scans LAN targets but never scans its own address',
     () {
@@ -254,6 +330,8 @@ void main() {
       expect(info['alias'], 'QA-WINDOWS');
       expect(info['version'], '2.1');
       expect(info['alias'], isNot('localhost'));
+      expect(info['avatarPreset'], 'person');
+      expect(info['avatarColor'], 0xFF006A6A);
     } finally {
       socket?.destroy();
       await service.disposeService();

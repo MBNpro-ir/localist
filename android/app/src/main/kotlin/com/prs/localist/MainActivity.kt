@@ -41,6 +41,7 @@ import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     private var pendingVpnResult: MethodChannel.Result? = null
+    private var pendingLocalNetworkPermissionResult: MethodChannel.Result? = null
     private var pendingSaveFileResult: MethodChannel.Result? = null
     private var pendingSaveFileText: String = ""
     private var methodChannel: MethodChannel? = null
@@ -93,6 +94,8 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
+                "hasLocalNetworkPermission" -> result.success(hasLocalNetworkPermission())
+                "requestLocalNetworkPermission" -> requestLocalNetworkPermission(result)
                 "getAndroidSupportedAbis" -> result.success(Build.SUPPORTED_ABIS.toList())
                 "getUpdateDirectory" -> result.success(updateDirectory().absolutePath)
                 "canInstallPackages" -> result.success(canInstallPackages())
@@ -137,6 +140,15 @@ class MainActivity : FlutterActivity() {
                 "getDeviceDetails" -> result.success(deviceDetails())
                 "setQuickSendMulticastLock" -> {
                     result.success(setQuickSendMulticastLock(call.argument<Boolean>("enabled") == true))
+                }
+                "setQuickSendBackgroundService" -> {
+                    result.success(
+                        QuickSendForegroundService.setEnabled(
+                            applicationContext,
+                            call.argument<Boolean>("enabled") == true,
+                            call.argument<String>("deviceName").orEmpty(),
+                        ),
+                    )
                 }
                 "getPublicStorageRoot" -> {
                     @Suppress("DEPRECATION")
@@ -1083,6 +1095,45 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != LOCAL_NETWORK_PERMISSION_REQUEST_CODE) {
+            return
+        }
+        pendingLocalNetworkPermissionResult?.success(hasLocalNetworkPermission())
+        pendingLocalNetworkPermissionResult = null
+    }
+
+    private fun hasLocalNetworkPermission(): Boolean {
+        return Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL ||
+            checkSelfPermission(ACCESS_LOCAL_NETWORK_PERMISSION) ==
+                PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestLocalNetworkPermission(result: MethodChannel.Result) {
+        if (hasLocalNetworkPermission()) {
+            result.success(true)
+            return
+        }
+        if (pendingLocalNetworkPermissionResult != null) {
+            result.error(
+                "local_network_permission_pending",
+                "Local network permission is already pending.",
+                null,
+            )
+            return
+        }
+        pendingLocalNetworkPermissionResult = result
+        requestPermissions(
+            arrayOf(ACCESS_LOCAL_NETWORK_PERMISSION),
+            LOCAL_NETWORK_PERMISSION_REQUEST_CODE,
+        )
+    }
+
     private fun showQuickSendRequestNotification(
         call: MethodCall,
         result: MethodChannel.Result,
@@ -1257,6 +1308,10 @@ class MainActivity : FlutterActivity() {
         private const val VPN_REQUEST_CODE = 41088
         private const val SAVE_FILE_REQUEST_CODE = 41089
         private const val QUICK_SEND_NOTIFICATION_REQUEST_CODE = 41090
+        private const val LOCAL_NETWORK_PERMISSION_REQUEST_CODE = 41092
+        private const val ANDROID_17_API_LEVEL = 37
+        private const val ACCESS_LOCAL_NETWORK_PERMISSION =
+            "android.permission.ACCESS_LOCAL_NETWORK"
         private const val QUICK_SEND_NOTIFICATION_ID = 41090
         private const val QUICK_SEND_NOTIFICATION_CHANNEL =
             "localist.quick_send.requests"

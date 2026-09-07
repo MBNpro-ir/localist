@@ -54,11 +54,14 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 420);
     return MouseRegion(
       onExit: _clearHovered,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
+        duration: duration,
+        curve: Curves.easeInOutCubicEmphasized,
         width: _expanded
             ? LocalistWindowsNavigation.expandedWidth
             : LocalistWindowsNavigation.collapsedWidth,
@@ -130,6 +133,9 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
     int index,
   ) {
     final scheme = Theme.of(context).colorScheme;
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 380);
     final selected = widget.currentIndex == index;
     final hovered = _hoveredIndex == index;
     final foreground = selected
@@ -145,8 +151,8 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
           borderRadius: BorderRadius.circular(18),
           onTap: () => widget.onDestinationSelected(index),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 240),
-            curve: Curves.easeOutCubic,
+            duration: duration,
+            curve: Curves.easeInOutCubicEmphasized,
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 11),
             decoration: BoxDecoration(
@@ -184,7 +190,7 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
                       if (showLabel)
                         Expanded(
                           child: TweenAnimationBuilder<double>(
-                            duration: const Duration(milliseconds: 220),
+                            duration: duration,
                             curve: Curves.easeOutCubic,
                             tween: Tween(begin: 0, end: 1),
                             builder: (context, opacity, child) {
@@ -221,6 +227,9 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
 
   Widget _buildAction(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 380);
     final hovered = _hoveredIndex == widget.items.length;
     final label = widget.actionTooltip ?? 'Stats';
     final button = Semantics(
@@ -232,8 +241,8 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
           borderRadius: BorderRadius.circular(18),
           onTap: widget.onActionPressed,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 240),
-            curve: Curves.easeOutCubic,
+            duration: duration,
+            curve: Curves.easeInOutCubicEmphasized,
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 11),
             decoration: BoxDecoration(
@@ -265,7 +274,7 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
                       if (showLabel)
                         Expanded(
                           child: TweenAnimationBuilder<double>(
-                            duration: const Duration(milliseconds: 220),
+                            duration: duration,
                             curve: Curves.easeOutCubic,
                             tween: Tween(begin: 0, end: 1),
                             builder: (context, opacity, child) {

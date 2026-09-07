@@ -50,12 +50,21 @@ class _StartupGateState extends State<StartupGate> {
     }
     final l10n = context.l10n;
     final steps = Platform.isWindows
-        ? [l10n.languageStep, l10n.mainStep]
-        : [l10n.languageStep, l10n.permissionsStep, l10n.mainStep];
+        ? [
+            l10n.languageStep,
+            l10n.isPersian ? 'پروفایل' : 'Profile',
+            l10n.mainStep,
+          ]
+        : [
+            l10n.languageStep,
+            l10n.permissionsStep,
+            l10n.isPersian ? 'پروفایل' : 'Profile',
+            l10n.mainStep,
+          ];
     return AnimatedSwitcher(
-      duration: widget.simple
+      duration: MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
-          : const Duration(milliseconds: 320),
+          : const Duration(milliseconds: 420),
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       child: OnboardingFrame(
@@ -158,9 +167,9 @@ class _LanguageChoiceTile extends StatelessWidget {
       color: selected
           ? scheme.primaryContainer.withValues(alpha: .82)
           : scheme.surfaceContainerHighest.withValues(alpha: .48),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(20),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(12),

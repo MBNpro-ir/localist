@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:characters/characters.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class QuickSendSettings {
@@ -17,6 +18,10 @@ class QuickSendSettings {
     required this.requirePin,
     required this.pin,
     required this.favoriteFingerprints,
+    this.profileSetupCompleted = false,
+    this.avatarPreset = 'person',
+    this.avatarColorValue = 0xFF006A6A,
+    this.profileImagePath = '',
   });
 
   final String alias;
@@ -32,6 +37,12 @@ class QuickSendSettings {
   final bool requirePin;
   final String pin;
   final Set<String> favoriteFingerprints;
+  final bool profileSetupCompleted;
+  final String avatarPreset;
+  final int avatarColorValue;
+  final String profileImagePath;
+
+  static const int maxAliasCharacters = 32;
 
   static Future<bool> hasDestinationCustomizationMarker() async {
     final prefs = await SharedPreferences.getInstance();
@@ -73,6 +84,13 @@ class QuickSendSettings {
       pin: prefs.getString(_pinKey) ?? '',
       favoriteFingerprints:
           prefs.getStringList(_favoritesKey)?.toSet() ?? const {},
+      profileSetupCompleted:
+          prefs.getBool(_profileSetupCompletedKey) ?? savedAlias.isNotEmpty,
+      avatarPreset: _safeAvatarPreset(
+        prefs.getString(_avatarPresetKey) ?? 'person',
+      ),
+      avatarColorValue: prefs.getInt(_avatarColorKey) ?? 0xFF006A6A,
+      profileImagePath: prefs.getString(_profileImagePathKey) ?? '',
     );
   }
 
@@ -92,6 +110,10 @@ class QuickSendSettings {
       prefs.setBool(_requirePinKey, requirePin),
       prefs.setString(_pinKey, pin),
       prefs.setStringList(_favoritesKey, favoriteFingerprints.toList()..sort()),
+      prefs.setBool(_profileSetupCompletedKey, profileSetupCompleted),
+      prefs.setString(_avatarPresetKey, _safeAvatarPreset(avatarPreset)),
+      prefs.setInt(_avatarColorKey, avatarColorValue),
+      prefs.setString(_profileImagePathKey, profileImagePath),
     ]);
   }
 
@@ -109,6 +131,10 @@ class QuickSendSettings {
     bool? requirePin,
     String? pin,
     Set<String>? favoriteFingerprints,
+    bool? profileSetupCompleted,
+    String? avatarPreset,
+    int? avatarColorValue,
+    String? profileImagePath,
   }) {
     return QuickSendSettings(
       alias: alias ?? this.alias,
@@ -125,11 +151,45 @@ class QuickSendSettings {
       requirePin: requirePin ?? this.requirePin,
       pin: pin ?? this.pin,
       favoriteFingerprints: favoriteFingerprints ?? this.favoriteFingerprints,
+      profileSetupCompleted:
+          profileSetupCompleted ?? this.profileSetupCompleted,
+      avatarPreset: _safeAvatarPreset(avatarPreset ?? this.avatarPreset),
+      avatarColorValue: avatarColorValue ?? this.avatarColorValue,
+      profileImagePath: profileImagePath ?? this.profileImagePath,
     );
   }
 
   bool isFavorite(String fingerprint) {
     return favoriteFingerprints.contains(fingerprint);
+  }
+
+  static String? validateAlias(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return 'empty';
+    }
+    if (normalized.characters.length > maxAliasCharacters) {
+      return 'tooLong';
+    }
+    if (RegExp(r'[\x00-\x1F\x7F]').hasMatch(normalized)) {
+      return 'controlCharacter';
+    }
+    return null;
+  }
+
+  static bool isValidAlias(String value) => validateAlias(value) == null;
+
+  static String _safeAvatarPreset(String value) {
+    return const {
+          'person',
+          'face',
+          'pets',
+          'rocket',
+          'gaming',
+          'spark',
+        }.contains(value)
+        ? value
+        : 'person';
   }
 
   static int _safePort(int value) {
@@ -158,4 +218,8 @@ class QuickSendSettings {
   static const _requirePinKey = 'quickSend.requirePin';
   static const _pinKey = 'quickSend.pin';
   static const _favoritesKey = 'quickSend.favoriteFingerprints';
+  static const _profileSetupCompletedKey = 'quickSend.profile.completed';
+  static const _avatarPresetKey = 'quickSend.profile.avatarPreset';
+  static const _avatarColorKey = 'quickSend.profile.avatarColor';
+  static const _profileImagePathKey = 'quickSend.profile.imagePath';
 }

@@ -6,7 +6,7 @@ import FlutterMacOS
 import Foundation
 
 import dynamic_color
-import file_picker
+import file_picker_darwin
 import flutter_desktop_notifications
 import mobile_scanner
 import screen_retriever_macos

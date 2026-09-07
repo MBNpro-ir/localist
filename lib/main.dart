@@ -34,6 +34,7 @@ import 'services/quick_send_settings_exit_guard.dart';
 import 'widgets/glass.dart';
 import 'widgets/localist_bottom_navigation.dart';
 import 'widgets/localist_windows_navigation.dart';
+import 'widgets/quick_send_profile.dart';
 
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
 const _windowsAdminBootstrapArg = '--enable-admin';
@@ -84,15 +85,54 @@ Future<void> main(List<String> args) async {
   );
 }
 
-class _LocalistApp extends StatelessWidget {
+class _LocalistApp extends StatefulWidget {
   const _LocalistApp({required this.settings, required this.useSimpleTheme});
 
   final AppSettings settings;
   final bool useSimpleTheme;
 
   @override
+  State<_LocalistApp> createState() => _LocalistAppState();
+}
+
+class _LocalistAppState extends State<_LocalistApp>
+    with WidgetsBindingObserver {
+  bool get _disableAnimations => WidgetsBinding
+      .instance
+      .platformDispatcher
+      .accessibilityFeatures
+      .disableAnimations;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAccessibilityFeatures() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final currentSettings = context.watch<AppSettings>();
+    final motionStyle = _disableAnimations
+        ? AnimationStyle.noAnimation
+        : const AnimationStyle(
+            duration: Duration(milliseconds: 520),
+            reverseDuration: Duration(milliseconds: 420),
+            curve: Curves.easeInOutCubicEmphasized,
+            reverseCurve: Curves.easeInOutCubic,
+          );
     return AppDynamic(
       title: 'Localist',
       locale: currentSettings.locale,
@@ -104,26 +144,110 @@ class _LocalistApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
       ],
-      builder: (context, child) => child ?? const Offstage(),
+      builder: (context, child) => Theme(
+        data: _modernLocalistTheme(Theme.of(context)),
+        child: child ?? const Offstage(),
+      ),
       debugShowCheckedModeBanner: false,
-      themeAnimationDuration: Duration.zero,
-      themeAnimationCurve: Curves.easeInOutCubic,
+      themeAnimationDuration: motionStyle.duration ?? Duration.zero,
+      themeAnimationCurve: motionStyle.curve ?? Curves.linear,
+      themeAnimationStyle: motionStyle,
       home: StartupGate(
-        settings: settings,
-        simple: useSimpleTheme,
+        settings: widget.settings,
+        simple: widget.useSimpleTheme,
         childBuilder: (onBackToLanguage) {
           return AndroidPermissionGate(
-            simple: useSimpleTheme,
+            simple: widget.useSimpleTheme,
             onBackToLanguage: onBackToLanguage,
-            child: LocalistShell(
-              settings: settings,
-              useSimpleTheme: useSimpleTheme,
+            child: QuickSendProfileGate(
+              simple: widget.useSimpleTheme,
+              child: LocalistShell(
+                settings: widget.settings,
+                useSimpleTheme: widget.useSimpleTheme,
+              ),
             ),
           );
         },
       ),
     );
   }
+}
+
+ThemeData _modernLocalistTheme(ThemeData base) {
+  final scheme = base.colorScheme;
+  const panelRadius = 24.0;
+  const controlRadius = 18.0;
+  return base.copyWith(
+    scaffoldBackgroundColor: scheme.surface,
+    cardTheme: base.cardTheme.copyWith(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: scheme.surfaceContainer,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(panelRadius),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .7)),
+      ),
+    ),
+    dialogTheme: base.dialogTheme.copyWith(
+      backgroundColor: scheme.surfaceContainerHigh,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    ),
+    bottomSheetTheme: base.bottomSheetTheme.copyWith(
+      backgroundColor: scheme.surfaceContainer,
+      surfaceTintColor: Colors.transparent,
+      modalBackgroundColor: scheme.surfaceContainer,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+    ),
+    inputDecorationTheme: base.inputDecorationTheme.copyWith(
+      filled: true,
+      fillColor: scheme.surfaceContainerHighest.withValues(alpha: .46),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(controlRadius),
+        borderSide: BorderSide(color: scheme.outlineVariant),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(controlRadius),
+        borderSide: BorderSide(
+          color: scheme.outlineVariant.withValues(alpha: .82),
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(controlRadius),
+        borderSide: BorderSide(color: scheme.primary, width: 2),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(48, 48),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(controlRadius),
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(48, 48),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(controlRadius),
+        ),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(controlRadius),
+        ),
+      ),
+    ),
+    chipTheme: base.chipTheme.copyWith(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      side: BorderSide(color: scheme.outlineVariant),
+    ),
+  );
 }
 
 Future<void> _bootstrapWindowsWindow() async {
@@ -172,6 +296,8 @@ class LocalistShell extends StatefulWidget {
 
 class _LocalistShellState extends State<LocalistShell>
     with WidgetsBindingObserver, WindowListener, tray.TrayListener {
+  static const _quickSendPageIndex = 0;
+  static const _receivingPageIndex = 2;
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final LocalistDiscoveryService _discovery = LocalistDiscoveryService.instance;
   final LocalistPeerService _peerService = LocalistPeerService.instance;
@@ -208,6 +334,8 @@ class _LocalistShellState extends State<LocalistShell>
   AppLifecycleState _appLifecycleState = AppLifecycleState.resumed;
   bool _windowFocused = true;
   String? _announcedQuickSendRequestId;
+  String? _announcedAutoAcceptedRequestId;
+  String? _activeQuickSendDialogRequestId;
 
   @override
   void initState() {
@@ -276,11 +404,29 @@ class _LocalistShellState extends State<LocalistShell>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appLifecycleState = state;
+    if (state == AppLifecycleState.resumed) {
+      final pending = _quickSend.pendingRequest;
+      if (pending != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            unawaited(_showIncomingQuickSendDialog(pending));
+          }
+        });
+      }
+    }
   }
 
   @override
   void onWindowFocus() {
     _windowFocused = true;
+    final pending = _quickSend.pendingRequest;
+    if (pending != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_showIncomingQuickSendDialog(pending));
+        }
+      });
+    }
   }
 
   @override
@@ -716,7 +862,7 @@ class _LocalistShellState extends State<LocalistShell>
       duration: const Duration(seconds: 7),
       actionLabel: l10n.openReceiving,
       actionIcon: Icons.arrow_forward,
-      onTap: () => _setPage(1, force: true),
+      onTap: () => _setPage(_receivingPageIndex, force: true),
     );
   }
 
@@ -760,7 +906,7 @@ class _LocalistShellState extends State<LocalistShell>
       if (!mounted) {
         return;
       }
-      _setPage(2, force: true);
+      _setPage(_quickSendPageIndex, force: true);
       if (_usePersianText) {
         _showInAppNotice(
           '${files.length} \u0641\u0627\u06cc\u0644 \u0628\u0631\u0627\u06cc \u0627\u0631\u0633\u0627\u0644 \u0622\u0645\u0627\u062f\u0647 \u0634\u062f.',
@@ -778,6 +924,16 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   void _handleQuickSendChanged() {
+    final autoAccepted = _quickSend.lastAutoAcceptedRequest;
+    if (autoAccepted != null &&
+        _announcedAutoAcceptedRequestId != autoAccepted.id) {
+      _announcedAutoAcceptedRequestId = autoAccepted.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showAutoAcceptedQuickSendNotice(autoAccepted);
+        }
+      });
+    }
     final pending = _quickSend.pendingRequest;
     if (pending == null) {
       _announcedQuickSendRequestId = null;
@@ -814,20 +970,76 @@ class _LocalistShellState extends State<LocalistShell>
           message: message,
         ),
       );
+      return;
     }
-    if (_index == 2) {
+    unawaited(_showIncomingQuickSendDialog(pending));
+  }
+
+  void _showAutoAcceptedQuickSendNotice(QuickSendAutoAcceptedRequest request) {
+    final persian = _usePersianText;
+    final message = persian
+        ? '${request.files.length} مورد از ${request.sender.alias} به‌صورت خودکار پذیرفته شد.'
+        : '${request.files.length} item${request.files.length == 1 ? '' : 's'} from ${request.sender.alias} accepted automatically.';
+    if (!_appIsActive) {
+      unawaited(
+        _bridge.showQuickSendRequestNotification(
+          title: persian
+              ? 'دریافت خودکار Quick Send'
+              : 'Quick Send auto receive',
+          message: message,
+        ),
+      );
+      return;
+    }
+    if (_index == _quickSendPageIndex) {
       return;
     }
     showLocalistNotice(
       context,
       message: message,
-      tone: InAppNoticeTone.info,
-      icon: Icons.markunread_mailbox_outlined,
-      duration: const Duration(seconds: 10),
-      actionLabel: persian ? 'باز کردن' : 'Open',
+      tone: InAppNoticeTone.success,
+      icon: Icons.download_done_rounded,
+      duration: const Duration(seconds: 9),
+      actionLabel: persian ? 'نمایش' : 'Open',
       actionIcon: Icons.arrow_forward,
-      onTap: () => unawaited(_openQuickSendRequest(pending.id)),
+      onTap: () => _setPage(_quickSendPageIndex, force: true),
     );
+  }
+
+  Future<void> _showIncomingQuickSendDialog(
+    QuickSendPendingRequest pending,
+  ) async {
+    if (!mounted ||
+        _activeQuickSendDialogRequestId != null ||
+        _quickSend.pendingRequest?.id != pending.id) {
+      return;
+    }
+    _activeQuickSendDialogRequestId = pending.id;
+    try {
+      final accepted = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _QuickSendIncomingRequestDialog(
+          pending: pending,
+          persian: _usePersianText,
+        ),
+      );
+      final current = _quickSend.pendingRequest;
+      if (current == null ||
+          current.id != pending.id ||
+          current.decision.isCompleted) {
+        return;
+      }
+      if (accepted == true) {
+        _quickSend.acceptPending();
+      } else {
+        _quickSend.declinePending();
+      }
+    } finally {
+      if (_activeQuickSendDialogRequestId == pending.id) {
+        _activeQuickSendDialogRequestId = null;
+      }
+    }
   }
 
   Future<void> _openQuickSendRequest([String? requestId]) async {
@@ -845,8 +1057,12 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
-    _setPage(2, force: true);
+    _setPage(_quickSendPageIndex, force: true);
     await _quickSendPageKey.currentState?.revealPendingRequest();
+    final pending = _quickSend.pendingRequest;
+    if (pending != null && (requestId == null || requestId == pending.id)) {
+      await _showIncomingQuickSendDialog(pending);
+    }
   }
 
   Future<void> _openQuickSendForPendingNotification() async {
@@ -870,7 +1086,7 @@ class _LocalistShellState extends State<LocalistShell>
     }
     try {
       if (await _bridge.hasQuickSendSharedFiles()) {
-        _setPage(2, force: true);
+        _setPage(_quickSendPageIndex, force: true);
       }
     } catch (error) {
       _logs.warning('Could not inspect pending Quick Send share: $error');
@@ -1482,6 +1698,12 @@ class _LocalistShellState extends State<LocalistShell>
     );
     final pages = [
       KeepAlivePage(
+        child: QuickSendPage(
+          key: _quickSendPageKey,
+          deviceVpnActive: quickSendVpnActive,
+        ),
+      ),
+      KeepAlivePage(
         child: SharingPage(
           settings: widget.settings,
           snapshot: _snapshot,
@@ -1508,12 +1730,6 @@ class _LocalistShellState extends State<LocalistShell>
           onStartLocalProxy: _startLocalProxy,
           onStopReceiving: _stopReceiving,
           onRefreshDiscovery: _refreshDiscovery,
-        ),
-      ),
-      KeepAlivePage(
-        child: QuickSendPage(
-          key: _quickSendPageKey,
-          deviceVpnActive: quickSendVpnActive,
         ),
       ),
     ];
@@ -1550,7 +1766,9 @@ class _LocalistShellState extends State<LocalistShell>
                     : l10n.darkMode,
                 onPressed: () => _toggleTheme(themeSettings),
                 icon: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 260),
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 420),
                   switchInCurve: Curves.easeOutCubic,
                   switchOutCurve: Curves.easeInCubic,
                   transitionBuilder: (child, animation) {
@@ -1699,8 +1917,10 @@ class _LocalistShellState extends State<LocalistShell>
     }
     _pageController.animateToPage(
       value,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 460),
+      curve: Curves.easeInOutCubicEmphasized,
     );
   }
 
@@ -1718,9 +1938,9 @@ class _LocalistShellState extends State<LocalistShell>
 
   List<_NavItem> _navItems(AppLocalizations l10n) {
     return [
+      const _NavItem('Quick Send', Icons.send_outlined, Icons.send),
       _NavItem(l10n.sharing, Icons.share_outlined, Icons.share),
       _NavItem(l10n.receiving, Icons.qr_code_scanner, Icons.qr_code_2),
-      const _NavItem('Quick Send', Icons.send_outlined, Icons.send),
     ];
   }
 
@@ -1758,6 +1978,156 @@ class _NavItem {
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+}
+
+class _QuickSendIncomingRequestDialog extends StatelessWidget {
+  const _QuickSendIncomingRequestDialog({
+    required this.pending,
+    required this.persian,
+  });
+
+  final QuickSendPendingRequest pending;
+  final bool persian;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final itemCount = pending.files.length;
+    return Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  QuickSendAvatar(
+                    preset: pending.sender.avatarPreset,
+                    colorValue: pending.sender.avatarColorValue,
+                    imageBase64: pending.sender.avatarImageBase64,
+                    size: 58,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          persian
+                              ? 'درخواست جدید Quick Send'
+                              : 'New Quick Send request',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          persian
+                              ? '${pending.sender.alias} می‌خواهد $itemCount مورد برای شما بفرستد.'
+                              : '${pending.sender.alias} wants to send $itemCount item${itemCount == 1 ? '' : 's'}.',
+                          style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withValues(alpha: .58),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: .7),
+                  ),
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 280),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: itemCount,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final file = pending.files[index];
+                      return ListTile(
+                        leading: Icon(
+                          file.isInlineMessage
+                              ? Icons.message_outlined
+                              : Icons.insert_drive_file_outlined,
+                        ),
+                        title: Text(
+                          file.fileName,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: file.isInlineMessage
+                            ? Text(
+                                file.preview,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                              )
+                            : null,
+                        trailing: Text(_formatQuickSendBytes(file.size)),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 430;
+                  final decline = OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                    label: Text(persian ? 'رد کردن' : 'Decline'),
+                  );
+                  final accept = FilledButton.icon(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    icon: const Icon(Icons.download_done_rounded),
+                    label: Text(
+                      persian ? 'پذیرش و دریافت' : 'Accept & receive',
+                    ),
+                  );
+                  if (compact) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [accept, const SizedBox(height: 10), decline],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: decline),
+                      const SizedBox(width: 12),
+                      Expanded(child: accept),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatQuickSendBytes(int bytes) {
+  if (bytes < 1024) {
+    return '$bytes B';
+  }
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  var value = bytes / 1024;
+  var unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return '${value.toStringAsFixed(value >= 100 ? 0 : 1)} ${units[unit]}';
 }
 
 class _WindowsCloseDecision {

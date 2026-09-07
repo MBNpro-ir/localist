@@ -19,6 +19,57 @@ const _appDeveloper = 'PRS';
 const _appPackageName = 'com.prs.localist';
 const _windowsAppId = 'PRS.Localist';
 
+enum SettingsSection { quickSend, network, appearance, behavior, updates }
+
+String _settingsSectionTitle(BuildContext context, SettingsSection section) {
+  final persian = context.l10n.isPersian;
+  return switch (section) {
+    SettingsSection.quickSend => 'Quick Send',
+    SettingsSection.network => persian ? 'شبکه و پراکسی' : 'Network & proxy',
+    SettingsSection.appearance =>
+      persian ? 'ظاهر و زبان' : 'Appearance & language',
+    SettingsSection.behavior => persian ? 'رفتار برنامه' : 'App behavior',
+    SettingsSection.updates =>
+      persian ? 'به‌روزرسانی و درباره' : 'Updates & about',
+  };
+}
+
+String _settingsSectionSubtitle(BuildContext context, SettingsSection section) {
+  final persian = context.l10n.isPersian;
+  return switch (section) {
+    SettingsSection.quickSend =>
+      persian
+          ? 'پروفایل، دریافت، شبکه، پوشه ذخیره و امنیت انتقال'
+          : 'Profile, receiving, network, storage, and transfer security',
+    SettingsSection.network =>
+      persian
+          ? 'پروتکل‌ها، پورت‌ها و اشتراک‌گذاری VPN'
+          : 'Protocols, ports, and VPN sharing',
+    SettingsSection.appearance =>
+      persian
+          ? 'زبان، حالت روشن یا تیره و رنگ‌های پویا'
+          : 'Language, light or dark mode, and dynamic colors',
+    SettingsSection.behavior =>
+      persian
+          ? 'رفتار پنجره Windows و ابزارهای عیب‌یابی'
+          : 'Windows close behavior and diagnostics',
+    SettingsSection.updates =>
+      persian
+          ? 'نسخه برنامه، بررسی آپدیت و اطلاعات نصب'
+          : 'App version, update checks, and installation details',
+  };
+}
+
+IconData _settingsSectionIcon(SettingsSection section) {
+  return switch (section) {
+    SettingsSection.quickSend => Icons.send_rounded,
+    SettingsSection.network => Icons.lan_rounded,
+    SettingsSection.appearance => Icons.palette_outlined,
+    SettingsSection.behavior => Icons.tune_rounded,
+    SettingsSection.updates => Icons.system_update_alt_rounded,
+  };
+}
+
 class SettingsRoutePage extends StatefulWidget {
   const SettingsRoutePage({
     super.key,
@@ -26,12 +77,14 @@ class SettingsRoutePage extends StatefulWidget {
     required this.portsLocked,
     required this.simple,
     this.deviceVpnActive = false,
+    this.section,
   });
 
   final AppSettings settings;
   final bool portsLocked;
   final bool simple;
   final bool deviceVpnActive;
+  final SettingsSection? section;
 
   @override
   State<SettingsRoutePage> createState() => _SettingsRoutePageState();
@@ -49,8 +102,9 @@ class _SettingsRoutePageState extends State<SettingsRoutePage> {
     }
     _popInProgress = true;
     try {
-      final mayPop =
-          await _quickSendSettingsKey.currentState?.prepareForExit() ?? true;
+      final mayPop = widget.section == SettingsSection.quickSend
+          ? await _quickSendSettingsKey.currentState?.prepareForExit() ?? true
+          : true;
       if (!mayPop || !mounted) {
         return;
       }
@@ -67,6 +121,7 @@ class _SettingsRoutePageState extends State<SettingsRoutePage> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final section = widget.section;
     return PopScope(
       canPop: _canPop,
       onPopInvokedWithResult: (didPop, result) {
@@ -81,7 +136,11 @@ class _SettingsRoutePageState extends State<SettingsRoutePage> {
               ? Theme.of(context).colorScheme.surface
               : Colors.transparent,
           appBar: GlassAppBar(
-            title: Text(l10n.settings),
+            title: Text(
+              section == null
+                  ? l10n.settings
+                  : _settingsSectionTitle(context, section),
+            ),
             leading: IconButton(
               tooltip: l10n.close,
               onPressed: () => unawaited(_requestPop()),
@@ -90,12 +149,167 @@ class _SettingsRoutePageState extends State<SettingsRoutePage> {
           ),
           body: SafeArea(
             bottom: false,
-            child: SettingsPage(
-              settings: widget.settings,
-              portsLocked: widget.portsLocked,
-              deviceVpnActive: widget.deviceVpnActive,
-              quickSendSettingsKey: _quickSendSettingsKey,
-            ),
+            child: section == null
+                ? _SettingsOverview(
+                    onOpen: (target) => _openSection(context, target),
+                  )
+                : SettingsPage(
+                    settings: widget.settings,
+                    portsLocked: widget.portsLocked,
+                    deviceVpnActive: widget.deviceVpnActive,
+                    section: section,
+                    quickSendSettingsKey: section == SettingsSection.quickSend
+                        ? _quickSendSettingsKey
+                        : null,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSection(
+    BuildContext context,
+    SettingsSection section,
+  ) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsRoutePage(
+          settings: widget.settings,
+          portsLocked: widget.portsLocked,
+          simple: widget.simple,
+          deviceVpnActive: widget.deviceVpnActive,
+          section: section,
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsOverview extends StatelessWidget {
+  const _SettingsOverview({required this.onOpen});
+
+  final ValueChanged<SettingsSection> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return PageSurface(
+      useColumns: false,
+      maxContentWidth: 980,
+      children: [
+        GlassPanel(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                context.l10n.isPersian
+                    ? 'چه چیزی را می‌خواهید تنظیم کنید؟'
+                    : 'What would you like to configure?',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                context.l10n.isPersian
+                    ? 'هر بخش جداست تا گزینه‌های مرتبط سریع‌تر پیدا شوند.'
+                    : 'Settings are grouped so related controls are easier to find.',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 20),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth >= 720 ? 2 : 1;
+                  const gap = 12.0;
+                  final width = columns == 1
+                      ? constraints.maxWidth
+                      : (constraints.maxWidth - gap) / 2;
+                  return Wrap(
+                    spacing: gap,
+                    runSpacing: gap,
+                    children: [
+                      for (final section in SettingsSection.values)
+                        SizedBox(
+                          width: width,
+                          child: _SettingsSectionCard(
+                            section: section,
+                            onTap: () => onOpen(section),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SettingsSectionCard extends StatelessWidget {
+  const _SettingsSectionCard({required this.section, required this.onTap});
+
+  final SettingsSection section;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .72)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(13),
+                  child: Icon(
+                    _settingsSectionIcon(section),
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _settingsSectionTitle(context, section),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _settingsSectionSubtitle(context, section),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_right_rounded),
+            ],
           ),
         ),
       ),
@@ -108,12 +322,14 @@ class SettingsPage extends StatefulWidget {
     super.key,
     required this.settings,
     required this.portsLocked,
+    required this.section,
     this.deviceVpnActive = false,
     this.quickSendSettingsKey,
   });
 
   final AppSettings settings;
   final bool portsLocked;
+  final SettingsSection section;
   final bool deviceVpnActive;
   final GlobalKey<QuickSendSettingsSectionState>? quickSendSettingsKey;
 
@@ -194,92 +410,96 @@ class _SettingsPageState extends State<SettingsPage> {
           useColumns: false,
           maxContentWidth: 980,
           children: [
-            GlassPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.proxy,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  if (!isWindows) ...[
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: _rootBusy
-                          ? const SizedBox.square(
-                              dimension: 24,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.admin_panel_settings_outlined),
-                      title: Text(l10n.rootVpnSharing),
-                      subtitle: Text(
-                        widget.settings.rootRoutingEnabled
-                            ? l10n.proxyModeDisabled
-                            : l10n.useProxyModeWithoutRoot,
-                      ),
-                      value: widget.settings.rootRoutingEnabled,
-                      onChanged: _rootBusy ? null : _setRootRoutingEnabled,
+            if (widget.section == SettingsSection.network)
+              GlassPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.proxy,
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
-                  ],
-                  if (isWindows || !widget.settings.rootRoutingEnabled) ...[
-                    const SizedBox(height: 12),
-                    for (final protocol in ProxyProtocol.values)
-                      _ProtocolToggle(
-                        settings: widget.settings,
-                        protocol: protocol,
-                        enabled: !proxySettingsLocked,
-                      ),
-                    for (final protocol in ProxyProtocol.values)
-                      if (widget.settings.isProtocolEnabled(protocol)) ...[
-                        const SizedBox(height: 12),
-                        _ProtocolPortField(
-                          protocol: protocol,
-                          controller: _portControllerFor(protocol),
-                          errorText: portErrors[protocol],
-                          enabled: !proxySettingsLocked,
-                          onSubmitted: (_) => _savePorts(),
-                        ),
-                      ],
-                    if (proxySettingsLocked) ...[
-                      const SizedBox(height: 10),
-                      const _LockedPortsNotice(),
-                    ],
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 180),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      child: _portsChanged || _portsSaving
-                          ? Padding(
-                              key: const ValueKey('save-ports'),
-                              padding: const EdgeInsets.only(top: 12),
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: FilledButton.icon(
-                                  onPressed: canSavePorts ? _savePorts : null,
-                                  icon: _portsSaving
-                                      ? const SizedBox.square(
-                                          dimension: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.save_outlined),
-                                  label: Text(l10n.savePorts),
+                    if (!isWindows) ...[
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        secondary: _rootBusy
+                            ? const SizedBox.square(
+                                dimension: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
                                 ),
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
+                              )
+                            : const Icon(Icons.admin_panel_settings_outlined),
+                        title: Text(l10n.rootVpnSharing),
+                        subtitle: Text(
+                          widget.settings.rootRoutingEnabled
+                              ? l10n.proxyModeDisabled
+                              : l10n.useProxyModeWithoutRoot,
+                        ),
+                        value: widget.settings.rootRoutingEnabled,
+                        onChanged: _rootBusy ? null : _setRootRoutingEnabled,
+                      ),
+                    ],
+                    if (isWindows || !widget.settings.rootRoutingEnabled) ...[
+                      const SizedBox(height: 12),
+                      for (final protocol in ProxyProtocol.values)
+                        _ProtocolToggle(
+                          settings: widget.settings,
+                          protocol: protocol,
+                          enabled: !proxySettingsLocked,
+                        ),
+                      for (final protocol in ProxyProtocol.values)
+                        if (widget.settings.isProtocolEnabled(protocol)) ...[
+                          const SizedBox(height: 12),
+                          _ProtocolPortField(
+                            protocol: protocol,
+                            controller: _portControllerFor(protocol),
+                            errorText: portErrors[protocol],
+                            enabled: !proxySettingsLocked,
+                            onSubmitted: (_) => _savePorts(),
+                          ),
+                        ],
+                      if (proxySettingsLocked) ...[
+                        const SizedBox(height: 10),
+                        const _LockedPortsNotice(),
+                      ],
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        child: _portsChanged || _portsSaving
+                            ? Padding(
+                                key: const ValueKey('save-ports'),
+                                padding: const EdgeInsets.only(top: 12),
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: FilledButton.icon(
+                                    onPressed: canSavePorts ? _savePorts : null,
+                                    icon: _portsSaving
+                                        ? const SizedBox.square(
+                                            dimension: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(Icons.save_outlined),
+                                    label: Text(l10n.savePorts),
+                                  ),
+                                ),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            QuickSendSettingsSection(
-              key: widget.quickSendSettingsKey,
-              deviceVpnActive: widget.deviceVpnActive,
-            ),
-            if (isWindows)
+            if (widget.section == SettingsSection.quickSend)
+              QuickSendSettingsSection(
+                key: widget.quickSendSettingsKey,
+                deviceVpnActive: widget.deviceVpnActive,
+              ),
+            if (widget.section == SettingsSection.behavior && isWindows)
               GlassPanel(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -293,218 +513,223 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-            GlassPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.languageSettingsTitle,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    l10n.languageSettingsSubtitle,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: SegmentedButton<AppLanguage>(
-                      expandedInsets: EdgeInsets.zero,
-                      segments: [
-                        ButtonSegment(
-                          value: AppLanguage.system,
-                          icon: const Icon(Icons.language),
-                          label: Text(l10n.languageSystem),
-                        ),
-                        ButtonSegment(
-                          value: AppLanguage.english,
-                          icon: const Icon(Icons.flag_outlined),
-                          label: Text(l10n.languageEnglish),
-                        ),
-                        ButtonSegment(
-                          value: AppLanguage.persian,
-                          icon: const Icon(Icons.flag_outlined),
-                          label: Text(l10n.languagePersian),
-                        ),
-                      ],
-                      selected: {widget.settings.language},
-                      onSelectionChanged: (values) {
-                        widget.settings.setLanguage(values.single);
-                      },
+            if (widget.section == SettingsSection.appearance)
+              GlassPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.languageSettingsTitle,
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
-                  ),
-                ],
-              ),
-            ),
-            const _UpdatePanel(),
-            GlassPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.debugging,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: const Icon(Icons.bug_report_outlined),
-                    title: Text(l10n.activeDebugMode),
-                    subtitle: Text(l10n.activeDebugModeSubtitle),
-                    value: widget.settings.activeDebugMode,
-                    onChanged: widget.settings.setActiveDebugMode,
-                  ),
-                ],
-              ),
-            ),
-            GlassPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.theme,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: SegmentedButton<ThemeMode>(
-                      expandedInsets: EdgeInsets.zero,
-                      segments: [
-                        ButtonSegment(
-                          value: ThemeMode.system,
-                          icon: const Icon(Icons.brightness_auto),
-                          label: Text(l10n.themeSystem),
-                        ),
-                        ButtonSegment(
-                          value: ThemeMode.light,
-                          icon: const Icon(Icons.light_mode_outlined),
-                          label: Text(l10n.themeLight),
-                        ),
-                        ButtonSegment(
-                          value: ThemeMode.dark,
-                          icon: const Icon(Icons.dark_mode_outlined),
-                          label: Text(l10n.themeDark),
-                        ),
-                      ],
-                      selected: {themeSettings.themeMode},
-                      onSelectionChanged: (values) {
-                        themeSettings.setThemeMode(values.single);
-                      },
+                    const SizedBox(height: 8),
+                    Text(
+                      l10n.languageSettingsSubtitle,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(l10n.useMaterialYouColors),
-                    subtitle: Text(
-                      dynamicColorsAvailable
-                          ? isWindows
-                                ? l10n.usesWindowsAccentColors
-                                : l10n.usesAndroidWallpaperColors
-                          : isWindows
-                          ? l10n.unavailableWindows
-                          : l10n.unavailableAndroid,
-                    ),
-                    value:
-                        dynamicColorsAvailable &&
-                        themeSettings.colorSchemeType == ColorSchemeType.system,
-                    onChanged: dynamicColorsAvailable
-                        ? (value) => themeSettings.setColorSchemeType(
-                            value
-                                ? ColorSchemeType.system
-                                : ColorSchemeType.custom,
-                          )
-                        : null,
-                  ),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 260),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    child:
-                        !dynamicColorsAvailable ||
-                            themeSettings.colorSchemeType ==
-                                ColorSchemeType.custom
-                        ? _SeedColorPicker(themeSettings: themeSettings)
-                        : const SizedBox.shrink(),
-                  ),
-                ],
-              ),
-            ),
-            GlassPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.appInfo,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.asset(
-                          'ico/logo.png',
-                          width: logoSize,
-                          height: logoSize,
-                          fit: BoxFit.cover,
-                        ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<AppLanguage>(
+                        expandedInsets: EdgeInsets.zero,
+                        segments: [
+                          ButtonSegment(
+                            value: AppLanguage.system,
+                            icon: const Icon(Icons.language),
+                            label: Text(l10n.languageSystem),
+                          ),
+                          ButtonSegment(
+                            value: AppLanguage.english,
+                            icon: const Icon(Icons.flag_outlined),
+                            label: Text(l10n.languageEnglish),
+                          ),
+                          ButtonSegment(
+                            value: AppLanguage.persian,
+                            icon: const Icon(Icons.flag_outlined),
+                            label: Text(l10n.languagePersian),
+                          ),
+                        ],
+                        selected: {widget.settings.language},
+                        onSelectionChanged: (values) {
+                          widget.settings.setLanguage(values.single);
+                        },
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _appName,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              l10n.developedBy(_appDeveloper),
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  MetricTile(
-                    label: l10n.version,
-                    value: _appVersion ?? l10n.loading,
-                    icon: Icons.tag_outlined,
-                  ),
-                  const SizedBox(height: 10),
-                  MetricTile(
-                    label: isWindows ? l10n.platform : l10n.package,
-                    value: isWindows ? l10n.windowsDesktop : _appPackageName,
-                    icon: isWindows
-                        ? Icons.desktop_windows_outlined
-                        : Icons.inventory_2_outlined,
-                  ),
-                  const SizedBox(height: 10),
-                  MetricTile(
-                    label: isWindows ? l10n.appId : l10n.developer,
-                    value: isWindows ? _windowsAppId : _appDeveloper,
-                    icon: isWindows
-                        ? Icons.verified_outlined
-                        : Icons.badge_outlined,
-                  ),
-                  if (settingsPath != null) ...[
-                    const SizedBox(height: 10),
-                    MetricTile(
-                      label: l10n.settingsPath,
-                      value: settingsPath,
-                      icon: Icons.folder_outlined,
-                      wrapValue: true,
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
+            if (widget.section == SettingsSection.updates) const _UpdatePanel(),
+            if (widget.section == SettingsSection.behavior)
+              GlassPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.debugging,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(Icons.bug_report_outlined),
+                      title: Text(l10n.activeDebugMode),
+                      subtitle: Text(l10n.activeDebugModeSubtitle),
+                      value: widget.settings.activeDebugMode,
+                      onChanged: widget.settings.setActiveDebugMode,
+                    ),
+                  ],
+                ),
+              ),
+            if (widget.section == SettingsSection.appearance)
+              GlassPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.theme,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<ThemeMode>(
+                        expandedInsets: EdgeInsets.zero,
+                        segments: [
+                          ButtonSegment(
+                            value: ThemeMode.system,
+                            icon: const Icon(Icons.brightness_auto),
+                            label: Text(l10n.themeSystem),
+                          ),
+                          ButtonSegment(
+                            value: ThemeMode.light,
+                            icon: const Icon(Icons.light_mode_outlined),
+                            label: Text(l10n.themeLight),
+                          ),
+                          ButtonSegment(
+                            value: ThemeMode.dark,
+                            icon: const Icon(Icons.dark_mode_outlined),
+                            label: Text(l10n.themeDark),
+                          ),
+                        ],
+                        selected: {themeSettings.themeMode},
+                        onSelectionChanged: (values) {
+                          themeSettings.setThemeMode(values.single);
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(l10n.useMaterialYouColors),
+                      subtitle: Text(
+                        dynamicColorsAvailable
+                            ? isWindows
+                                  ? l10n.usesWindowsAccentColors
+                                  : l10n.usesAndroidWallpaperColors
+                            : isWindows
+                            ? l10n.unavailableWindows
+                            : l10n.unavailableAndroid,
+                      ),
+                      value:
+                          dynamicColorsAvailable &&
+                          themeSettings.colorSchemeType ==
+                              ColorSchemeType.system,
+                      onChanged: dynamicColorsAvailable
+                          ? (value) => themeSettings.setColorSchemeType(
+                              value
+                                  ? ColorSchemeType.system
+                                  : ColorSchemeType.custom,
+                            )
+                          : null,
+                    ),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 260),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      child:
+                          !dynamicColorsAvailable ||
+                              themeSettings.colorSchemeType ==
+                                  ColorSchemeType.custom
+                          ? _SeedColorPicker(themeSettings: themeSettings)
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+              ),
+            if (widget.section == SettingsSection.updates)
+              GlassPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.appInfo,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.asset(
+                            'ico/logo.png',
+                            width: logoSize,
+                            height: logoSize,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _appName,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                l10n.developedBy(_appDeveloper),
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    MetricTile(
+                      label: l10n.version,
+                      value: _appVersion ?? l10n.loading,
+                      icon: Icons.tag_outlined,
+                    ),
+                    const SizedBox(height: 10),
+                    MetricTile(
+                      label: isWindows ? l10n.platform : l10n.package,
+                      value: isWindows ? l10n.windowsDesktop : _appPackageName,
+                      icon: isWindows
+                          ? Icons.desktop_windows_outlined
+                          : Icons.inventory_2_outlined,
+                    ),
+                    const SizedBox(height: 10),
+                    MetricTile(
+                      label: isWindows ? l10n.appId : l10n.developer,
+                      value: isWindows ? _windowsAppId : _appDeveloper,
+                      icon: isWindows
+                          ? Icons.verified_outlined
+                          : Icons.badge_outlined,
+                    ),
+                    if (settingsPath != null) ...[
+                      const SizedBox(height: 10),
+                      MetricTile(
+                        label: l10n.settingsPath,
+                        value: settingsPath,
+                        icon: Icons.folder_outlined,
+                        wrapValue: true,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
           ],
         );
       },

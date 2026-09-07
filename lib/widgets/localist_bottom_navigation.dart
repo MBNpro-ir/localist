@@ -68,7 +68,6 @@ class LocalistBottomNavigationBar extends StatelessWidget {
               minimum: const EdgeInsets.fromLTRB(16, 10, 16, 14),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final compact = constraints.maxWidth < 560;
                   final showAction =
                       showActionButton && onActionPressed != null;
                   return Row(
@@ -79,7 +78,6 @@ class LocalistBottomNavigationBar extends StatelessWidget {
                           currentIndex: currentIndex,
                           onDestinationSelected: onDestinationSelected,
                           items: items,
-                          compact: compact,
                         ),
                       ),
                       if (showAction) ...[
@@ -107,13 +105,11 @@ class _LocalistNavigationPill extends StatelessWidget {
     required this.currentIndex,
     required this.onDestinationSelected,
     required this.items,
-    required this.compact,
   });
 
   final int currentIndex;
   final ValueChanged<int> onDestinationSelected;
   final List<LocalistBottomNavigationItem> items;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +143,6 @@ class _LocalistNavigationPill extends StatelessWidget {
                   _LocalistNavigationDestination(
                     item: items[index],
                     selected: index == selectedIndex,
-                    compact: compact,
                     onTap: () => onDestinationSelected(index),
                   ),
               ],
@@ -163,64 +158,77 @@ class _LocalistNavigationDestination extends StatelessWidget {
   const _LocalistNavigationDestination({
     required this.item,
     required this.selected,
-    required this.compact,
     required this.onTap,
   });
 
   final LocalistBottomNavigationItem item;
   final bool selected;
-  final bool compact;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final iconOnly = !selected && compact;
-    final representation = selected
-        ? 'selected'
-        : iconOnly
-        ? 'icon'
-        : 'label';
-    final content = Row(
-      key: ValueKey(representation),
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (selected)
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: scheme.onPrimaryContainer.withValues(alpha: .10),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(7),
-              child: AnimatedNavIcon(
-                icon: item.selectedIcon,
-                selected: true,
-                selectedColor: scheme.onPrimaryContainer,
-                unselectedColor: scheme.onPrimaryContainer,
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 420);
+    final content = AnimatedSize(
+      duration: duration,
+      curve: Curves.easeInOutCubicEmphasized,
+      alignment: Alignment.center,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedSwitcher(
+            duration: duration,
+            switchInCurve: Curves.easeOutBack,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: .72, end: 1).animate(animation),
+                child: child,
               ),
             ),
-          )
-        else if (iconOnly)
-          AnimatedNavIcon(
-            icon: item.icon,
-            selected: false,
-            selectedColor: scheme.onPrimaryContainer,
-            unselectedColor: scheme.onSurfaceVariant,
+            child: selected
+                ? DecoratedBox(
+                    key: ValueKey('selected-${item.label}'),
+                    decoration: BoxDecoration(
+                      color: scheme.onPrimaryContainer.withValues(alpha: .10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(7),
+                      child: AnimatedNavIcon(
+                        icon: item.selectedIcon,
+                        selected: true,
+                        selectedColor: scheme.onPrimaryContainer,
+                        unselectedColor: scheme.onPrimaryContainer,
+                      ),
+                    ),
+                  )
+                : SizedBox(
+                    key: ValueKey('unselected-${item.label}'),
+                    width: 0,
+                    height: 32,
+                  ),
           ),
-        if (selected || !compact) ...[
-          if (selected) const SizedBox(width: 8),
+          AnimatedContainer(
+            duration: duration,
+            curve: Curves.easeInOutCubicEmphasized,
+            width: selected ? 8 : 0,
+          ),
           Text(
             item.label,
+            maxLines: 1,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
               color: selected
                   ? scheme.onPrimaryContainer
                   : scheme.onSurfaceVariant,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
             ),
           ),
         ],
-      ],
+      ),
     );
     return Tooltip(
       message: item.label,
@@ -234,38 +242,17 @@ class _LocalistNavigationDestination extends StatelessWidget {
             borderRadius: BorderRadius.circular(30),
             onTap: onTap,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutBack,
+              duration: duration,
+              curve: Curves.easeInOutCubicEmphasized,
               padding: EdgeInsets.symmetric(
-                horizontal: selected
-                    ? 10
-                    : iconOnly
-                    ? 13
-                    : 15,
+                horizontal: selected ? 10 : 16,
                 vertical: 7,
               ),
               decoration: BoxDecoration(
                 color: selected ? scheme.primaryContainer : Colors.transparent,
                 borderRadius: BorderRadius.circular(30),
               ),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 240),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: ScaleTransition(
-                      scale: Tween<double>(
-                        begin: .88,
-                        end: 1,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
-                },
-                child: content,
-              ),
+              child: content,
             ),
           ),
         ),
@@ -306,7 +293,9 @@ class _LocalistActionButton extends StatelessWidget {
             child: Center(
               child: TweenAnimationBuilder<double>(
                 tween: Tween(begin: .86, end: 1),
-                duration: const Duration(milliseconds: 360),
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 420),
                 curve: Curves.easeOutBack,
                 builder: (context, value, child) {
                   return Transform.scale(scale: value, child: child);

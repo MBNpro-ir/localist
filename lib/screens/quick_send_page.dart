@@ -14,6 +14,8 @@ import '../services/native_bridge_service.dart';
 import '../services/quick_send_service.dart';
 import '../services/quick_send_settings_exit_guard.dart';
 import '../widgets/glass.dart';
+import '../widgets/quick_send_profile.dart';
+import 'transfer_history_page.dart';
 
 class QuickSendPage extends StatefulWidget {
   const QuickSendPage({super.key, required this.deviceVpnActive});
@@ -36,7 +38,6 @@ class QuickSendPageState extends State<QuickSendPage> {
   bool _sending = false;
   StreamSubscription<List<QuickSendSharedFile>>? _sharedFilesSubscription;
   final ScrollController _scrollController = ScrollController();
-  final GlobalKey _pendingPanelKey = GlobalKey();
 
   @override
   void initState() {
@@ -89,21 +90,16 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> revealPendingRequest() async {
-    for (var attempt = 0; attempt < 4; attempt++) {
-      await WidgetsBinding.instance.endOfFrame;
-      if (_pendingPanelKey.currentContext != null) {
-        break;
-      }
-    }
-    final target = _pendingPanelKey.currentContext;
-    if (!mounted || target == null || !target.mounted) {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scrollController.hasClients) {
       return;
     }
-    await Scrollable.ensureVisible(
-      target,
-      alignment: .08,
-      duration: const Duration(milliseconds: 420),
-      curve: Curves.easeOutCubic,
+    await _scrollController.animateTo(
+      0,
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 460),
+      curve: Curves.easeInOutCubicEmphasized,
     );
   }
 
@@ -225,19 +221,77 @@ class QuickSendPageState extends State<QuickSendPage> {
           controller: _scrollController,
           children: [
             if (widget.deviceVpnActive) _vpnWarningPanel(),
-            if (_service.pendingRequest case final pending?)
-              KeyedSubtree(
-                key: _pendingPanelKey,
-                child: _pendingPanel(pending),
-              ),
+            _identityPanel(settings),
             _selectionPanel(),
+            _nearbyPanel(settings),
+            _transferHistoryPanel(),
+            if (_service.transfers.isNotEmpty) _transfersPanel(),
             if (Platform.isAndroid || Platform.isWindows)
               _appleWebTransferPanel(),
-            _nearbyPanel(settings),
-            if (_service.transfers.isNotEmpty) _transfersPanel(),
           ],
         );
       },
+    );
+  }
+
+  Widget _identityPanel(QuickSendSettings settings) {
+    final scheme = Theme.of(context).colorScheme;
+    final ready = _service.serverRunning && !widget.deviceVpnActive;
+    return GlassPanel(
+      child: Row(
+        children: [
+          QuickSendAvatar(
+            preset: settings.avatarPreset,
+            colorValue: settings.avatarColorValue,
+            imagePath: settings.profileImagePath,
+            size: 58,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  settings.alias,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  ready
+                      ? _t('آماده دریافت با Quick Send', 'Ready for Quick Send')
+                      : _t('حالت فقط ارسال', 'Send-only mode'),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: ready ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          AnimatedContainer(
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 420),
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: ready ? scheme.primary : scheme.outline,
+              shape: BoxShape.circle,
+              boxShadow: ready
+                  ? [
+                      BoxShadow(
+                        color: scheme.primary.withValues(alpha: .35),
+                        blurRadius: 12,
+                      ),
+                    ]
+                  : null,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -607,67 +661,6 @@ class QuickSendPageState extends State<QuickSendPage> {
     );
   }
 
-  Widget _pendingPanel(QuickSendPendingRequest pending) {
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.markunread_mailbox_outlined),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _t(
-                    'درخواست دریافت از ${pending.sender.alias}',
-                    'Incoming request from ${pending.sender.alias}',
-                  ),
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          for (final file in pending.files)
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.insert_drive_file_outlined),
-              title: Text(file.fileName),
-              subtitle: file.isInlineMessage
-                  ? Text(
-                      file.preview,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    )
-                  : null,
-              trailing: Text(_formatBytes(file.size)),
-            ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _service.declinePending,
-                  icon: const Icon(Icons.close),
-                  label: Text(_t('رد', 'Decline')),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _service.acceptPending,
-                  icon: const Icon(Icons.download_done_outlined),
-                  label: Text(_t('دریافت', 'Accept')),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _nearbyPanel(QuickSendSettings settings) {
     final devices = _service.devices;
     final selectedDevices = devices
@@ -748,10 +741,13 @@ class QuickSendPageState extends State<QuickSendPage> {
                 ),
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
-                  child: Icon(
-                    device.deviceType == 'mobile'
-                        ? Icons.smartphone_outlined
-                        : Icons.computer_outlined,
+                  radius: 22,
+                  backgroundColor: Colors.transparent,
+                  child: QuickSendAvatar(
+                    preset: device.avatarPreset,
+                    colorValue: device.avatarColorValue,
+                    imageBase64: device.avatarImageBase64,
+                    size: 44,
                   ),
                 ),
                 title: Text(device.alias),
@@ -995,15 +991,19 @@ class QuickSendPageState extends State<QuickSendPage> {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
-              if (Platform.isAndroid)
-                IconButton(
-                  tooltip: _t(
-                    'باز کردن پوشه اصلی Localist',
-                    'Open the main Localist folder',
-                  ),
-                  onPressed: _openLocalistFolder,
-                  icon: const Icon(Icons.folder_open_outlined),
+              IconButton(
+                tooltip: _t(
+                  'باز کردن پوشه فایل‌های دریافتی',
+                  'Open received files folder',
                 ),
+                onPressed: _openReceiveFolder,
+                icon: const Icon(Icons.folder_open_outlined),
+              ),
+              TextButton.icon(
+                onPressed: _service.clearTransfers,
+                icon: const Icon(Icons.clear_all_rounded),
+                label: Text(_t('پاک کردن', 'Clear')),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -1026,12 +1026,6 @@ class QuickSendPageState extends State<QuickSendPage> {
                       onPressed: () => _shareReceivedFile(transfer),
                       icon: const Icon(Icons.ios_share_outlined),
                     ),
-                    if (!Platform.isAndroid)
-                      IconButton(
-                        tooltip: _t('باز کردن پوشه', 'Open folder'),
-                        onPressed: () => _openReceivedFolder(transfer),
-                        icon: const Icon(Icons.folder_open_outlined),
-                      ),
                     IconButton(
                       tooltip: _t('باز کردن فایل', 'Open file'),
                       onPressed: () => _openReceivedFile(transfer),
@@ -1104,6 +1098,81 @@ class QuickSendPageState extends State<QuickSendPage> {
         ],
       ),
     );
+  }
+
+  Widget _transferHistoryPanel() {
+    final records = _service.receivedHistory;
+    final completed = records
+        .where((item) => item.state == QuickSendTransferState.completed)
+        .length;
+    final failed = records
+        .where((item) => item.state == QuickSendTransferState.failed)
+        .length;
+    final scheme = Theme.of(context).colorScheme;
+    return GlassPanel(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: scheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              Icons.history_rounded,
+              color: scheme.onSecondaryContainer,
+            ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _t('تاریخچه انتقال', 'Transfer history'),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  records.isEmpty
+                      ? _t(
+                          'گزارش فایل‌های دریافتی اینجا نمایش داده می‌شود.',
+                          'Received file reports will appear here.',
+                        )
+                      : _t(
+                          '$completed موفق${failed > 0 ? ' • $failed ناموفق' : ''}',
+                          '$completed completed${failed > 0 ? ' • $failed failed' : ''}',
+                        ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          IconButton.filledTonal(
+            tooltip: _t('نمایش تاریخچه', 'Open history'),
+            onPressed: _openTransferHistory,
+            icon: const Icon(Icons.arrow_forward_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openTransferHistory() async {
+    final transfer = await Navigator.of(context).push<QuickSendTransfer>(
+      MaterialPageRoute<QuickSendTransfer>(
+        builder: (_) => TransferHistoryPage(service: _service),
+      ),
+    );
+    if (transfer != null && mounted) {
+      await _shareReceivedFile(transfer);
+    }
   }
 
   String _transferSizeText(QuickSendTransfer transfer) {
@@ -1237,40 +1306,28 @@ class QuickSendPageState extends State<QuickSendPage> {
     );
   }
 
-  Future<void> _openReceivedFolder(QuickSendTransfer transfer) async {
+  Future<void> _openReceiveFolder() async {
     var opened = false;
     try {
-      opened = await _bridge.openContainingFolder(transfer.path);
-    } catch (_) {
-      opened = false;
-    }
-    if (!opened && mounted) {
-      if (context.l10n.isPersian) {
-        _notice(
-          '\u067e\u0648\u0634\u0647 \u0641\u0627\u06cc\u0644 \u0628\u0627\u0632 \u0646\u0634\u062f.',
-          warning: true,
-        );
-        return;
+      for (final transfer in _service.receivedHistory) {
+        if (transfer.path.isNotEmpty && File(transfer.path).existsSync()) {
+          opened = await _bridge.openContainingFolder(transfer.path);
+          if (opened) {
+            break;
+          }
+        }
       }
-      _notice(
-        _t('پوشه فایل باز نشد.', 'Could not open the file folder.'),
-        warning: true,
-      );
-    }
-  }
-
-  Future<void> _openLocalistFolder() async {
-    var opened = false;
-    try {
-      opened = await _bridge.openLocalistFolder();
+      if (!opened && Platform.isAndroid) {
+        opened = await _bridge.openLocalistFolder();
+      }
     } catch (_) {
       opened = false;
     }
     if (!opened && mounted) {
       _notice(
         _t(
-          'پوشه اصلی Localist باز نشد.',
-          'Could not open the main Localist folder.',
+          'پوشه فایل‌های دریافتی باز نشد.',
+          'Could not open the received files folder.',
         ),
         warning: true,
       );
@@ -1305,12 +1362,12 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _pickFilesOfType(FileType type) async {
-    final result = await FilePicker.pickFiles(allowMultiple: true, type: type);
-    if (result == null || !mounted) {
+    final files = await FilePicker.pickFiles(type: type);
+    if (files.isEmpty || !mounted) {
       return;
     }
     setState(() {
-      for (final file in result.files) {
+      for (final file in files) {
         final path = file.path;
         if (path != null && !_selectedPaths.contains(path)) {
           _selectedPaths.add(path);
@@ -2104,6 +2161,9 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
   bool _overwrite = false;
   bool _requirePin = false;
   bool _destinationCustomized = false;
+  String _avatarPreset = 'person';
+  int _avatarColorValue = 0xFF006A6A;
+  String _profileImagePath = '';
   bool _loaded = false;
   bool _saving = false;
   bool _showValidation = false;
@@ -2173,27 +2233,33 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _t('دستگاه و شبکه', 'Device & network'),
+                _t('هویت دستگاه', 'Device identity'),
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 14),
-              TextField(
-                controller: _alias,
-                readOnly: Platform.isAndroid,
-                decoration: InputDecoration(
-                  labelText: _t('نام دستگاه', 'Device name'),
-                  prefixIcon: const Icon(Icons.badge_outlined),
-                  errorText: _showValidation ? _aliasValidationError : null,
-                  helperText: Platform.isAndroid
-                      ? _t(
-                          'مدل واقعی گوشی به‌صورت خودکار استفاده می‌شود.',
-                          'The phone model is used automatically.',
-                        )
-                      : null,
-                ),
-                onChanged: (_) => _scheduleAutoSave(),
+              QuickSendProfileEditor(
+                nameController: _alias,
+                avatarPreset: _avatarPreset,
+                avatarColorValue: _avatarColorValue,
+                profileImagePath: _profileImagePath,
+                nameError: _showValidation ? _aliasValidationError : null,
+                showHeading: false,
+                onNameChanged: (_) => _scheduleAutoSave(),
+                onPresetChanged: (value) =>
+                    _updateDraft(() => _avatarPreset = value),
+                onColorChanged: (value) =>
+                    _updateDraft(() => _avatarColorValue = value),
+                onImageChanged: (value) =>
+                    _updateDraft(() => _profileImagePath = value),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 14),
+              Text(
+                _t('شبکه Quick Send', 'Quick Send network'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 14),
               TextField(
                 controller: _port,
                 keyboardType: TextInputType.number,
@@ -2424,6 +2490,9 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
     _quickSaveFavorites = value.quickSaveFavorites;
     _overwrite = value.overwrite;
     _requirePin = value.requirePin;
+    _avatarPreset = value.avatarPreset;
+    _avatarColorValue = value.avatarColorValue;
+    _profileImagePath = value.profileImagePath;
   }
 
   void _updateDraft(VoidCallback update) {
@@ -2469,6 +2538,10 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
       overwrite: _overwrite,
       requirePin: _requirePin,
       pin: _pin.text.trim(),
+      profileSetupCompleted: true,
+      avatarPreset: _avatarPreset,
+      avatarColorValue: _avatarColorValue,
+      profileImagePath: _profileImagePath,
     );
   }
 
@@ -2481,9 +2554,18 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
   }
 
   String? get _aliasValidationError {
-    return _alias.text.trim().isEmpty
-        ? _t('نام دستگاه را وارد کنید.', 'Enter a device name.')
-        : null;
+    return switch (QuickSendSettings.validateAlias(_alias.text)) {
+      'empty' => _t('نام دستگاه را وارد کنید.', 'Enter a device name.'),
+      'tooLong' => _t(
+        'نام دستگاه بیش از حد طولانی است.',
+        'The device name is too long.',
+      ),
+      'controlCharacter' => _t(
+        'نام دستگاه کاراکتر نامعتبر دارد.',
+        'The device name contains unsupported characters.',
+      ),
+      _ => null,
+    };
   }
 
   String? get _portValidationError {
@@ -2537,7 +2619,11 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
         first.quickSaveFavorites == second.quickSaveFavorites &&
         first.overwrite == second.overwrite &&
         first.requirePin == second.requirePin &&
-        first.pin == second.pin;
+        first.pin == second.pin &&
+        first.profileSetupCompleted == second.profileSetupCompleted &&
+        first.avatarPreset == second.avatarPreset &&
+        first.avatarColorValue == second.avatarColorValue &&
+        first.profileImagePath == second.profileImagePath;
   }
 
   Future<void> _persistDraft() {

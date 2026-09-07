@@ -2,6 +2,14 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven("https://maven.aliyun.com/repository/google") {
+            name = "AliyunGoogleMirror"
+            content {
+                includeGroupByRegex("com\\.android(\\..*)?")
+                includeGroupByRegex("androidx(\\..*)?")
+                includeGroupByRegex("com\\.google\\.android(\\..*)?")
+            }
+        }
     }
 }
 

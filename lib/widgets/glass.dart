@@ -43,7 +43,9 @@ class GlassBackground extends StatelessWidget {
       child: simple
           ? ColoredBox(color: scheme.surface, child: child)
           : AnimatedContainer(
-              duration: const Duration(milliseconds: 460),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 520),
               curve: Curves.easeInOutCubic,
               decoration: BoxDecoration(
                 color: scheme.surface,
@@ -87,7 +89,7 @@ class GlassPanel extends StatelessWidget {
           decoration: BoxDecoration(
             color: scheme.surfaceContainer,
             border: Border.all(color: scheme.outlineVariant),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: Material(
             type: MaterialType.transparency,
@@ -101,11 +103,13 @@ class GlassPanel extends StatelessWidget {
     return Padding(
       padding: margin ?? EdgeInsets.zero,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(24),
         child: BackdropFilter.grouped(
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 360),
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 460),
             curve: Curves.easeInOutCubic,
             decoration: BoxDecoration(
               color: fill.withValues(
@@ -114,7 +118,7 @@ class GlassPanel extends StatelessWidget {
               border: Border.all(
                 color: scheme.outlineVariant.withValues(alpha: .35),
               ),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(24),
             ),
             child: Material(
               type: MaterialType.transparency,
@@ -540,7 +544,7 @@ class MetricTile extends StatelessWidget {
       color: simple
           ? scheme.surfaceContainerHighest
           : scheme.surface.withValues(alpha: .34),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(18),
       border: Border.all(
         color: simple
             ? scheme.outlineVariant

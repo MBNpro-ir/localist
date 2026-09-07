@@ -34,10 +34,14 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   bool _complete = !Platform.isAndroid;
   bool _notificationGranted = false;
   bool _batteryGranted = false;
+  bool _localNetworkRequired = false;
+  bool _localNetworkGranted = true;
   bool _busy = false;
 
   bool get _allGranted {
-    return _notificationGranted && _batteryGranted;
+    return _notificationGranted &&
+        _batteryGranted &&
+        (!_localNetworkRequired || _localNetworkGranted);
   }
 
   @override
@@ -66,22 +70,31 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       return;
     }
     final prefs = await SharedPreferences.getInstance();
-    _complete = prefs.getBool(_permissionsCompleteKey) ?? false;
+    final previouslyCompleted = prefs.getBool(_permissionsCompleteKey) ?? false;
     await _refreshStatuses();
     if (mounted) {
-      setState(() => _loading = false);
+      setState(() {
+        _complete = previouslyCompleted && _allGranted;
+        _loading = false;
+      });
     }
   }
 
   Future<void> _refreshStatuses() async {
     final notification = await Permission.notification.status;
     final battery = await _bridge.isIgnoringBatteryOptimizations();
+    final sdk = await _bridge.getAndroidSdkInt() ?? 0;
+    final localNetworkRequired = sdk >= 37;
+    final localNetwork =
+        !localNetworkRequired || await _bridge.hasLocalNetworkPermission();
     if (!mounted) {
       return;
     }
     setState(() {
       _notificationGranted = notification.isGranted;
       _batteryGranted = battery;
+      _localNetworkRequired = localNetworkRequired;
+      _localNetworkGranted = localNetwork;
     });
   }
 
@@ -98,7 +111,12 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
     final scheme = Theme.of(context).colorScheme;
     final frame = OnboardingFrame(
       simple: widget.simple,
-      steps: [l10n.languageStep, l10n.permissionsStep, l10n.mainStep],
+      steps: [
+        l10n.languageStep,
+        l10n.permissionsStep,
+        l10n.isPersian ? 'پروفایل' : 'Profile',
+        l10n.mainStep,
+      ],
       currentStep: 1,
       icon: Icons.verified_user_outlined,
       title: l10n.requiredAndroidAccess,
@@ -112,6 +130,20 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
           subtitle: l10n.notificationsSubtitle,
           onPressed: _busy ? null : _requestNotification,
         ),
+        if (_localNetworkRequired) ...[
+          const SizedBox(height: 10),
+          _PermissionTile(
+            granted: _localNetworkGranted,
+            icon: Icons.lan_outlined,
+            title: context.l10n.isPersian
+                ? 'دسترسی شبکه محلی'
+                : 'Local network access',
+            subtitle: context.l10n.isPersian
+                ? 'برای پیدا کردن دستگاه‌ها و دریافت مستقیم فایل در Android 17 لازم است.'
+                : 'Required on Android 17 to discover devices and receive files directly.',
+            onPressed: _busy ? null : _requestLocalNetwork,
+          ),
+        ],
         const SizedBox(height: 10),
         _PermissionTile(
           granted: _batteryGranted,
@@ -166,6 +198,19 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       title: l10n.backgroundTransferRequired,
       body: l10n.backgroundTransferRequiredBody,
       request: () => _bridge.requestIgnoreBatteryOptimizations(),
+      refresh: _refreshStatuses,
+    );
+  }
+
+  Future<void> _requestLocalNetwork() async {
+    await _runRequest(
+      title: context.l10n.isPersian
+          ? 'دسترسی شبکه محلی لازم است'
+          : 'Local network access is required',
+      body: context.l10n.isPersian
+          ? 'بدون این دسترسی Android 17 اتصال‌های Quick Send در شبکه را مسدود می‌کند.'
+          : 'Without this permission, Android 17 blocks Quick Send connections on the local network.',
+      request: _bridge.requestLocalNetworkPermission,
       refresh: _refreshStatuses,
     );
   }
@@ -250,7 +295,7 @@ class _PermissionTile extends StatelessWidget {
       elevation: 0,
       color: scheme.surfaceContainerHighest.withValues(alpha: .42),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(20),
         side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .38)),
       ),
       child: Padding(

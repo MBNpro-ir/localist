@@ -132,7 +132,9 @@ class OnboardingStepIndicator extends StatelessWidget {
               ),
             ),
           AnimatedContainer(
-            duration: const Duration(milliseconds: 240),
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 420),
             curve: Curves.easeOutCubic,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
@@ -326,7 +328,7 @@ class _OnboardingEntrance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (simple) {
+    if (MediaQuery.disableAnimationsOf(context)) {
       return child;
     }
     return TweenAnimationBuilder<double>(

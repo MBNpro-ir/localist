@@ -5,6 +5,11 @@ import 'package:localist/widgets/localist_bottom_navigation.dart';
 void main() {
   final items = [
     const LocalistBottomNavigationItem(
+      label: 'Quick Send',
+      icon: Icons.send_outlined,
+      selectedIcon: Icons.send,
+    ),
+    const LocalistBottomNavigationItem(
       label: 'Sharing',
       icon: Icons.share_outlined,
       selectedIcon: Icons.share,
@@ -13,16 +18,6 @@ void main() {
       label: 'Receiving',
       icon: Icons.download_outlined,
       selectedIcon: Icons.download,
-    ),
-    const LocalistBottomNavigationItem(
-      label: 'Quick Send',
-      icon: Icons.send_outlined,
-      selectedIcon: Icons.send,
-    ),
-    const LocalistBottomNavigationItem(
-      label: 'Settings',
-      icon: Icons.tune_outlined,
-      selectedIcon: Icons.tune,
     ),
   ];
 
@@ -52,19 +47,20 @@ void main() {
     expect(find.text('Sharing'), findsOneWidget);
     expect(find.text('Receiving'), findsOneWidget);
     expect(find.text('Quick Send'), findsOneWidget);
-    expect(find.text('Settings'), findsOneWidget);
     expect(find.byTooltip('Stats'), findsOneWidget);
   });
 
-  testWidgets('uses icon-only inactive destinations in compact mode', (
+  testWidgets('keeps labels visible and only shows the selected icon', (
     tester,
   ) async {
     await tester.pumpWidget(harness(width: 420, selectedIndex: 1));
 
+    expect(find.text('Sharing'), findsOneWidget);
     expect(find.text('Receiving'), findsOneWidget);
-    expect(find.text('Sharing'), findsNothing);
-    expect(find.text('Quick Send'), findsNothing);
-    expect(find.text('Settings'), findsNothing);
+    expect(find.text('Quick Send'), findsOneWidget);
+    expect(find.byIcon(Icons.share), findsOneWidget);
+    expect(find.byIcon(Icons.download_outlined), findsNothing);
+    expect(find.byIcon(Icons.send_outlined), findsNothing);
   });
 
   testWidgets('gradient overlay does not block page gestures', (tester) async {

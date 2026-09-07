@@ -31,6 +31,9 @@ class QuickSendDevice {
     required this.https,
     required this.download,
     required this.lastSeen,
+    this.avatarPreset = 'person',
+    this.avatarColorValue = 0xFF006A6A,
+    this.avatarImageBase64 = '',
   });
 
   final String ip;
@@ -43,6 +46,9 @@ class QuickSendDevice {
   final bool https;
   final bool download;
   final DateTime lastSeen;
+  final String avatarPreset;
+  final int avatarColorValue;
+  final String avatarImageBase64;
 
   String get id => fingerprint.isEmpty ? '$ip:$port' : fingerprint;
   String get endpoint => '${https ? 'https' : 'http'}://$ip:$port';
@@ -59,6 +65,9 @@ class QuickSendDevice {
       https: https,
       download: download,
       lastSeen: lastSeen ?? this.lastSeen,
+      avatarPreset: avatarPreset,
+      avatarColorValue: avatarColorValue,
+      avatarImageBase64: avatarImageBase64,
     );
   }
 
@@ -80,6 +89,9 @@ class QuickSendDevice {
       https: protocol.isEmpty ? fallbackHttps : protocol == 'https',
       download: map['download'] == true,
       lastSeen: DateTime.now(),
+      avatarPreset: (map['avatarPreset'] as String? ?? 'person').trim(),
+      avatarColorValue: _wireInt(map['avatarColor'], fallback: 0xFF006A6A),
+      avatarImageBase64: _wireAvatarImage(map['avatarImage']),
     );
   }
 }
@@ -143,6 +155,20 @@ class QuickSendPendingRequest {
   int get totalBytes => files.fold(0, (sum, file) => sum + file.size);
 }
 
+class QuickSendAutoAcceptedRequest {
+  const QuickSendAutoAcceptedRequest({
+    required this.id,
+    required this.sender,
+    required this.files,
+    required this.createdAt,
+  });
+
+  final String id;
+  final QuickSendDevice sender;
+  final List<QuickSendOfferedFile> files;
+  final DateTime createdAt;
+}
+
 enum QuickSendDirection { sending, receiving }
 
 enum QuickSendTransferState { waiting, transferring, completed, failed }
@@ -197,6 +223,44 @@ class QuickSendTransfer {
       updatedAt: DateTime.now(),
     );
   }
+
+  Map<String, Object?> toJson() {
+    return {
+      'id': id,
+      'deviceName': deviceName,
+      'fileName': fileName,
+      'path': path,
+      'totalBytes': totalBytes,
+      'transferredBytes': transferredBytes,
+      'direction': direction.name,
+      'state': state.name,
+      'message': message,
+      'updatedAt': updatedAt.toIso8601String(),
+    };
+  }
+
+  factory QuickSendTransfer.fromJson(Map<String, dynamic> map) {
+    return QuickSendTransfer(
+      id: (map['id'] as String? ?? '').trim(),
+      deviceName: (map['deviceName'] as String? ?? '').trim(),
+      fileName: (map['fileName'] as String? ?? '').trim(),
+      path: (map['path'] as String? ?? '').trim(),
+      totalBytes: _wireInt(map['totalBytes']),
+      transferredBytes: _wireInt(map['transferredBytes']),
+      direction: QuickSendDirection.values.firstWhere(
+        (value) => value.name == map['direction'],
+        orElse: () => QuickSendDirection.receiving,
+      ),
+      state: QuickSendTransferState.values.firstWhere(
+        (value) => value.name == map['state'],
+        orElse: () => QuickSendTransferState.failed,
+      ),
+      message: (map['message'] as String? ?? '').trim(),
+      updatedAt:
+          DateTime.tryParse(map['updatedAt'] as String? ?? '') ??
+          DateTime.now(),
+    );
+  }
 }
 
 class QuickSendPinRequiredException implements Exception {
@@ -214,14 +278,17 @@ class QuickSendService extends ChangeNotifier {
   final LogService _logs = LogService.instance;
   final Map<String, QuickSendDevice> _devices = {};
   final List<QuickSendTransfer> _transfers = [];
+  final List<QuickSendTransfer> _receivedHistory = [];
   final List<RawDatagramSocket> _discoverySockets = [];
   HttpServer? _server;
   Timer? _announceTimer;
   Timer? _pruneTimer;
   QuickSendSettings? _settings;
   QuickSendPendingRequest? _pendingRequest;
+  QuickSendAutoAcceptedRequest? _lastAutoAcceptedRequest;
   _QuickSendSession? _session;
   Future<void>? _initializing;
+  Future<void> _historyWrite = Future<void>.value();
   bool _restarting = false;
   bool _scanning = false;
   bool _transferBlocked = false;
@@ -229,6 +296,7 @@ class QuickSendService extends ChangeNotifier {
   _QuickSendSecurity? _security;
   String _deviceAlias = 'Localist device';
   String _deviceModel = '';
+  String _avatarImageBase64 = '';
   bool _storageAccessGranted = true;
   List<String> _localAddresses = const [];
 
@@ -242,6 +310,8 @@ class QuickSendService extends ChangeNotifier {
   List<String> get localAddresses => List.unmodifiable(_localAddresses);
   QuickSendSettings? get settings => _settings;
   QuickSendPendingRequest? get pendingRequest => _pendingRequest;
+  QuickSendAutoAcceptedRequest? get lastAutoAcceptedRequest =>
+      _lastAutoAcceptedRequest;
   List<QuickSendDevice> get devices {
     return _devices.values.toList(growable: false)
       ..sort((a, b) => a.alias.toLowerCase().compareTo(b.alias.toLowerCase()));
@@ -249,41 +319,58 @@ class QuickSendService extends ChangeNotifier {
 
   List<QuickSendTransfer> get transfers => List.unmodifiable(_transfers);
 
+  List<QuickSendTransfer> get receivedHistory {
+    final records = <String, QuickSendTransfer>{
+      for (final transfer in _receivedHistory) transfer.id: transfer,
+    };
+    for (final transfer in _transfers) {
+      if (transfer.direction == QuickSendDirection.receiving &&
+          transfer.path.isNotEmpty) {
+        records[transfer.id] = transfer;
+      }
+    }
+    final result = records.values.toList(growable: false)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return List.unmodifiable(result);
+  }
+
   Future<void> initialize() {
     return _initializing ??= _initialize();
   }
 
   Future<void> _initialize() async {
     await _loadDeviceIdentity();
+    await _loadReceivedHistory();
     final legacyDefaultDestination =
         await QuickSendSettings.hasDestinationCustomizationMarker()
         ? ''
         : await _legacyDefaultDestinationDirectory();
     _settings = await QuickSendSettings.load(
       defaultAlias: _deviceAlias,
-      forceDefaultAlias: Platform.isAndroid,
       legacyDefaultDestination: legacyDefaultDestination,
     );
     _security = await _loadSecurity();
     if (_settings!.destinationDirectory.isEmpty ||
         !_settings!.destinationCustomized) {
       _settings = _settings!.copyWith(
-        alias: Platform.isAndroid ? _deviceAlias : _settings!.alias,
         destinationDirectory: await _defaultDestinationDirectory(),
         destinationCustomized: false,
       );
       await _settings!.save();
     }
+    _avatarImageBase64 = await _readProfileAvatar(_settings!.profileImagePath);
     await ensureReceiveStorageAccess(request: false);
     await _startNetwork();
     notifyListeners();
   }
 
   Future<void> updateSettings(QuickSendSettings value) async {
+    if (!QuickSendSettings.isValidAlias(value.alias)) {
+      throw const FormatException('Invalid Quick Send device name.');
+    }
     final old = _settings;
-    final normalized = Platform.isAndroid
-        ? value.copyWith(alias: _deviceAlias)
-        : value;
+    final normalized = value.copyWith(alias: value.alias.trim());
+    _avatarImageBase64 = await _readProfileAvatar(normalized.profileImagePath);
     _settings = normalized;
     await normalized.save();
     notifyListeners();
@@ -294,8 +381,15 @@ class QuickSendService extends ChangeNotifier {
         old.receiveEnabled != normalized.receiveEnabled ||
         old.encryption != normalized.encryption ||
         old.alias != normalized.alias;
+    final profileChanged =
+        old == null ||
+        old.avatarPreset != normalized.avatarPreset ||
+        old.avatarColorValue != normalized.avatarColorValue ||
+        old.profileImagePath != normalized.profileImagePath;
     if (networkChanged) {
       await restart();
+    } else if (profileChanged && !_transferBlocked) {
+      unawaited(_sendDiscoveryPacket(announce: true));
     }
   }
 
@@ -434,6 +528,31 @@ class QuickSendService extends ChangeNotifier {
     pending.decision.complete(null);
   }
 
+  void clearTransfers() {
+    final before = _transfers.length;
+    _transfers.removeWhere(
+      (transfer) =>
+          transfer.state == QuickSendTransferState.completed ||
+          transfer.state == QuickSendTransferState.failed,
+    );
+    if (_transfers.length != before) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> clearReceivedHistory() async {
+    _receivedHistory.clear();
+    _transfers.removeWhere(
+      (transfer) =>
+          transfer.direction == QuickSendDirection.receiving &&
+          transfer.path.isNotEmpty &&
+          (transfer.state == QuickSendTransferState.completed ||
+              transfer.state == QuickSendTransferState.failed),
+    );
+    notifyListeners();
+    await _queueReceivedHistorySave();
+  }
+
   Future<QuickSendDevice> addManualDevice({
     required String host,
     required int port,
@@ -495,7 +614,7 @@ class QuickSendService extends ChangeNotifier {
       );
       final request = await client.postUrl(uri);
       request.headers.contentType = ContentType.json;
-      request.add(utf8.encode(jsonEncode(_registerInfo())));
+      request.add(utf8.encode(jsonEncode(_registerInfo(includeAvatar: true))));
       final response = await request.close().timeout(timeout);
       final certificate = response.certificate;
       if (certificate != null) {
@@ -534,6 +653,9 @@ class QuickSendService extends ChangeNotifier {
           https: true,
           download: device.download,
           lastSeen: device.lastSeen,
+          avatarPreset: device.avatarPreset,
+          avatarColorValue: device.avatarColorValue,
+          avatarImageBase64: device.avatarImageBase64,
         );
       }
       if (device.fingerprint == _ownFingerprint) {
@@ -626,7 +748,7 @@ class QuickSendService extends ChangeNotifier {
           query,
         ),
         {
-          'info': _registerInfo(),
+          'info': _registerInfo(includeAvatar: true),
           'files': {for (final file in files) file.id: file.toWire()},
         },
       );
@@ -750,6 +872,13 @@ class QuickSendService extends ChangeNotifier {
       return;
     }
     _lastError = '';
+    if (Platform.isAndroid &&
+        !await NativeBridgeService.instance.hasLocalNetworkPermission()) {
+      _lastError =
+          'Local network access is required before Quick Send can start.';
+      await NativeBridgeService.instance.setQuickSendBackgroundService(false);
+      return;
+    }
     if (current.receiveEnabled) {
       try {
         if (current.encryption) {
@@ -778,6 +907,10 @@ class QuickSendService extends ChangeNotifier {
         _logs.warning('Quick Send server failed: $error');
       }
     }
+    await NativeBridgeService.instance.setQuickSendBackgroundService(
+      _server != null && current.receiveEnabled,
+      deviceName: current.alias,
+    );
     try {
       await NativeBridgeService.instance.setQuickSendMulticastLock(true);
       final routes = await _networkRoutes();
@@ -848,6 +981,7 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> _stopNetwork() async {
+    await NativeBridgeService.instance.setQuickSendBackgroundService(false);
     _announceTimer?.cancel();
     _announceTimer = null;
     _pruneTimer?.cancel();
@@ -1221,6 +1355,13 @@ class QuickSendService extends ChangeNotifier {
                 current.isFavorite(sender.fingerprint)));
     if (autoAccept) {
       accepted = files.map((file) => file.id).toSet();
+      _lastAutoAcceptedRequest = QuickSendAutoAcceptedRequest(
+        id: _randomToken(),
+        sender: sender,
+        files: List.unmodifiable(files),
+        createdAt: DateTime.now(),
+      );
+      notifyListeners();
     } else {
       final pending = QuickSendPendingRequest(
         id: _randomToken(),
@@ -1514,7 +1655,27 @@ class QuickSendService extends ChangeNotifier {
     }
   }
 
-  Map<String, Object?> _registerInfo() {
+  Future<String> _readProfileAvatar(String path) async {
+    if (path.trim().isEmpty) {
+      return '';
+    }
+    try {
+      final file = File(path);
+      if (!await file.exists()) {
+        return '';
+      }
+      final length = await file.length();
+      if (length <= 0 || length > 24 * 1024) {
+        return '';
+      }
+      return base64Encode(await file.readAsBytes());
+    } catch (error) {
+      _logs.debug('Quick Send profile image could not be advertised: $error');
+      return '';
+    }
+  }
+
+  Map<String, Object?> _registerInfo({bool includeAvatar = false}) {
     final current = _settings!;
     return {
       'alias': current.alias,
@@ -1525,11 +1686,15 @@ class QuickSendService extends ChangeNotifier {
       'port': current.port,
       'protocol': current.encryption ? 'https' : 'http',
       'download': false,
+      'avatarPreset': current.avatarPreset,
+      'avatarColor': current.avatarColorValue,
+      if (includeAvatar && _avatarImageBase64.isNotEmpty)
+        'avatarImage': _avatarImageBase64,
     };
   }
 
   Map<String, Object?> _infoResponse() {
-    final info = _registerInfo();
+    final info = _registerInfo(includeAvatar: true);
     info.remove('port');
     info.remove('protocol');
     return info;
@@ -1762,6 +1927,7 @@ class QuickSendService extends ChangeNotifier {
     if (_transfers.length > 40) {
       _transfers.removeRange(40, _transfers.length);
     }
+    _recordReceivedHistory(transfer);
     notifyListeners();
   }
 
@@ -1784,12 +1950,94 @@ class QuickSendService extends ChangeNotifier {
     if (index < 0) {
       return;
     }
-    _transfers[index] = _transfers[index].copyWith(
+    final updated = _transfers[index].copyWith(
       transferredBytes: transferredBytes,
       state: state,
       message: message,
     );
+    _transfers[index] = updated;
+    _recordReceivedHistory(updated);
     notifyListeners();
+  }
+
+  void _recordReceivedHistory(QuickSendTransfer transfer) {
+    if (transfer.direction != QuickSendDirection.receiving ||
+        transfer.path.isEmpty ||
+        (transfer.state != QuickSendTransferState.completed &&
+            transfer.state != QuickSendTransferState.failed)) {
+      return;
+    }
+    final index = _receivedHistory.indexWhere((item) => item.id == transfer.id);
+    if (index >= 0) {
+      _receivedHistory[index] = transfer;
+    } else {
+      _receivedHistory.add(transfer);
+    }
+    _receivedHistory.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    if (_receivedHistory.length > 250) {
+      _receivedHistory.removeRange(250, _receivedHistory.length);
+    }
+    unawaited(_queueReceivedHistorySave());
+  }
+
+  Future<File> _receivedHistoryFile() async {
+    final directory = await getApplicationSupportDirectory();
+    return File(p.join(directory.path, 'quick-send-transfer-history.json'));
+  }
+
+  Future<void> _loadReceivedHistory() async {
+    try {
+      final file = await _receivedHistoryFile();
+      if (!await file.exists()) {
+        return;
+      }
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! List) {
+        throw const FormatException('Transfer history root must be a list.');
+      }
+      final records = <QuickSendTransfer>[];
+      for (final item in decoded) {
+        if (item is! Map) {
+          continue;
+        }
+        final transfer = QuickSendTransfer.fromJson(
+          Map<String, dynamic>.from(item),
+        );
+        if (transfer.id.isEmpty ||
+            transfer.fileName.isEmpty ||
+            transfer.path.isEmpty ||
+            transfer.direction != QuickSendDirection.receiving ||
+            (transfer.state != QuickSendTransferState.completed &&
+                transfer.state != QuickSendTransferState.failed)) {
+          continue;
+        }
+        records.add(transfer);
+      }
+      records.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      _receivedHistory
+        ..clear()
+        ..addAll(records.take(250));
+    } catch (error) {
+      _logs.warning('Could not load Quick Send transfer history: $error');
+    }
+  }
+
+  Future<void> _queueReceivedHistorySave() {
+    _historyWrite = _historyWrite.then((_) async {
+      try {
+        final file = await _receivedHistoryFile();
+        await file.parent.create(recursive: true);
+        await file.writeAsString(
+          jsonEncode(
+            _receivedHistory.map((transfer) => transfer.toJson()).toList(),
+          ),
+          flush: true,
+        );
+      } catch (error) {
+        _logs.warning('Could not save Quick Send transfer history: $error');
+      }
+    });
+    return _historyWrite;
   }
 
   void _handleNetworkError(Object error) {
@@ -2013,6 +2261,18 @@ int _wireInt(Object? value, {int fallback = 0}) {
     String text => int.tryParse(text) ?? fallback,
     _ => fallback,
   };
+}
+
+String _wireAvatarImage(Object? value) {
+  if (value is! String || value.isEmpty || value.length > 32 * 1024) {
+    return '';
+  }
+  try {
+    base64Decode(value);
+    return value;
+  } catch (_) {
+    return '';
+  }
 }
 
 String _randomToken() {

@@ -92,6 +92,34 @@ class NativeBridgeService {
     return _invoke<int>('getAndroidSdkInt');
   }
 
+  Future<bool> hasLocalNetworkPermission() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    return await _invoke<bool>('hasLocalNetworkPermission') ?? false;
+  }
+
+  Future<bool> requestLocalNetworkPermission() async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    return await _invoke<bool>('requestLocalNetworkPermission') ?? false;
+  }
+
+  Future<bool> setQuickSendBackgroundService(
+    bool enabled, {
+    String deviceName = 'Localist device',
+  }) async {
+    if (!Platform.isAndroid) {
+      return true;
+    }
+    return await _invoke<bool>('setQuickSendBackgroundService', {
+          'enabled': enabled,
+          'deviceName': deviceName,
+        }) ??
+        false;
+  }
+
   Future<List<String>> getAndroidSupportedAbis() async {
     if (!Platform.isAndroid) {
       return const [];
