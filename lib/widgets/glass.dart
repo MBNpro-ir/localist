@@ -285,17 +285,6 @@ class _WindowsGlassAppBarState extends State<_WindowsGlassAppBar>
             color: scheme.outlineVariant.withValues(alpha: .28),
           ),
         ),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            scheme.surface,
-            Color.alphaBlend(
-              scheme.primary.withValues(alpha: .055),
-              scheme.surface,
-            ),
-          ],
-        ),
       ),
       child: SizedBox(
         height: _WindowsGlassAppBar.height,
@@ -318,6 +307,7 @@ class _WindowsGlassAppBarState extends State<_WindowsGlassAppBar>
                     child: DefaultTextStyle.merge(
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
+                        color: scheme.onSurface,
                       ),
                       child: widget.title,
                     ),

@@ -6,9 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/native_bridge_service.dart';
+import '../services/rustdesk_debug_service.dart';
 import '../widgets/onboarding_flow.dart';
 
-const _permissionsCompleteKey = 'localist.android.permissions.v1.complete';
+const _permissionsCompleteKey = 'localist.permissions.v2.complete';
 
 class AndroidPermissionGate extends StatefulWidget {
   const AndroidPermissionGate({
@@ -31,15 +32,28 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   final _bridge = NativeBridgeService.instance;
 
   bool _loading = true;
-  bool _complete = !Platform.isAndroid;
+  bool _complete = !Platform.isAndroid && !Platform.isWindows;
   bool _notificationGranted = false;
   bool _batteryGranted = false;
   bool _localNetworkRequired = false;
   bool _localNetworkGranted = true;
   bool _busy = false;
+  int _sdk = 0;
+  bool _storageGranted = false;
+  bool _installerGranted = false;
+  bool _rootGranted = false;
+  final Map<Permission, bool> _runtime = {};
+  Map<String, bool> _features = {};
+  Permission get _storage =>
+      _sdk >= 30 ? Permission.manageExternalStorage : Permission.storage;
+  Permission get _wifi =>
+      _sdk >= 33 ? Permission.nearbyWifiDevices : Permission.locationWhenInUse;
+  String _t(String fa, String en) => context.l10n.isPersian ? fa : en;
 
   bool get _allGranted {
+    if (Platform.isWindows) return true;
     return _notificationGranted &&
+        _storageGranted &&
         _batteryGranted &&
         (!_localNetworkRequired || _localNetworkGranted);
   }
@@ -59,13 +73,14 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && Platform.isAndroid) {
+    if (state == AppLifecycleState.resumed &&
+        (Platform.isAndroid || Platform.isWindows)) {
       _refreshStatuses();
     }
   }
 
   Future<void> _load() async {
-    if (!Platform.isAndroid) {
+    if (!Platform.isAndroid && !Platform.isWindows) {
       setState(() => _loading = false);
       return;
     }
@@ -81,9 +96,27 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   }
 
   Future<void> _refreshStatuses() async {
+    if (Platform.isWindows) {
+      final features = await _bridge.getFeatureAccessStatus();
+      if (mounted) setState(() => _features = features);
+      return;
+    }
     final notification = await Permission.notification.status;
     final battery = await _bridge.isIgnoringBatteryOptimizations();
     final sdk = await _bridge.getAndroidSdkInt() ?? 0;
+    _sdk = sdk;
+    final storage = await _storage.status;
+    final runtime = <Permission, bool>{};
+    for (final permission in [
+      Permission.camera,
+      Permission.microphone,
+      _wifi,
+      Permission.systemAlertWindow,
+    ]) {
+      runtime[permission] = (await permission.status).isGranted;
+    }
+    final installer = await _bridge.canInstallAndroidPackages();
+    final features = await _bridge.getFeatureAccessStatus();
     final localNetworkRequired = sdk >= 37;
     final localNetwork =
         !localNetworkRequired || await _bridge.hasLocalNetworkPermission();
@@ -95,12 +128,16 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       _batteryGranted = battery;
       _localNetworkRequired = localNetworkRequired;
       _localNetworkGranted = localNetwork;
+      _storageGranted = storage.isGranted;
+      _runtime.addAll(runtime);
+      _installerGranted = installer;
+      _features = features;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_complete || !Platform.isAndroid) {
+    if (_complete || (!Platform.isAndroid && !Platform.isWindows)) {
       return widget.child;
     }
     if (_loading) {
@@ -119,39 +156,229 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       ],
       currentStep: 1,
       icon: Icons.verified_user_outlined,
-      title: l10n.requiredAndroidAccess,
-      subtitle: l10n.permissionsIntro,
+      title: _t('به Localist خوش آمدید', 'Welcome to Localist'),
+      subtitle: _t(
+        'دسترسی‌های برنامه را همین‌جا آماده کنید. مجوزهای قابلیت‌های اختیاری را می‌توانید بعداً نیز فعال کنید.',
+        'Prepare app access here. Permissions for optional features can also be enabled later.',
+      ),
       onBack: widget.onBackToLanguage,
       children: [
-        _PermissionTile(
-          granted: _notificationGranted,
-          icon: Icons.notifications_active_outlined,
-          title: l10n.notifications,
-          subtitle: l10n.notificationsSubtitle,
-          onPressed: _busy ? null : _requestNotification,
-        ),
-        if (_localNetworkRequired) ...[
+        if (Platform.isWindows) ...[
+          _PermissionTile(
+            granted: _features['admin'] == true,
+            icon: Icons.admin_panel_settings_outlined,
+            title: _t('دسترسی مدیر ویندوز', 'Windows administrator access'),
+            subtitle: _t(
+              'برای VPN، اشتراک مسیرهای شبکه و کنترل برنامه‌های دارای دسترسی مدیر. با زدن دکمه، ویندوز تأیید UAC می‌خواهد.',
+              'For VPN, network routing and elevated remote applications. The button opens Windows UAC confirmation.',
+            ),
+            onPressed: _busy
+                ? null
+                : () => _featureRequest(() => _bridge.ensureVpnPermission()),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _t(
+              'برای دریافت اتصال شبکه، پیام Firewall ویندوز را هنگام اولین میزبانی بررسی کنید. نصب سرویس، نمایشگر مجازی و چاپگر از راه دور در تنظیمات قابلیت مربوط انجام می‌شود.',
+              'Review the Windows Firewall prompt on first hosting. Service, virtual display and printer installation are available in their feature settings.',
+            ),
+          ),
+        ] else ...[
+          FilledButton.tonalIcon(
+            onPressed: _busy ? null : _requestRuntimePermissions,
+            icon: const Icon(Icons.checklist),
+            label: Text(
+              _t('درخواست مجوزهای معمول', 'Request runtime permissions'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _PermissionTile(
+            granted: _notificationGranted,
+            icon: Icons.notifications_active_outlined,
+            title: l10n.notifications,
+            subtitle: l10n.notificationsSubtitle,
+            onPressed: _busy ? null : _requestNotification,
+          ),
+          if (_localNetworkRequired) ...[
+            const SizedBox(height: 10),
+            _PermissionTile(
+              granted: _localNetworkGranted,
+              icon: Icons.lan_outlined,
+              title: context.l10n.isPersian
+                  ? 'دسترسی شبکه محلی'
+                  : 'Local network access',
+              subtitle: context.l10n.isPersian
+                  ? 'برای پیدا کردن دستگاه‌ها و دریافت مستقیم فایل در Android 17 لازم است.'
+                  : 'Required on Android 17 to discover devices and receive files directly.',
+              onPressed: _busy ? null : _requestLocalNetwork,
+            ),
+          ],
           const SizedBox(height: 10),
           _PermissionTile(
-            granted: _localNetworkGranted,
-            icon: Icons.lan_outlined,
-            title: context.l10n.isPersian
-                ? 'دسترسی شبکه محلی'
-                : 'Local network access',
-            subtitle: context.l10n.isPersian
-                ? 'برای پیدا کردن دستگاه‌ها و دریافت مستقیم فایل در Android 17 لازم است.'
-                : 'Required on Android 17 to discover devices and receive files directly.',
-            onPressed: _busy ? null : _requestLocalNetwork,
+            granted: _batteryGranted,
+            icon: Icons.battery_saver_outlined,
+            title: l10n.backgroundTransfer,
+            subtitle: l10n.backgroundTransferSubtitle,
+            onPressed: _busy ? null : _requestBattery,
+          ),
+          const SizedBox(height: 10),
+          _PermissionTile(
+            granted: _storageGranted,
+            icon: Icons.folder_open,
+            title: _t(
+              'فایل‌ها و پوشهٔ Downloads',
+              'Files and Downloads folder',
+            ),
+            subtitle: _t(
+              'برای ارسال فایل و ذخیرهٔ فایل‌های دریافتی در Download/Localist.',
+              'For sending files and saving received files in Download/Localist.',
+            ),
+            onPressed: _busy ? null : () => _requestPermission(_storage),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            _t('دسترسی قابلیت‌های اختیاری', 'Optional feature access'),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          for (final item in [
+            (
+              Permission.camera,
+              Icons.camera_alt_outlined,
+              _t('دوربین', 'Camera'),
+              _t(
+                'اسکن QR و اشتراک دوربین در ریموت.',
+                'QR scanning and remote camera sharing.',
+              ),
+            ),
+            (
+              Permission.microphone,
+              Icons.mic_none,
+              _t('میکروفن', 'Microphone'),
+              _t(
+                'تماس صوتی و صدای جلسهٔ ریموت.',
+                'Voice calls and remote session audio.',
+              ),
+            ),
+            (
+              _wifi,
+              Icons.wifi_tethering,
+              _t('هات‌اسپات و دستگاه‌های نزدیک', 'Hotspot and nearby devices'),
+              _t(
+                'ساخت هات‌اسپات برای دستگاه‌های وب؛ در اندروید قدیمی دسترسی مکان لازم است.',
+                'Create a hotspot for web devices; older Android versions require location access.',
+              ),
+            ),
+            (
+              Permission.systemAlertWindow,
+              Icons.picture_in_picture_alt,
+              _t('نمایش روی برنامه‌ها', 'Display over other apps'),
+              _t(
+                'کنترل شناور میزبانی و نمایش درخواست اتصال.',
+                'Floating hosting controls and incoming connection requests.',
+              ),
+            ),
+          ]) ...[
+            _PermissionTile(
+              granted: _runtime[item.$1] == true,
+              icon: item.$2,
+              title: item.$3,
+              subtitle: item.$4,
+              onPressed: _busy ? null : () => _requestPermission(item.$1),
+            ),
+            const SizedBox(height: 10),
+          ],
+          _PermissionTile(
+            granted: _installerGranted,
+            icon: Icons.system_update_alt,
+            title: _t('نصب آپدیت', 'Install app updates'),
+            subtitle: _t(
+              'اجازهٔ نصب نسخه‌های جدید دانلودشده توسط Localist.',
+              'Allow installation of new versions downloaded by Localist.',
+            ),
+            onPressed: _busy
+                ? null
+                : () => _featureRequest(
+                    _bridge.openAndroidInstallPermissionSettings,
+                  ),
+          ),
+          const SizedBox(height: 10),
+          _PermissionTile(
+            granted: _features['vpn'] == true,
+            icon: Icons.vpn_key_outlined,
+            title: _t('اتصال VPN', 'VPN connection'),
+            subtitle: _t(
+              'برای دریافت اینترنت یا اتصال از پروکسی؛ اندروید ممکن است هنگام تغییر VPN دوباره تأیید بخواهد.',
+              'For internet receiving and proxy routing; Android may ask again after changing VPN apps.',
+            ),
+            onPressed: _busy
+                ? null
+                : () => _featureRequest(_bridge.ensureVpnPermission),
+          ),
+          const SizedBox(height: 10),
+          _PermissionTile(
+            granted: _features['input'] == true,
+            icon: Icons.touch_app_outlined,
+            title: _t(
+              'کنترل از راه دور و Accessibility',
+              'Remote input and Accessibility',
+            ),
+            subtitle: _t(
+              'سرویس Localist را در صفحهٔ دسترس‌پذیری برای کنترل لمس و صفحه‌کلید فعال کنید.',
+              'Enable the Localist accessibility service to allow remote touch and keyboard input.',
+            ),
+            onPressed: _busy
+                ? null
+                : () => _featureRequest(() async {
+                    final service = RustDeskDebugService();
+                    try {
+                      await service.openInputPermission();
+                    } finally {
+                      service.dispose();
+                    }
+                    return true;
+                  }),
+          ),
+          const SizedBox(height: 10),
+          _PermissionTile(
+            granted: _features['capture'] == true,
+            icon: Icons.screen_share_outlined,
+            title: _t('اشتراک و ضبط صفحه', 'Screen sharing and capture'),
+            subtitle: _t(
+              'با تأیید سیستم میزبانی شروع می‌شود. اندروید این مجوز را برای هر جلسه می‌گیرد و قابل ذخیرهٔ دائمی نیست.',
+              'System confirmation starts hosting. Android grants capture per session; this permission cannot be saved permanently.',
+            ),
+            onPressed: _busy
+                ? null
+                : () => _featureRequest(() async {
+                    final service = RustDeskDebugService();
+                    try {
+                      await service.initialize();
+                      await service.setAndroidHosting(true);
+                    } finally {
+                      service.dispose();
+                    }
+                    return true;
+                  }),
+          ),
+          const SizedBox(height: 10),
+          _PermissionTile(
+            granted: _rootGranted,
+            icon: Icons.admin_panel_settings_outlined,
+            title: _t('Root روی دستگاه روت‌شده', 'Root on rooted devices'),
+            subtitle: _t(
+              'اختیاری؛ فقط برای اشتراک کامل مسیرهای شبکه روی دستگاه‌های روت‌شده. مدیر Root دستگاه تأیید می‌خواهد.',
+              'Optional, for full network routing on rooted devices. Your root manager asks for confirmation.',
+            ),
+            onPressed: _busy
+                ? null
+                : () => _featureRequest(() async {
+                    final granted = await _bridge.checkRootAccess();
+                    if (mounted) setState(() => _rootGranted = granted);
+                    return granted;
+                  }),
           ),
         ],
-        const SizedBox(height: 10),
-        _PermissionTile(
-          granted: _batteryGranted,
-          icon: Icons.battery_saver_outlined,
-          title: l10n.backgroundTransfer,
-          subtitle: l10n.backgroundTransferSubtitle,
-          onPressed: _busy ? null : _requestBattery,
-        ),
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
@@ -191,6 +418,40 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       refresh: _refreshStatuses,
     );
   }
+
+  Future<void> _featureRequest(Future<bool> Function() action) async {
+    setState(() => _busy = true);
+    try {
+      await action();
+      await _refreshStatuses();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _requestPermission(Permission permission) =>
+      _featureRequest(() async {
+        final status = await permission.request();
+        if (status.isPermanentlyDenied) await openAppSettings();
+        return status.isGranted;
+      });
+
+  Future<void> _requestRuntimePermissions() => _featureRequest(() async {
+    await [
+      Permission.notification,
+      Permission.camera,
+      Permission.microphone,
+      _wifi,
+      if (_sdk < 30) Permission.storage,
+    ].request();
+    return true;
+  });
 
   Future<void> _requestBattery() async {
     final l10n = context.l10n;

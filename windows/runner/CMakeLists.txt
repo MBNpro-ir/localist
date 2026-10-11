@@ -15,6 +15,7 @@ configure_file(
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
+  "embedded_remote.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "windows_native_bridge.cpp"
@@ -27,14 +28,13 @@ add_executable(${BINARY_NAME} WIN32
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
-# Localist's Windows VPN mode changes machine-level network state, so the
-# desktop runner must always request administrator privileges at startup.
+# Sign-in launch must work without UAC. VPN/root operations elevate on demand.
 set_target_properties(${BINARY_NAME} PROPERTIES
-  VS_GLOBAL_UACExecutionLevel "RequireAdministrator"
+  VS_GLOBAL_UACExecutionLevel "AsInvoker"
   VS_GLOBAL_UACUIAccess "false"
 )
 target_link_options(${BINARY_NAME} PRIVATE
-  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+  "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
 )
 
 # Add preprocessor definitions for the build version.
@@ -51,11 +51,22 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "winmm.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "wlanapi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "windowscodecs.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "comdlg32.lib" "wininet.lib" "mf.lib" "mfplat.lib" "mfuuid.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND "${CMAKE_COMMAND}"
+    "-DOUTPUT=$<TARGET_FILE_DIR:${BINARY_NAME}>"
+    "-DREMOTE_RUNTIME=${CMAKE_SOURCE_DIR}/../third_party/localist_remote/windows/runtime"
+    "-DREMOTE_PACKAGE=${CMAKE_SOURCE_DIR}/../third_party/localist_remote"
+    "-DAPP_EXE=$<TARGET_FILE:${BINARY_NAME}>"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/copy_debug_remote.cmake"
+  VERBATIM
+)
 add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "$<TARGET_FILE:${LOCALIST_UPDATER_BINARY_NAME}>"

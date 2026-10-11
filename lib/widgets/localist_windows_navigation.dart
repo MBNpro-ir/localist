@@ -81,7 +81,10 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
             end: Alignment.bottomCenter,
             colors: [
               scheme.surface,
-              scheme.primaryContainer.withValues(alpha: .16),
+              Color.alphaBlend(
+                scheme.primaryContainer.withValues(alpha: .16),
+                scheme.surface,
+              ),
             ],
           ),
           boxShadow: _expanded

@@ -1,0 +1,208 @@
+diff --git a/src/core_main.rs b/src/core_main.rs
+index b5a451e..c208bcc 100644
+--- a/src/core_main.rs
++++ b/src/core_main.rs
+@@ -74,6 +74,9 @@ pub fn core_main() -> Option<Vec<String>> {
+                 _is_quick_support = true;
+             } else if arg == "--no-server" {
+                 no_server = true;
++            } else if arg == "--localist-settings" {
++                // The host's Dart runner handles this page. Start native IPC
++                // exactly as for the normal engine window.
+             } else {
+                 args.push(arg);
+             }
+@@ -118,7 +121,12 @@ pub fn core_main() -> Option<Vec<String>> {
+     }
+     #[cfg(feature = "flutter")]
+     if _is_flutter_invoke_new_connection {
+-        return core_main_invoke_new_connection(std::env::args());
++        let result = core_main_invoke_new_connection(std::env::args());
++        if result.is_some() {
++            // A first connection has no existing window/service to forward to.
++            std::thread::spawn(move || crate::start_server(false, no_server));
++        }
++        return result;
+     }
+     let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
+     if click_setup && !config::is_disable_installation() {
+@@ -191,7 +199,10 @@ pub fn core_main() -> Option<Vec<String>> {
+         crate::platform::elevate_or_run_as_system(click_setup, _is_elevate, _is_run_as_system);
+         return None;
+     }
+-    if args.is_empty() || crate::common::is_empty_uni_link(&args[0]) {
++    if args.is_empty()
++        || (args.len() == 1 && args[0] == "--localist-host")
++        || crate::common::is_empty_uni_link(&args[0])
++    {
+         #[cfg(target_os = "macos")]
+         {
+             crate::platform::macos::try_remove_temp_update_dir(None);
+@@ -476,6 +487,23 @@ pub fn core_main() -> Option<Vec<String>> {
+         } else if args[0] == "--get-id" {
+             println!("{}", crate::ipc::get_id());
+             return None;
++        } else if args[0] == "--localist-credentials" {
++            // Localist reads this short-lived response for its explicit copy
++            // action. Do not write credentials to a file or to the log.
++            let id = crate::ipc::get_id();
++            let password = crate::ipc::get_config("temporary-password")
++                .ok()
++                .flatten()
++                .unwrap_or_default();
++            let payload = serde_json::json!({"id": id, "password": password}).to_string();
++            if let Ok(path) = std::env::var("LOCALIST_CREDENTIALS_FILE") {
++                // The host supplies a one-shot temp path and removes it after
++                // reading. This is only a transport mechanism, not storage.
++                let _ = std::fs::write(path, payload);
++            } else {
++                println!("{payload}");
++            }
++            return None;
+         } else if args[0] == "--set-id" {
+             if is_cli_setting_change_disabled() {
+                 println!("Settings are disabled!");
+@@ -782,6 +810,7 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
+             }
+             "--password" => {
+                 if let Some(password) = args.next() {
++                    let password: String = url::form_urlencoded::byte_serialize(password.as_bytes()).collect();
+                     param_array.push(format!("password={password}"));
+                 }
+             }
+diff --git a/src/ipc/auth.rs b/src/ipc/auth.rs
+index 6f40ab1..8828c34 100644
+--- a/src/ipc/auth.rs
++++ b/src/ipc/auth.rs
+@@ -1,5 +1,5 @@
+ use crate::ipc::{Connection, ConnectionTmpl};
+-#[cfg(all(windows, not(feature = "flutter")))]
++#[cfg(windows)]
+ use hbb_common::sha2::{Digest, Sha256};
+ #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+ use hbb_common::{anyhow, bail, log, ResultType};
+@@ -12,7 +12,7 @@ use hbb_common::{
+ use parity_tokio_ipc::SecurityAttributes;
+ #[cfg(windows)]
+ use std::io;
+-#[cfg(all(windows, not(feature = "flutter")))]
++#[cfg(windows)]
+ use std::io::Read;
+ #[cfg(target_os = "macos")]
+ use std::os::unix::fs::MetadataExt;
+@@ -416,7 +416,7 @@ fn os_str_eq_ignore_ascii_case(
+         .eq_ignore_ascii_case(&right.to_string_lossy())
+ }
+ 
+-#[cfg(all(windows, not(feature = "flutter")))]
++#[cfg(windows)]
+ #[inline]
+ fn file_sha256(path: &Path) -> ResultType<[u8; 32]> {
+     let mut file = fs::File::open(path)?;
+@@ -432,6 +432,40 @@ fn file_sha256(path: &Path) -> ResultType<[u8; 32]> {
+     Ok(hasher.finalize().into())
+ }
+ 
++#[cfg(all(windows, feature = "flutter"))]
++fn localist_gui_peer_is_trusted(peer_exe: &Path, current_exe: &Path, postfix: &str) -> bool {
++    if !postfix.is_empty() || crate::get_app_name() != "LocalistRemote" {
++        return false;
++    }
++    let (Some(peer_dir), Some(current_dir)) = (peer_exe.parent(), current_exe.parent()) else {
++        return false;
++    };
++    if !executable_paths_match(peer_dir, current_dir) {
++        return false;
++    }
++    let (Some(peer_name), Some(current_name)) = (peer_exe.file_name(), current_exe.file_name()) else {
++        return false;
++    };
++    let peer_name = peer_name.to_string_lossy();
++    let current_name = current_name.to_string_lossy();
++    let paired = (peer_name.eq_ignore_ascii_case("Localist.exe")
++        && current_name.eq_ignore_ascii_case("LocalistRemote.exe"))
++        || (peer_name.eq_ignore_ascii_case("LocalistRemote.exe")
++            && current_name.eq_ignore_ascii_case("Localist.exe"));
++    if !paired {
++        return false;
++    }
++    // The runner packages these as byte-identical siblings. Preserve the pipe's
++    // user/session authorization and reject unrelated executables or channels.
++    match (file_sha256(peer_exe), file_sha256(current_exe)) {
++        (Ok(peer), Ok(current)) => peer == current,
++        (peer, current) => {
++            log::warn!("Failed to verify Localist IPC executable pair: peer={:?}, current={:?}", peer.err(), current.err());
++            false
++        }
++    }
++}
++
+ #[cfg(all(windows, not(feature = "flutter")))]
+ #[inline]
+ fn portable_service_helper_is_trusted(
+@@ -475,6 +509,10 @@ fn ensure_peer_executable_matches_current_by_pid(peer_pid: u32, postfix: &str) -
+     if executable_paths_match(&peer_exe, &current_exe) {
+         return Ok(());
+     }
++    #[cfg(all(windows, feature = "flutter"))]
++    if localist_gui_peer_is_trusted(&peer_exe, &current_exe, postfix) {
++        return Ok(());
++    }
+     #[cfg(target_os = "macos")]
+     if macos_service_ipc_allows_gui_and_service_binaries(&peer_exe, &current_exe, postfix) {
+         return Ok(());
+@@ -871,6 +909,27 @@ impl ConnectionTmpl<parity_tokio_ipc::Connection> {
+ 
+ #[cfg(test)]
+ mod tests {
++    #[test]
++    #[cfg(all(windows, feature = "flutter"))]
++    fn test_localist_gui_peer_requires_matching_sibling_binary() {
++        let dir = std::env::temp_dir().join(format!("localist-ipc-auth-{}", std::process::id()));
++        std::fs::create_dir_all(&dir).unwrap();
++        let host = dir.join("LocalistRemote.exe");
++        let gui = dir.join("Localist.exe");
++        let unrelated = dir.join("flutter_tester.exe");
++        std::fs::write(&host, b"localist-runner").unwrap();
++        std::fs::write(&gui, b"localist-runner").unwrap();
++        std::fs::write(&unrelated, b"localist-runner").unwrap();
++        assert!(super::localist_gui_peer_is_trusted(&gui, &host, ""));
++        assert!(super::localist_gui_peer_is_trusted(&host, &gui, ""));
++        assert!(!super::localist_gui_peer_is_trusted(&gui, &host, "_service"));
++        assert!(!super::localist_gui_peer_is_trusted(&unrelated, &host, ""));
++        assert!(!super::localist_gui_peer_is_trusted(&dir.join("elsewhere/Localist.exe"), &host, ""));
++        std::fs::write(&gui, b"modified-runner").unwrap();
++        assert!(!super::localist_gui_peer_is_trusted(&gui, &host, ""));
++        std::fs::remove_dir_all(&dir).unwrap();
++    }
++
+     #[test]
+     #[cfg(any(target_os = "macos", target_os = "linux"))]
+     fn test_service_peer_uid_policy() {
+diff --git a/src/platform/windows.rs b/src/platform/windows.rs
+index 438baf7..5d47835 100644
+--- a/src/platform/windows.rs
++++ b/src/platform/windows.rs
+@@ -2773,7 +2773,7 @@ pub fn send_message_to_hnwd(
+         let mut data_struct = COPYDATASTRUCT::default();
+         data_struct.dwData = dw_data;
+         let mut data_zero: String = data.chars().chain(Some('\0').into_iter()).collect();
+-        println!("send {:?}", data_zero);
++        // Connection links can contain credentials; never print their payload.
+         data_struct.cbData = data_zero.len() as _;
+         data_struct.lpData = data_zero.as_mut_ptr() as _;
+         SendMessageW(
+diff --git a/libs/hbb_common/src/config.rs b/libs/hbb_common/src/config.rs
+index 6fe1004..50133bc 100644
+--- a/libs/hbb_common/src/config.rs
++++ b/libs/hbb_common/src/config.rs
+@@ -69,7 +69,8 @@ lazy_static::lazy_static! {
+     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
+     pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
+     pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();
+-    pub static ref APP_NAME: RwLock<String> = RwLock::new("RustDesk".to_owned());
++    // Localist's desktop runner owns its own service/config/IPC namespace.
++    pub static ref APP_NAME: RwLock<String> = RwLock::new(if cfg!(windows) { "LocalistRemote" } else { "RustDesk" }.to_owned());
+     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
+     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
+     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();

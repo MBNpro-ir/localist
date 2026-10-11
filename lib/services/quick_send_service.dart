@@ -185,7 +185,8 @@ class QuickSendTransfer {
     required this.state,
     required this.message,
     required this.updatedAt,
-  });
+    DateTime? startedAt,
+  }) : startedAt = startedAt ?? updatedAt;
 
   final String id;
   final String deviceName;
@@ -197,12 +198,27 @@ class QuickSendTransfer {
   final QuickSendTransferState state;
   final String message;
   final DateTime updatedAt;
+  final DateTime startedAt;
+  Duration get elapsed => updatedAt.difference(startedAt);
+  double get bytesPerSecond => elapsed.inMilliseconds > 0
+      ? transferredBytes * 1000 / elapsed.inMilliseconds
+      : 0;
+  Duration? get remaining => bytesPerSecond > 0 && totalBytes > 0
+      ? Duration(
+          seconds:
+              ((totalBytes - transferredBytes).clamp(0, totalBytes) /
+                      bytesPerSecond)
+                  .ceil(),
+        )
+      : null;
 
   double get progress => totalBytes <= 0
       ? state == QuickSendTransferState.completed
             ? 1
             : 0
-      : (transferredBytes / totalBytes).clamp(0, 1);
+      : state == QuickSendTransferState.completed
+      ? 1
+      : (transferredBytes / totalBytes).clamp(0, .99);
 
   QuickSendTransfer copyWith({
     String? path,
@@ -221,6 +237,7 @@ class QuickSendTransfer {
       state: state ?? this.state,
       message: message ?? this.message,
       updatedAt: DateTime.now(),
+      startedAt: startedAt,
     );
   }
 
@@ -236,6 +253,7 @@ class QuickSendTransfer {
       'state': state.name,
       'message': message,
       'updatedAt': updatedAt.toIso8601String(),
+      'startedAt': startedAt.toIso8601String(),
     };
   }
 
@@ -259,6 +277,7 @@ class QuickSendTransfer {
       updatedAt:
           DateTime.tryParse(map['updatedAt'] as String? ?? '') ??
           DateTime.now(),
+      startedAt: DateTime.tryParse(map['startedAt'] as String? ?? ''),
     );
   }
 }
@@ -289,6 +308,7 @@ class QuickSendService extends ChangeNotifier {
   _QuickSendSession? _session;
   Future<void>? _initializing;
   Future<void> _historyWrite = Future<void>.value();
+  Future<void>? _remoteHistoryImport;
   bool _restarting = false;
   bool _scanning = false;
   bool _transferBlocked = false;
@@ -318,6 +338,51 @@ class QuickSendService extends ChangeNotifier {
   }
 
   List<QuickSendTransfer> get transfers => List.unmodifiable(_transfers);
+  int _receiveBatchCompletions = 0;
+  int get receiveBatchCompletions => _receiveBatchCompletions;
+  void completeBrowserBatch() {
+    _receiveBatchCompletions++;
+    notifyListeners();
+  }
+
+  String beginBrowserTransfer({
+    required String deviceName,
+    required String fileName,
+    required String path,
+    required int totalBytes,
+    QuickSendDirection direction = QuickSendDirection.receiving,
+  }) {
+    final id = 'browser-${_randomToken()}';
+    _putTransfer(
+      QuickSendTransfer(
+        id: id,
+        deviceName: deviceName,
+        fileName: fileName,
+        path: path,
+        totalBytes: totalBytes,
+        transferredBytes: 0,
+        direction: direction,
+        state: QuickSendTransferState.transferring,
+        message: '',
+        updatedAt: DateTime.now(),
+      ),
+    );
+    return id;
+  }
+
+  void updateBrowserTransfer(
+    String id,
+    int bytes, {
+    QuickSendTransferState? state,
+    String? message,
+  }) {
+    _updateTransfer(
+      id,
+      transferredBytes: bytes,
+      state: state,
+      message: message,
+    );
+  }
 
   List<QuickSendTransfer> get receivedHistory {
     final records = <String, QuickSendTransfer>{
@@ -341,6 +406,12 @@ class QuickSendService extends ChangeNotifier {
   Future<void> _initialize() async {
     await _loadDeviceIdentity();
     await _loadReceivedHistory();
+    if (Platform.isAndroid) {
+      NativeBridgeService.instance.remoteFilesReceived.listen((_) {
+        unawaited(_importRemoteReceivedFiles());
+      });
+      await _importRemoteReceivedFiles();
+    }
     final legacyDefaultDestination =
         await QuickSendSettings.hasDestinationCustomizationMarker()
         ? ''
@@ -362,6 +433,47 @@ class QuickSendService extends ChangeNotifier {
     await ensureReceiveStorageAccess(request: false);
     await _startNetwork();
     notifyListeners();
+  }
+
+  Future<void> _importRemoteReceivedFiles() =>
+      _remoteHistoryImport ??= _readRemoteReceivedFiles().whenComplete(() {
+        _remoteHistoryImport = null;
+      });
+
+  Future<void> _readRemoteReceivedFiles() async {
+    try {
+      final records = await NativeBridgeService.instance
+          .getRemoteReceivedFiles();
+      if (records.isEmpty) return;
+      for (final record in records) {
+        final id = record['id'] as String;
+        if (_receivedHistory.any((item) => item.id == id)) continue;
+        final size = (record['totalBytes'] as num).toInt();
+        _receivedHistory.add(
+          QuickSendTransfer(
+            id: id,
+            deviceName: 'Remote Control',
+            fileName: record['fileName'] as String,
+            path: record['path'] as String,
+            totalBytes: size,
+            transferredBytes: size,
+            direction: QuickSendDirection.receiving,
+            state: QuickSendTransferState.completed,
+            message: '',
+            updatedAt: DateTime.fromMillisecondsSinceEpoch(
+              (record['updatedMs'] as num).toInt(),
+            ),
+          ),
+        );
+      }
+      await _queueReceivedHistorySave();
+      await NativeBridgeService.instance.acknowledgeRemoteReceivedFiles(
+        records.map((record) => record['id'] as String).toList(),
+      );
+      notifyListeners();
+    } catch (error) {
+      _logs.warning('Cannot import completed remote files: $error');
+    }
   }
 
   Future<void> updateSettings(QuickSendSettings value) async {
@@ -991,6 +1103,7 @@ class QuickSendService extends ChangeNotifier {
     }
     _discoverySockets.clear();
     await NativeBridgeService.instance.setQuickSendMulticastLock(false);
+    _endReceiveSession('Quick Send stopped before the batch completed.');
     await _server?.close(force: true);
     _server = null;
     if (_pendingRequest != null && !_pendingRequest!.decision.isCompleted) {
@@ -1291,7 +1404,7 @@ class QuickSendService extends ChangeNotifier {
   Future<void> _handlePrepareUpload(HttpRequest request) async {
     final current = _settings!;
     if (_session?.expired == true) {
-      _session = null;
+      _endReceiveSession('Receive session timed out.');
     }
     if (_session != null || _pendingRequest != null) {
       await _writeError(request.response, HttpStatus.conflict, 'Busy');
@@ -1425,6 +1538,22 @@ class QuickSendService extends ChangeNotifier {
       files: chosen,
       tokens: tokens,
     );
+    for (final offer in chosen.values) {
+      _putTransfer(
+        QuickSendTransfer(
+          id: 'receive-$sessionId-${offer.id}',
+          deviceName: sender.alias,
+          fileName: offer.fileName,
+          path: '',
+          totalBytes: offer.size,
+          transferredBytes: 0,
+          direction: QuickSendDirection.receiving,
+          state: QuickSendTransferState.waiting,
+          message: '',
+          updatedAt: DateTime.now(),
+        ),
+      );
+    }
     await _writeJson(request.response, HttpStatus.ok, {
       'sessionId': sessionId,
       'files': tokens,
@@ -1455,7 +1584,16 @@ class QuickSendService extends ChangeNotifier {
     }
     final offer = session.files[fileId]!;
     final destination = await _destinationFile(offer.fileName, offer.fileType);
+    if (!session.active.add(fileId)) {
+      await _writeError(
+        request.response,
+        HttpStatus.conflict,
+        'File is already receiving',
+      );
+      return;
+    }
     final transferId = 'receive-${session.id}-$fileId';
+    _transfers.removeWhere((item) => item.id == transferId);
     _putTransfer(
       QuickSendTransfer(
         id: transferId,
@@ -1471,17 +1609,28 @@ class QuickSendService extends ChangeNotifier {
       ),
     );
     var received = 0;
-    final sink = destination.openWrite(mode: FileMode.writeOnly);
+    final partial = File('${destination.path}.localist-${_randomToken()}.part');
+    final sink = partial.openWrite(mode: FileMode.writeOnly);
     try {
-      await for (final chunk in request) {
-        session.touch();
-        received += chunk.length;
-        if (received > offer.size) {
-          throw const FormatException('Received more data than offered.');
-        }
-        sink.add(chunk);
-        _updateTransfer(transferId, transferredBytes: received);
-      }
+      var lastReported = 0;
+      var lastReportAt = DateTime.now();
+      await sink.addStream(
+        request.timeout(const Duration(minutes: 2)).map((chunk) {
+          session.touch();
+          received += chunk.length;
+          if (received > offer.size) {
+            throw const FormatException('Received more data than offered.');
+          }
+          if (received - lastReported >= 256 * 1024 ||
+              received == offer.size ||
+              DateTime.now().difference(lastReportAt).inMilliseconds >= 250) {
+            lastReported = received;
+            lastReportAt = DateTime.now();
+            _updateTransfer(transferId, transferredBytes: received);
+          }
+          return chunk;
+        }),
+      );
       await sink.flush();
       await sink.close();
       if (received != offer.size) {
@@ -1489,6 +1638,10 @@ class QuickSendService extends ChangeNotifier {
           'Expected ${offer.size} bytes, received $received.',
         );
       }
+      if (_session != session) {
+        throw const HttpException('Receive session stopped.');
+      }
+      await partial.rename(destination.path);
       session.completed.add(fileId);
       _updateTransfer(
         transferId,
@@ -1497,13 +1650,13 @@ class QuickSendService extends ChangeNotifier {
       );
       if (session.completed.length == session.files.length) {
         _session = null;
+        _receiveBatchCompletions++;
+        notifyListeners();
       }
-      request.response.statusCode = HttpStatus.ok;
-      await request.response.close();
     } catch (error) {
       await sink.close().catchError((_) {});
       try {
-        await destination.delete();
+        await partial.delete();
       } catch (_) {
         // A peer disconnect can race with destination cleanup.
       }
@@ -1514,7 +1667,11 @@ class QuickSendService extends ChangeNotifier {
         message: error.toString(),
       );
       rethrow;
+    } finally {
+      session.active.remove(fileId);
     }
+    request.response.statusCode = HttpStatus.ok;
+    await request.response.close();
   }
 
   Future<void> _uploadFile({
@@ -1539,11 +1696,21 @@ class QuickSendService extends ChangeNotifier {
       'send-${offer.id}',
       state: QuickSendTransferState.transferring,
     );
-    await for (final chunk in file.openRead()) {
-      request.add(chunk);
-      sent += chunk.length;
-      _updateTransfer('send-${offer.id}', transferredBytes: sent);
-    }
+    var lastReported = 0;
+    var lastReportAt = DateTime.now();
+    await request.addStream(
+      file.openRead().map((chunk) {
+        sent += chunk.length;
+        if (sent - lastReported >= 256 * 1024 ||
+            sent == offer.size ||
+            DateTime.now().difference(lastReportAt).inMilliseconds >= 250) {
+          lastReported = sent;
+          lastReportAt = DateTime.now();
+          _updateTransfer('send-${offer.id}', transferredBytes: sent);
+        }
+        return chunk;
+      }),
+    );
     final response = await request.close().timeout(const Duration(minutes: 10));
     await response.drain<void>();
     if (response.statusCode != HttpStatus.ok) {
@@ -1637,7 +1804,7 @@ class QuickSendService extends ChangeNotifier {
     if (Platform.isAndroid) {
       final root = await NativeBridgeService.instance.getPublicStorageRoot();
       if (root.trim().isNotEmpty) {
-        return p.join(root.trim(), 'Localist');
+        return p.join(root.trim(), 'Download', 'Localist');
       }
     }
     final downloads = await getDownloadsDirectory();
@@ -1768,17 +1935,25 @@ class QuickSendService extends ChangeNotifier {
         !current.destinationCustomized &&
         !await ensureReceiveStorageAccess(request: false)) {
       throw const FileSystemException(
-        'Storage access is required to save files in /Localist.',
+        'Storage access is required to save files in Download/Localist.',
       );
     }
     final baseDirectory = current.destinationDirectory;
-    final directory = Directory(
-      current.destinationCustomized
-          ? baseDirectory
-          : p.join(baseDirectory, receiveCategoryFor(unsafeName, fileType)),
-    );
-    await directory.create(recursive: true);
     final safeRelativePath = sanitizeRelativeFilePath(unsafeName);
+    final category = receiveCategoryFor(unsafeName, fileType);
+    // Android keeps every received item in its own folder below
+    // Download/Localist/<category>. This avoids collisions between files with
+    // the same basename and makes the destination easy to browse/share.
+    final itemFolder = Platform.isAndroid && !current.destinationCustomized
+        ? p.basenameWithoutExtension(p.posix.basename(safeRelativePath))
+        : '';
+    final directoryParts = <String>[baseDirectory];
+    if (!current.destinationCustomized) {
+      directoryParts.add(category);
+      if (itemFolder.isNotEmpty) directoryParts.add(itemFolder);
+    }
+    final directory = Directory(p.joinAll(directoryParts));
+    await directory.create(recursive: true);
     var destination = File(p.join(directory.path, safeRelativePath));
     await destination.parent.create(recursive: true);
     if (current.overwrite || !await destination.exists()) {
@@ -1797,7 +1972,6 @@ class QuickSendService extends ChangeNotifier {
     throw StateError('Unable to create a unique destination file.');
   }
 
-  @visibleForTesting
   static String sanitizeFileName(String value) {
     final normalized = value.replaceAll('\\', '/');
     final name = p.posix.basename(normalized).trim();
@@ -1829,7 +2003,6 @@ class QuickSendService extends ChangeNotifier {
     return sanitizeRelativeFilePath(value);
   }
 
-  @visibleForTesting
   static String receiveCategoryFor(String fileName, String mimeType) {
     final mime = mimeType.toLowerCase();
     final extension = p.extension(fileName).toLowerCase();
@@ -1918,14 +2091,34 @@ class QuickSendService extends ChangeNotifier {
     }
     if (_session?.expired == true) {
       _logs.warning('Expired an inactive Quick Send receive session.');
-      _session = null;
+      _endReceiveSession('Receive session timed out.');
+    }
+  }
+
+  void _endReceiveSession(String message) {
+    final session = _session;
+    _session = null;
+    if (session == null) return;
+    for (final offer in session.files.values) {
+      if (!session.completed.contains(offer.id)) {
+        _updateTransfer(
+          'receive-${session.id}-${offer.id}',
+          state: QuickSendTransferState.failed,
+          message: message,
+        );
+      }
     }
   }
 
   void _putTransfer(QuickSendTransfer transfer) {
     _transfers.insert(0, transfer);
-    if (_transfers.length > 40) {
-      _transfers.removeRange(40, _transfers.length);
+    if (_transfers.length > 250) {
+      final terminal = _transfers.lastIndexWhere(
+        (item) =>
+            item.state == QuickSendTransferState.completed ||
+            item.state == QuickSendTransferState.failed,
+      );
+      if (terminal >= 0) _transfers.removeAt(terminal);
     }
     _recordReceivedHistory(transfer);
     notifyListeners();
@@ -2082,7 +2275,7 @@ class _QuickSendNetworkRoute {
 bool _isIgnoredInterface(String value) {
   final name = value.toLowerCase();
   return name == 'lo' ||
-      name.startsWith('lo') ||
+      RegExp(r'^lo\d+$').hasMatch(name) ||
       name.contains('loopback') ||
       name.startsWith('tun') ||
       name.startsWith('tap') ||
@@ -2125,6 +2318,7 @@ class _QuickSendSession {
   final Map<String, QuickSendOfferedFile> files;
   final Map<String, String> tokens;
   final Set<String> completed = {};
+  final Set<String> active = {};
   DateTime lastActivity = DateTime.now();
 
   bool get expired =>

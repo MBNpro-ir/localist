@@ -380,8 +380,8 @@ class _QuickSendProfileGateState extends State<QuickSendProfileGate> {
     if (_complete) {
       return widget.child;
     }
-    final isAndroid = Platform.isAndroid;
-    final steps = isAndroid
+    final hasPermissionsStep = Platform.isAndroid || Platform.isWindows;
+    final steps = hasPermissionsStep
         ? [
             _t(context, 'زبان', 'Language'),
             _t(context, 'دسترسی‌ها', 'Permissions'),
@@ -396,7 +396,7 @@ class _QuickSendProfileGateState extends State<QuickSendProfileGate> {
     return OnboardingFrame(
       simple: widget.simple,
       steps: steps,
-      currentStep: isAndroid ? 2 : 1,
+      currentStep: hasPermissionsStep ? 2 : 1,
       icon: Icons.account_circle_outlined,
       title: _t(context, 'دستگاه خود را معرفی کنید', 'Set up this device'),
       subtitle: _t(

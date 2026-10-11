@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "flutter_window.h"
+#include "embedded_remote.h"
 #include "utils.h"
 
 namespace {
@@ -344,7 +345,7 @@ void ShowCrashLogSavedMessage() {
                 MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
 }
 
-void HandlePreviousAbnormalExit(bool* debug_preference_enabled) {
+void HandlePreviousAbnormalExit(bool* debug_preference_enabled, bool startup) {
   const RunMarker marker = ReadRunMarker();
   if (!marker.exists) {
     return;
@@ -352,14 +353,14 @@ void HandlePreviousAbnormalExit(bool* debug_preference_enabled) {
   if (marker.debug_at_start || *debug_preference_enabled) {
     AppendNativeDebugLog(
         "Previous run ended abnormally while debug mode was active.");
-    ShowCrashLogSavedMessage();
+    if (!startup) ShowCrashLogSavedMessage();
     return;
   }
   SetDebugPreferenceEnabled(true);
   *debug_preference_enabled = true;
   AppendNativeDebugLog(
       "Previous run ended abnormally. Debug mode was enabled automatically.");
-  ShowCrashDebugEnabledMessage();
+  if (!startup) ShowCrashDebugEnabledMessage();
 }
 
 LONG WINAPI HandleUnhandledException(EXCEPTION_POINTERS* exception_info) {
@@ -396,12 +397,33 @@ void InstallCrashHandlers() {
 
 }  // namespace
 
+void MarkLocalistCleanExit() { DeleteRunMarker(); }
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  if (IsEmbeddedRemoteExecutable()) return RunEmbeddedRemote(instance);
+  // Explorer's sign-in Run key starts applications in an arbitrary directory.
+  ::SetCurrentDirectoryW(ExeDirectory().c_str());
+  const auto arguments = GetCommandLineArguments();
+  bool startup = false;
+  for (const auto& argument : arguments) {
+    if (argument == "--startup") startup = true;
+    constexpr char wait_prefix[] = "--wait-for-pid=";
+    if (argument.rfind(wait_prefix, 0) == 0) {
+      const DWORD pid = static_cast<DWORD>(strtoul(
+          argument.c_str() + sizeof(wait_prefix) - 1, nullptr, 10));
+      HANDLE previous = ::OpenProcess(SYNCHRONIZE, FALSE, pid);
+      if (previous != nullptr) {
+        const DWORD waited = ::WaitForSingleObject(previous, 45000);
+        ::CloseHandle(previous);
+        if (waited != WAIT_OBJECT_0) return EXIT_FAILURE;
+      }
+    }
+  }
   HANDLE single_instance_mutex =
       ::CreateMutexW(nullptr, TRUE, kSingleInstanceMutexName);
   if (IsAnotherInstanceRunning(single_instance_mutex)) {
-    ShowAlreadyRunningMessage();
+    if (!startup) ShowAlreadyRunningMessage();
     if (single_instance_mutex != nullptr) {
       ::CloseHandle(single_instance_mutex);
     }
@@ -409,7 +431,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   bool debug_preference_enabled = IsDebugPreferenceEnabled();
-  HandlePreviousAbnormalExit(&debug_preference_enabled);
+#ifdef _DEBUG
+  debug_preference_enabled = true;
+#endif
+  HandlePreviousAbnormalExit(&debug_preference_enabled, startup);
   if (debug_preference_enabled) {
     AppendBootDiagnostics();
   }
@@ -436,7 +461,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     AppendNativeDebugLog(stream.str());
   }
 
-  flutter::DartProject project(L"data");
+  flutter::DartProject project(JoinPath(ExeDirectory(), L"data"));
 
   std::vector<std::string> command_line_arguments = GetCommandLineArguments();
 

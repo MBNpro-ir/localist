@@ -1,0 +1,8 @@
+if(NOT EXISTS "${REMOTE_RUNTIME}/librustdesk.dll")
+  message(FATAL_ERROR "Bundled Remote Control native runtime is missing.")
+endif()
+file(COPY "${REMOTE_RUNTIME}/" DESTINATION "${OUTPUT}")
+file(COPY_FILE "${APP_EXE}" "${OUTPUT}/LocalistRemote.exe" ONLY_IF_DIFFERENT)
+file(COPY_FILE "${REMOTE_PACKAGE}/LICENSE" "${OUTPUT}/REMOTE-LICENSE.txt" ONLY_IF_DIFFERENT)
+file(COPY_FILE "${REMOTE_PACKAGE}/UPSTREAM.json" "${OUTPUT}/REMOTE-UPSTREAM.json" ONLY_IF_DIFFERENT)
+file(COPY_FILE "${REMOTE_PACKAGE}/native-source.tar.gz" "${OUTPUT}/REMOTE-SOURCE.tar.gz" ONLY_IF_DIFFERENT)

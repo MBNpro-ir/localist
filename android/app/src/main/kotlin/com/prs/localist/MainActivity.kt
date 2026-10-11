@@ -16,6 +16,8 @@ import android.net.Uri
 import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.media.MediaPlayer
+import android.media.MediaMetadataRetriever
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -33,6 +35,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.Executors
 import java.net.InetSocketAddress
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -40,7 +44,8 @@ import java.net.ServerSocket
 import java.util.Collections
 import java.util.UUID
 
-class MainActivity : FlutterActivity() {
+class MainActivity : com.carriez.flutter_hbb.MainActivity() {
+    private val thumbnailExecutor = Executors.newFixedThreadPool(2)
     private var pendingVpnResult: MethodChannel.Result? = null
     private var pendingLocalNetworkPermissionResult: MethodChannel.Result? = null
     private var pendingSaveFileResult: MethodChannel.Result? = null
@@ -56,6 +61,10 @@ class MainActivity : FlutterActivity() {
     private var nativeLogReceiverRegistered = false
     private val nativeLogReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == RemoteReceivedFiles.ACTION) {
+                methodChannel?.invokeMethod("remoteFilesReceived", null)
+                return
+            }
             if (intent?.action != ACTION_NATIVE_LOG) {
                 return
             }
@@ -95,6 +104,12 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
+                "getFeatureAccessStatus" -> result.success(mapOf(
+                    "vpn" to (VpnService.prepare(this) == null),
+                    "overlay" to (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)),
+                    "input" to com.carriez.flutter_hbb.InputService.isOpen,
+                    "capture" to com.carriez.flutter_hbb.MainService.isReady,
+                ))
                 "hasLocalNetworkPermission" -> result.success(hasLocalNetworkPermission())
                 "requestLocalNetworkPermission" -> requestLocalNetworkPermission(result)
                 "getAndroidSupportedAbis" -> result.success(Build.SUPPORTED_ABIS.toList())
@@ -123,9 +138,21 @@ class MainActivity : FlutterActivity() {
                 "shareFileExternally" -> shareFileExternally(call, result)
                 "openUri" -> openUri(call, result)
                 "openFile" -> openFile(call, result)
+                "getMediaThumbnail" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    thumbnailExecutor.execute {
+                        val bytes = runCatching { mediaThumbnail(path) }.getOrNull()
+                        Handler(Looper.getMainLooper()).post { result.success(bytes) }
+                    }
+                }
                 "openContainingFolder" -> openContainingFolder(call, result)
                 "openLocalistFolder" -> openLocalistFolder(result)
                 "openHotspotSettings" -> openHotspotSettings(result)
+                "openWirelessDisplay" -> {
+                    runCatching { startActivity(Intent(Settings.ACTION_CAST_SETTINGS)) }
+                        .onSuccess { result.success(true) }
+                        .onFailure { result.success(false) }
+                }
                 "startLocalOnlyHotspot" -> startLocalOnlyHotspot(result)
                 "stopLocalOnlyHotspot" -> {
                     stopLocalOnlyHotspot(notifyFlutter = false)
@@ -156,6 +183,11 @@ class MainActivity : FlutterActivity() {
                     @Suppress("DEPRECATION")
                     result.success(Environment.getExternalStorageDirectory().absolutePath)
                 }
+                "getRemoteReceivedFiles" -> result.success(RemoteReceivedFiles.pending(this))
+                "acknowledgeRemoteReceivedFiles" -> {
+                    RemoteReceivedFiles.acknowledge(this, call.argument<List<String>>("ids").orEmpty())
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -163,6 +195,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        thumbnailExecutor.shutdownNow()
         setQuickSendMulticastLock(false)
         stopLocalOnlyHotspot(notifyFlutter = false)
         unregisterNativeLogReceiver()
@@ -175,6 +208,33 @@ class MainActivity : FlutterActivity() {
             )
         }
         super.onDestroy()
+    }
+
+    private fun mediaThumbnail(path: String): ByteArray? {
+        if (!File(path).isFile) return null
+        val retriever = MediaMetadataRetriever()
+        var frame: Bitmap? = null
+        var scaled: Bitmap? = null
+        try {
+            retriever.setDataSource(path)
+            frame = if (Build.VERSION.SDK_INT >= 27) {
+                retriever.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 320, 180)
+            } else retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            val original = frame ?: return null
+            val ratio = minOf(320.0 / original.width, 180.0 / original.height, 1.0)
+            scaled = Bitmap.createScaledBitmap(original,
+                maxOf(1, (original.width * ratio).toInt()),
+                maxOf(1, (original.height * ratio).toInt()), true)
+            val thumbnail = scaled ?: return null
+            return ByteArrayOutputStream().use {
+                thumbnail.compress(Bitmap.CompressFormat.PNG, 100, it)
+                it.toByteArray()
+            }
+        } finally {
+            if (scaled !== frame) scaled?.recycle()
+            frame?.recycle()
+            retriever.release()
+        }
     }
 
     private fun setQuickSendMulticastLock(enabled: Boolean): Boolean {
@@ -205,6 +265,7 @@ class MainActivity : FlutterActivity() {
             return
         }
         val filter = IntentFilter(ACTION_NATIVE_LOG)
+        filter.addAction(RemoteReceivedFiles.ACTION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(nativeLogReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
@@ -655,7 +716,7 @@ class MainActivity : FlutterActivity() {
 
     private fun openLocalistFolder(result: MethodChannel.Result) {
         @Suppress("DEPRECATION")
-        val folder = File(Environment.getExternalStorageDirectory(), "Localist")
+        val folder = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Localist")
         if (!folder.isDirectory && !folder.mkdirs()) {
             result.success(false)
             return

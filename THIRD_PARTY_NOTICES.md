@@ -209,3 +209,15 @@ Source: https://github.com/localsend/localsend
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+# RustDesk embedded engine
+
+Localist includes RustDesk 1.5.0 native, Flutter and Android service code under
+AGPL-3.0, with modifications for Localist integration and branding. Upstream
+copyright and license notices remain in the corresponding source and license
+assets. Distribution of the combined engine integration includes its AGPL
+license and corresponding source.
+
+Pinned source, corresponding native source archive, bridge and runtime hashes
+are in `third_party/localist_remote`. Source and rebuilding details are in
+[the integration document](docs/RUSTDESK_INTEGRATION.md). Native codec, TLS,
+Windows display and printer dependencies retain their upstream licenses/notices.

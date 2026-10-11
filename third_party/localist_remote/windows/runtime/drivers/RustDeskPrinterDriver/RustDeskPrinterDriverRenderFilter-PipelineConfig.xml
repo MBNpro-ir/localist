@@ -1,0 +1,10 @@
+
+<Filters>
+   <Filter dll            = "RustDeskPrinterDriverRenderFilter.dll"
+           clsid          = "{801594c2-6774-41a4-bb25-cfb45f49eef0}"
+           name           = "RustDeskPrinterDriverRenderFilter">
+           <Input   guid  = "{4d47a67c-66cc-4430-850e-daf466fe5bc4}" comment="IID_IPrintReadStream" />
+           <Output  guid  = "{65bb7f1b-371e-4571-8ac7-912f510c1a38}" comment="IID_IPrintWriteStream"/> 
+   </Filter>
+</Filters>
+

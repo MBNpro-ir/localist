@@ -63,6 +63,14 @@ jobs:
       - name: Restore packages
         run: flutter pub get
 
+      - name: Analyze and test
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub
+
+      - name: Verify embedded native engines
+        run: python tools/verify_remote_runtime.py
+
       - name: Build split APKs
         run: |
           flutter build apk --release \
@@ -80,6 +88,9 @@ jobs:
           zipalign="$build_tools/zipalign"
           test -x "$apksigner"
           test -x "$zipalign"
+          python tools/verify_remote_apk.py \
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 
           for apk in \
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
@@ -133,6 +144,10 @@ jobs:
           $buildNumber = if ($parts.Count -gt 1) { $parts[1] } else { '1' }
           "APP_VERSION=$appVersion" >> $env:GITHUB_ENV
           "BUILD_NUMBER=$buildNumber" >> $env:GITHUB_ENV
+
+      - name: Prepare bundled Remote Control engine
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/prepare_rustdesk_debug.ps1
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

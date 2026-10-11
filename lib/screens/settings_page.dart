@@ -12,6 +12,7 @@ import '../services/app_update_service.dart';
 import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
 import 'quick_send_page.dart';
+import 'remote_control_settings_section.dart';
 import '../widgets/glass.dart';
 
 const _appName = 'Localist';
@@ -19,12 +20,24 @@ const _appDeveloper = 'PRS';
 const _appPackageName = 'com.prs.localist';
 const _windowsAppId = 'PRS.Localist';
 
-enum SettingsSection { quickSend, network, appearance, behavior, updates }
+enum SettingsSection {
+  quickSend,
+  remoteControl,
+  network,
+  appearance,
+  behavior,
+  updates,
+}
+
+bool get remoteControlSettingsAvailable =>
+    Platform.isWindows || Platform.isAndroid;
 
 String _settingsSectionTitle(BuildContext context, SettingsSection section) {
   final persian = context.l10n.isPersian;
   return switch (section) {
     SettingsSection.quickSend => 'Quick Send',
+    SettingsSection.remoteControl =>
+      persian ? 'کنترل از راه دور' : 'Remote Control',
     SettingsSection.network => persian ? 'شبکه و پراکسی' : 'Network & proxy',
     SettingsSection.appearance =>
       persian ? 'ظاهر و زبان' : 'Appearance & language',
@@ -41,6 +54,10 @@ String _settingsSectionSubtitle(BuildContext context, SettingsSection section) {
       persian
           ? 'پروفایل، دریافت، شبکه، پوشه ذخیره و امنیت انتقال'
           : 'Profile, receiving, network, storage, and transfer security',
+    SettingsSection.remoteControl =>
+      persian
+          ? 'عمومی، امنیت، سرور ID/Relay، نمایش و چاپ'
+          : 'General, security, ID/Relay server, display, and printer',
     SettingsSection.network =>
       persian
           ? 'پروتکل‌ها، پورت‌ها و اشتراک‌گذاری VPN'
@@ -63,6 +80,7 @@ String _settingsSectionSubtitle(BuildContext context, SettingsSection section) {
 IconData _settingsSectionIcon(SettingsSection section) {
   return switch (section) {
     SettingsSection.quickSend => Icons.send_rounded,
+    SettingsSection.remoteControl => Icons.settings_remote_outlined,
     SettingsSection.network => Icons.lan_rounded,
     SettingsSection.appearance => Icons.palette_outlined,
     SettingsSection.behavior => Icons.tune_rounded,
@@ -153,6 +171,10 @@ class _SettingsRoutePageState extends State<SettingsRoutePage> {
                 ? _SettingsOverview(
                     onOpen: (target) => _openSection(context, target),
                   )
+                : section == SettingsSection.remoteControl
+                ? remoteControlSettingsAvailable
+                      ? const RemoteControlSettingsSection()
+                      : const SizedBox.shrink()
                 : SettingsPage(
                     settings: widget.settings,
                     portsLocked: widget.portsLocked,
@@ -230,13 +252,15 @@ class _SettingsOverview extends StatelessWidget {
                     runSpacing: gap,
                     children: [
                       for (final section in SettingsSection.values)
-                        SizedBox(
-                          width: width,
-                          child: _SettingsSectionCard(
-                            section: section,
-                            onTap: () => onOpen(section),
+                        if (section != SettingsSection.remoteControl ||
+                            remoteControlSettingsAvailable)
+                          SizedBox(
+                            width: width,
+                            child: _SettingsSectionCard(
+                              section: section,
+                              onTap: () => onOpen(section),
+                            ),
                           ),
-                        ),
                     ],
                   );
                 },

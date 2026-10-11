@@ -3,10 +3,17 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  desktop_drop
+  desktop_multi_window
   dynamic_color
-  screen_retriever_linux
+  file_selector_linux
+  flutter_custom_cursor
+  screen_retriever
+  texture_rgba_renderer
   tray_manager
+  url_launcher_linux
   window_manager
+  window_size
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

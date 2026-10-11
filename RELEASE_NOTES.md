@@ -1,5 +1,30 @@
 # Release Notes
 
+## [6.0.0] — Localist remote, stream and web sharing
+
+Remote Control packages its native engine and session interface on Windows and Android. Settings apply inside Localist, the ID/relay defaults use the supplied server with an empty API field, and sessions interoperate with compatible official clients. Separate client installation is unnecessary.
+
+Embedded sessions now follow Localist's colors and light/dark mode. Welcome includes the app's feature permissions, with explicit optional elevation/root controls and Android's per-session capture consent. Stream exposes its local Web player alongside network playback. Received history includes media previews, categories, search and sorting; completed Android remote uploads are also published to Download/Localist.
+
+Windows startup, cross-process engine access, transfer progress and receive-batch sounds are corrected. Windows uses software codecs; receiver formats, drivers and OS permissions still determine feature support. See [validation and device-test limits](docs/VALIDATION_6.0.0.md).
+
+## [5.0.10] — embedded Remote Control
+
+Remote Control now includes its native engine and full session interface on Windows and Android, with no separate client installation. It is visible in Debug and Release; full preferences open through Localist Settings. Android includes all three native ABIs and capture/input/audio/clipboard services. Windows uses an isolated Localist engine identity.
+
+Corresponding source, licenses and build/verification tools are included. This build has not been published. See [validation and device-test limits](docs/VALIDATION_5.0.10.md).
+
+The identity card now formats the local ID and offers separate Copy ID, Copy
+password and Copy connection actions. On the destination, Paste & connect
+validates the payload, fills both fields and starts the requested session;
+passwords are kept out of profile settings.
+
+## [5.0.9] — local debug build
+
+Adds multi-device web transfers, a gallery/history redesign, Stream with local browser/DLNA playback, Android Downloads storage and selected-label navigation. Fixes Windows startup, progress accounting and repeated receive sounds. Remote launches the official RustDesk companion and is visible only in debug builds; the complete embedded port is not finished. TV codecs, Miracast and hosted Wi-Fi need compatible hardware and real-device validation.
+
+This build has not been published as a GitHub Release. See [validation and manual test checklist](docs/VALIDATION_5.0.9.md).
+
 ## [5.0.8]
 ✨ Makes background Quick Send alerts reliable, adds subtle event sounds, and completes the device-profile experience.
 

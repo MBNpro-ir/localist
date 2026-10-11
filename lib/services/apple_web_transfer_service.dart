@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
@@ -11,6 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'log_service.dart';
 import 'native_bridge_service.dart';
 import 'quick_send_service.dart';
+import 'http_file_stream.dart';
 
 class AppleWebTransferService extends ChangeNotifier {
   AppleWebTransferService._() {
@@ -25,6 +27,22 @@ class AppleWebTransferService extends ChangeNotifier {
   final QuickSendService _quickSend = QuickSendService.instance;
   final LogService _logs = LogService.instance;
   final Map<String, _BrowserSharedFile> _sharedFiles = {};
+  final Map<String, _WebPeer> _webPeers = {};
+  final Map<String, _BrowserSharedFile> _inboxFiles = {};
+  final Map<String, String> _inboxOwners = {};
+  final Map<String, String> _inboxSenders = {};
+  final Map<String, _BrowserDownload> _downloadTransfers = {};
+  final Set<String> _uploadingPeers = {};
+  final Map<String, Set<int>> _finishedBatches = {};
+  final Map<String, DateTime> _batchActivity = {};
+  Directory? _relayDirectory;
+  String? _webHtml;
+  int _relayBytes = 0;
+  List<Map<String, String>> get browserDevices => [
+    for (final peer in _webPeers.values)
+      if (DateTime.now().difference(peer.lastSeen).inSeconds < 35)
+        {'id': peer.id, 'name': peer.name, 'platform': peer.platform},
+  ];
 
   HttpServer? _server;
   Timer? _addressRefreshTimer;
@@ -193,6 +211,10 @@ class AppleWebTransferService extends ChangeNotifier {
       }
 
       _sessionToken = _randomToken(length: 18);
+      _webHtml = await rootBundle.loadString('assets/web_transfer.html');
+      _relayDirectory = await Directory.systemTemp.createTemp(
+        'localist-relay-',
+      );
       try {
         _server = await HttpServer.bind(
           InternetAddress.anyIPv4,
@@ -277,13 +299,35 @@ class AppleWebTransferService extends ChangeNotifier {
     _sessionToken = '';
     await _closeServer();
     if (stopManagedHotspot) {
-      await _bridge.stopLocalOnlyHotspot();
+      if (Platform.isWindows) {
+        await _bridge.stopWindowsLocalNetwork();
+      } else {
+        await _bridge.stopLocalOnlyHotspot();
+      }
     }
     notifyListeners();
   }
 
   Future<void> disposeService() async {
     await stop();
+  }
+
+  Future<void> createWindowsLocalNetwork() async {
+    if (!Platform.isWindows || _starting || _managedHotspot) return;
+    _starting = true;
+    notifyListeners();
+    try {
+      final info = await _bridge.startWindowsLocalNetwork();
+      _managedHotspot = info.active && info.managed;
+      _hotspotSsid = info.ssid;
+      _hotspotPassword = info.password;
+      _statusMessage = info.active ? info.message : _statusMessage;
+      _errorMessage = info.active ? '' : info.message;
+      await _refreshAddresses();
+    } finally {
+      _starting = false;
+      notifyListeners();
+    }
   }
 
   Future<bool> _ensureHotspotPermission() async {
@@ -302,6 +346,7 @@ class AppleWebTransferService extends ChangeNotifier {
   }
 
   Future<void> _refreshAddresses() async {
+    _expirePendingTransfers();
     if (!_active) {
       return;
     }
@@ -360,6 +405,28 @@ class AppleWebTransferService extends ChangeNotifier {
     _addressRefreshTimer = null;
     await _server?.close(force: true);
     _server = null;
+    _webPeers.clear();
+    _inboxFiles.clear();
+    _inboxOwners.clear();
+    _inboxSenders.clear();
+    _finishedBatches.clear();
+    _batchActivity.clear();
+    for (final download in _downloadTransfers.values) {
+      _quickSend.updateBrowserTransfer(
+        download.id,
+        download.sent,
+        state: QuickSendTransferState.failed,
+        message: 'Browser server stopped before receipt confirmation.',
+      );
+    }
+    _downloadTransfers.clear();
+    _relayBytes = 0;
+    if (_relayDirectory != null) {
+      await _relayDirectory!
+          .delete(recursive: true)
+          .catchError((_) => _relayDirectory!);
+      _relayDirectory = null;
+    }
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
@@ -372,7 +439,7 @@ class AppleWebTransferService extends ChangeNotifier {
         'Content-Security-Policy',
         "default-src 'self'; style-src 'unsafe-inline'; "
             "script-src 'unsafe-inline'; form-action 'self'; "
-            "frame-ancestors 'none'",
+            "img-src 'self' blob:; media-src 'self' blob:; frame-ancestors 'none'",
       );
     try {
       if (request.uri.path == '/favicon.ico') {
@@ -392,6 +459,24 @@ class AppleWebTransferService extends ChangeNotifier {
       }
       if (request.uri.path == '/$_sessionToken/') {
         await _writeHomePage(request);
+        return;
+      }
+      if (segments.length == 2 &&
+          segments[1] == 'join' &&
+          request.method == 'POST') {
+        await _joinPeer(request);
+        return;
+      }
+      if (segments.length == 2 &&
+          segments[1] == 'upload-file' &&
+          request.method == 'POST') {
+        await _receivePeerFile(request);
+        return;
+      }
+      if (segments.length == 2 &&
+          segments[1] == 'receipt' &&
+          request.method == 'POST') {
+        _receiveDownloadReceipt(request);
         return;
       }
       if (segments.length == 2 && segments[1] == 'state') {
@@ -431,23 +516,32 @@ class AppleWebTransferService extends ChangeNotifier {
     } catch (error, stack) {
       _logs.warning('Apple / Mac web request failed: $error');
       _logs.debug('Apple / Mac web request stack.', error: error, stack: stack);
-      response.statusCode = HttpStatus.internalServerError;
-      response.headers.contentType = ContentType.text;
-      response.write('Transfer failed: $error');
+      try {
+        response.statusCode = HttpStatus.internalServerError;
+        response.headers.contentType = ContentType.text;
+        response.write('Transfer failed: $error');
+      } catch (_) {
+        /* The peer may have disconnected after headers. */
+      }
     } finally {
-      await response.close();
+      try {
+        await response.close();
+      } catch (_) {
+        /* Closed by peer. */
+      }
     }
   }
 
   Future<void> _writeHomePage(HttpRequest request) async {
-    final uploaded = int.tryParse(
-      request.uri.queryParameters['uploaded'] ?? '',
-    );
     request.response.headers.contentType = ContentType.html;
-    request.response.write(_homePageHtml(uploaded: uploaded));
+    request.response.write(
+      (_webHtml ?? '').replaceAll('__BASE__', '/$_sessionToken/'),
+    );
   }
 
   void _writeSharedState(HttpRequest request) {
+    final peer = _peerFor(request);
+    if (peer != null) peer.lastSeen = DateTime.now();
     final payload = utf8.encode(
       jsonEncode({
         'files': [
@@ -458,9 +552,38 @@ class AppleWebTransferService extends ChangeNotifier {
               'size': file.size,
               'sizeLabel': _formatBytes(file.size),
               'url': '/$_sessionToken/download/${file.id}',
+              'mimeType': file.mimeType,
             },
         ],
         'text': _selectedText,
+        'host': _quickSend.settings?.alias ?? 'Localist',
+        'devices': [
+          {
+            'id': 'host',
+            'name': _quickSend.settings?.alias ?? 'Localist',
+            'platform': Platform.operatingSystem,
+          },
+          ...browserDevices,
+          for (final device in _quickSend.devices)
+            {
+              'id': 'app:${device.id}',
+              'name': device.alias,
+              'platform': device.deviceType,
+            },
+        ],
+        'inbox': [
+          for (final file in _inboxFiles.values)
+            if (peer != null && _inboxOwners[file.id] == peer.id)
+              {
+                'id': file.id,
+                'name': file.name,
+                'size': file.size,
+                'sizeLabel': _formatBytes(file.size),
+                'mimeType': file.mimeType,
+                'sender': _inboxSenders[file.id],
+                'url': '/$_sessionToken/download/${file.id}',
+              },
+        ],
       }),
     );
     request.response.headers.contentType = ContentType.json;
@@ -469,7 +592,10 @@ class AppleWebTransferService extends ChangeNotifier {
   }
 
   Future<void> _sendSharedFile(HttpRequest request, String id) async {
-    final shared = _sharedFiles[id];
+    final peer = _peerFor(request);
+    final shared =
+        _sharedFiles[id] ??
+        (peer != null && _inboxOwners[id] == peer.id ? _inboxFiles[id] : null);
     if (shared == null) {
       request.response.statusCode = HttpStatus.notFound;
       request.response.write('File not found');
@@ -482,12 +608,64 @@ class AppleWebTransferService extends ChangeNotifier {
       return;
     }
     final response = request.response;
+    if (request.uri.queryParameters['inline'] == '1') {
+      await serveMediaFile(request, file, shared.name);
+      return;
+    }
     response.headers
       ..contentType = ContentType.parse(shared.mimeType)
       ..contentLength = await file.length()
       ..set('content-disposition', _contentDisposition(shared.name));
     if (request.method == 'GET') {
-      await response.addStream(file.openRead());
+      if (peer == null) {
+        await response.addStream(file.openRead());
+      } else {
+        final key = '${peer.id}:$id';
+        if (_downloadTransfers.containsKey(key)) {
+          response.statusCode = HttpStatus.conflict;
+          response.contentLength = 0;
+          return;
+        }
+        final transferId = _quickSend.beginBrowserTransfer(
+          deviceName: peer.name,
+          fileName: shared.name,
+          path: '',
+          totalBytes: shared.size,
+          direction: QuickSendDirection.sending,
+        );
+        final pendingDownload = _BrowserDownload(transferId, shared.size);
+        _downloadTransfers['${peer.id}:$id'] = pendingDownload;
+        var sent = 0;
+        var lastReported = 0;
+        var lastReportAt = DateTime.now();
+        try {
+          await response.addStream(
+            file.openRead().map((chunk) {
+              sent += chunk.length;
+              pendingDownload.sent = sent;
+              pendingDownload.lastActivity = DateTime.now();
+              if (sent - lastReported >= 256 * 1024 ||
+                  sent == shared.size ||
+                  DateTime.now().difference(lastReportAt).inMilliseconds >=
+                      250) {
+                lastReported = sent;
+                lastReportAt = DateTime.now();
+                _quickSend.updateBrowserTransfer(transferId, sent);
+              }
+              return chunk;
+            }),
+          );
+        } catch (error) {
+          _downloadTransfers.remove(key);
+          _quickSend.updateBrowserTransfer(
+            transferId,
+            sent,
+            state: QuickSendTransferState.failed,
+            message: '$error',
+          );
+          rethrow;
+        }
+      }
     }
   }
 
@@ -554,173 +732,269 @@ class AppleWebTransferService extends ChangeNotifier {
     if (uploaded == 0) {
       throw const FormatException('No file was selected.');
     }
+    _quickSend.completeBrowserBatch();
     return uploaded;
   }
 
-  String _homePageHtml({int? uploaded}) {
-    final alias = _htmlEscape(_quickSend.settings?.alias ?? 'Localist device');
-    final status = uploaded == null
-        ? ''
-        : '<div class="success">${uploaded == 1 ? 'File' : '$uploaded files'} '
-              'received by $alias.</div>';
-    final downloads = _sharedFiles.isEmpty
-        ? '<p class="muted">No Android files are selected yet. You can still '
-              'send files to the Android device below.</p>'
-        : _sharedFiles.values.map((file) {
-            final name = _htmlEscape(file.name);
-            final size = _formatBytes(file.size);
-            return '<a class="file" href="/$_sessionToken/download/${file.id}">'
-                '<span><strong>$name</strong><small>$size</small></span>'
-                '<b>Download</b></a>';
-          }).join();
-    final selectedText = _htmlEscape(_selectedText);
-    final selectedTextHidden = _selectedText.isEmpty ? ' hidden' : '';
-    return '''<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#6750a4">
-  <title>Localist Web Transfer</title>
-  <style>
-    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont,
-      "Segoe UI", sans-serif; background:#f7f2fa; color:#211f26; }
-    * { box-sizing:border-box; }
-    body { margin:0; min-height:100vh; background:linear-gradient(160deg,#f7f2fa,#eee8f4);
-      padding:max(22px,env(safe-area-inset-top)) 16px max(28px,env(safe-area-inset-bottom)); }
-    main { width:min(680px,100%); margin:auto; }
-    header,section { background:rgba(255,255,255,.88); border:1px solid #ded8e2;
-      border-radius:24px; padding:22px; margin-bottom:14px; box-shadow:0 12px 32px #3b2f4a16; }
-    h1 { margin:0 0 8px; font-size:28px; } h2 { margin:0 0 14px; font-size:20px; }
-    p { line-height:1.5; } .muted,small { color:#69636d; }
-    .badge { display:inline-flex; align-items:center; gap:7px; padding:7px 11px;
-      border-radius:99px; background:#e9ddff; color:#3f236f; font-weight:700; }
-    .success { margin:0 0 14px; padding:12px 14px; border-radius:14px;
-      background:#d9f8df; color:#135b25; font-weight:700; }
-    .file { display:flex; align-items:center; justify-content:space-between; gap:12px;
-      text-decoration:none; color:inherit; padding:14px 0; border-bottom:1px solid #e5dfe8; }
-    .file:last-child { border-bottom:0; } .file span { min-width:0; display:grid; gap:4px; }
-    .file strong { overflow-wrap:anywhere; } .file b { color:#6750a4; white-space:nowrap; }
-    label.upload { display:grid; place-items:center; min-height:120px; padding:18px;
-      border:2px dashed #8069a8; border-radius:18px; text-align:center; cursor:pointer; }
-    input[type=file] { width:100%; margin-top:12px; }
-    button { width:100%; border:0; border-radius:16px; padding:14px 18px; margin-top:14px;
-      background:#6750a4; color:white; font:inherit; font-weight:800; cursor:pointer; }
-    button:disabled { opacity:.65; } [hidden] { display:none !important; }
-    pre { white-space:pre-wrap; overflow-wrap:anywhere;
-      background:#f2ecf5; border-radius:14px; padding:14px; }
-    footer { text-align:center; color:#69636d; font-size:13px; padding:10px; }
-    @media (prefers-color-scheme:dark) {
-      :root { background:#151218; color:#eee8f0; } body { background:#151218; }
-      header,section { background:#211d24; border-color:#3b343f; box-shadow:none; }
-      .muted,small,footer { color:#bdb5c2; } .badge { background:#493565; color:#eadcff; }
-      .file { border-color:#3b343f; } .file b { color:#d5baff; }
-      pre { background:#2b2530; } .success { background:#173e22; color:#a9efb8; }
-    }
-  </style>
-</head>
-<body>
-<main>
-  <header>
-    <span class="badge">● Direct local connection</span>
-    <h1>Localist Web Transfer</h1>
-    <p class="muted">Transfer files directly between this browser and $alias.
-      Files stay on the local hotspot or Wi-Fi network.</p>
-  </header>
-  $status
-  <section>
-    <h2>Download from Android</h2>
-    <div id="download-list" aria-live="polite">$downloads</div>
-  </section>
-  <section id="shared-text-section"$selectedTextHidden>
-    <h2>Shared text</h2>
-    <pre id="shared-text">$selectedText</pre>
-  </section>
-  <section>
-    <h2>Send to Android</h2>
-    <form action="/$_sessionToken/upload" method="post" enctype="multipart/form-data"
-      onsubmit="this.querySelector('button').disabled=true;
-      this.querySelector('button').textContent='Uploading…';">
-      <label class="upload">
-        <strong>Choose files from iPhone, iPad, or Mac</strong>
-        <span class="muted">Multiple files are supported.</span>
-        <input type="file" name="files" multiple required>
-      </label>
-      <button type="submit">Upload to Localist</button>
-    </form>
-  </section>
-  <footer>Keep Localist open until every transfer finishes.</footer>
-</main>
-<script>
-(function () {
-  const stateUrl = '/$_sessionToken/state';
-  const downloadList = document.getElementById('download-list');
-  const textSection = document.getElementById('shared-text-section');
-  const sharedText = document.getElementById('shared-text');
-  let lastSignature = '';
+  _WebPeer? _peerFor(HttpRequest request) {
+    final peer = _webPeers[request.uri.queryParameters['peer']];
+    return peer != null && peer.secret == request.uri.queryParameters['key']
+        ? peer
+        : null;
+  }
 
-  function renderDownloads(files) {
-    downloadList.textContent = '';
-    if (!files.length) {
-      const empty = document.createElement('p');
-      empty.className = 'muted';
-      empty.textContent = 'No Android files are selected yet. You can still send files to the Android device below.';
-      downloadList.appendChild(empty);
+  Future<void> _joinPeer(HttpRequest request) async {
+    if (_webPeers.length >= 64) {
+      request.response.statusCode = HttpStatus.serviceUnavailable;
       return;
     }
-    files.forEach(function (file) {
-      const link = document.createElement('a');
-      link.className = 'file';
-      link.href = String(file.url || '#');
-
-      const label = document.createElement('span');
-      const name = document.createElement('strong');
-      name.textContent = String(file.name || 'File');
-      const size = document.createElement('small');
-      size.textContent = String(file.sizeLabel || '');
-      label.appendChild(name);
-      label.appendChild(size);
-
-      const action = document.createElement('b');
-      action.textContent = 'Download';
-      link.appendChild(label);
-      link.appendChild(action);
-      downloadList.appendChild(link);
-    });
+    if (request.contentLength > 4096) {
+      throw const FormatException('Profile too large');
+    }
+    final bytes = <int>[];
+    await for (final chunk in request.timeout(const Duration(seconds: 15))) {
+      bytes.addAll(chunk);
+      if (bytes.length > 4096) throw const FormatException('Profile too large');
+    }
+    final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+    final name = (data['name'] as String? ?? 'Browser').trim();
+    if (name.isEmpty || name.length > 64) {
+      throw const FormatException('Invalid device name');
+    }
+    final platform = (data['platform'] as String? ?? 'Web').substring(
+      0,
+      min(32, (data['platform'] as String? ?? 'Web').length),
+    );
+    final peer = _WebPeer(
+      _randomToken(),
+      _randomToken(length: 18),
+      name,
+      platform,
+    );
+    _webPeers[peer.id] = peer;
+    request.response.headers.contentType = ContentType.json;
+    request.response.write(jsonEncode({'id': peer.id, 'key': peer.secret}));
+    notifyListeners();
   }
 
-  function renderState(state) {
-    const files = Array.isArray(state.files) ? state.files : [];
-    const text = typeof state.text === 'string' ? state.text : '';
-    renderDownloads(files);
-    sharedText.textContent = text;
-    textSection.hidden = !text;
+  void _receiveDownloadReceipt(HttpRequest request) {
+    final peer = _peerFor(request);
+    final id = request.uri.queryParameters['file'];
+    final bytes = int.tryParse(request.uri.queryParameters['bytes'] ?? '');
+    final transfer = peer == null ? null : _downloadTransfers['${peer.id}:$id'];
+    if (transfer == null ||
+        bytes != transfer.size ||
+        transfer.sent != transfer.size) {
+      request.response.statusCode = HttpStatus.badRequest;
+      return;
+    }
+    _quickSend.updateBrowserTransfer(
+      transfer.id,
+      bytes!,
+      state: QuickSendTransferState.completed,
+    );
+    _downloadTransfers.remove('${peer!.id}:$id');
+    request.response.statusCode = HttpStatus.noContent;
   }
 
-  async function refreshSharedContent() {
+  Future<void> _receivePeerFile(HttpRequest request) async {
+    final peer = _peerFor(request);
+    if (peer == null) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      return;
+    }
+    if (!_uploadingPeers.add(peer.id)) {
+      request.response.statusCode = HttpStatus.conflict;
+      return;
+    }
+    String? transfer;
+    File? partial;
+    File? relayFile;
+    var reserved = 0;
+    var keptInInbox = false;
+    final token = _sessionToken;
+    var received = 0;
     try {
-      const response = await fetch(stateUrl, {cache: 'no-store'});
-      if (!response.ok) return;
-      const state = await response.json();
-      const signature = JSON.stringify(state);
-      if (signature === lastSignature) return;
-      lastSignature = signature;
-      renderState(state);
-    } catch (_) {
-      // The hotspot can briefly pause while Safari changes network routes.
+      final q = request.uri.queryParameters;
+      final name = QuickSendService.sanitizeFileName(q['name'] ?? 'file');
+      final size = int.tryParse(q['size'] ?? '') ?? -1;
+      final target = q['target'] ?? 'host';
+      final batch = q['batch'] ?? '';
+      final count = int.tryParse(q['count'] ?? '') ?? 1;
+      final index = int.tryParse(q['index'] ?? '') ?? 0;
+      if (size < 0 ||
+          (request.contentLength >= 0 && request.contentLength != size) ||
+          count < 1 ||
+          count > 500 ||
+          index < 0 ||
+          index >= count ||
+          batch.length > 80) {
+        throw const FormatException('Invalid file metadata');
+      }
+      if (target != 'host' &&
+          !target.startsWith('app:') &&
+          !_webPeers.containsKey(target)) {
+        throw const FormatException('Destination disconnected');
+      }
+      if (target != 'host' &&
+          (size > 4 * 1024 * 1024 * 1024 ||
+              _relayBytes + size > 8 * 1024 * 1024 * 1024)) {
+        throw const FileSystemException('Relay storage limit reached');
+      }
+      if (target != 'host') {
+        reserved = size;
+        _relayBytes += size;
+      }
+      final mime = lookupMimeType(name) ?? 'application/octet-stream';
+      final destination = target == 'host'
+          ? await _quickSend.createReceivedFile(name, mime)
+          : File(p.join(_relayDirectory!.path, _randomToken()));
+      if (target != 'host') relayFile = destination;
+      partial = File('${destination.path}.part-${_randomToken()}');
+      transfer = _quickSend.beginBrowserTransfer(
+        deviceName: peer.name,
+        fileName: name,
+        path: target == 'host' ? destination.path : '',
+        totalBytes: size,
+      );
+      var lastReported = 0;
+      var lastReportAt = DateTime.now();
+      final sink = partial.openWrite();
+      try {
+        await sink.addStream(
+          request.timeout(const Duration(minutes: 2)).map((chunk) {
+            received += chunk.length;
+            if (received > size) throw const FormatException('Too many bytes');
+            peer.lastSeen = DateTime.now();
+            if (received - lastReported >= 256 * 1024 ||
+                received == size ||
+                DateTime.now().difference(lastReportAt).inMilliseconds >= 250) {
+              lastReported = received;
+              lastReportAt = DateTime.now();
+              _quickSend.updateBrowserTransfer(transfer!, received);
+            }
+            return chunk;
+          }),
+        );
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      if (received != size) throw const FormatException('Incomplete upload');
+      if (token != _sessionToken || !_active) {
+        throw const HttpException('Browser server stopped');
+      }
+      await partial.rename(destination.path);
+      partial = null;
+      if (target.startsWith('app:')) {
+        final device = _quickSend.devices
+            .where((d) => 'app:${d.id}' == target)
+            .firstOrNull;
+        if (device == null) {
+          throw const FormatException('Localist device disconnected');
+        }
+        try {
+          await _quickSend.sendFiles(
+            device,
+            [destination.path],
+            offeredNames: {destination.path: name},
+          );
+        } finally {
+          await destination.delete();
+        }
+      } else if (target != 'host') {
+        final fileId = _randomToken();
+        _inboxFiles[fileId] = _BrowserSharedFile(
+          id: fileId,
+          path: destination.path,
+          name: name,
+          size: size,
+          mimeType: mime,
+        );
+        _inboxOwners[fileId] = target;
+        _inboxSenders[fileId] = peer.name;
+        keptInInbox = true;
+      }
+      if (token != _sessionToken || !_active) {
+        throw const HttpException('Browser server stopped');
+      }
+      _quickSend.updateBrowserTransfer(
+        transfer,
+        received,
+        state: QuickSendTransferState.completed,
+        message: target == 'host'
+            ? ''
+            : 'Uploaded to host relay; destination must download.',
+      );
+      final finished = _finishedBatches.putIfAbsent(
+        '${peer.id}:$batch',
+        () => <int>{},
+      );
+      finished.add(index);
+      _batchActivity['${peer.id}:$batch'] = DateTime.now();
+      if (finished.length == count) {
+        _finishedBatches.remove('${peer.id}:$batch');
+        _batchActivity.remove('${peer.id}:$batch');
+        _quickSend.completeBrowserBatch();
+      }
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'received': received, 'name': name}));
+      notifyListeners();
+    } catch (error) {
+      if (partial != null && await partial.exists()) await partial.delete();
+      if (transfer != null) {
+        _quickSend.updateBrowserTransfer(
+          transfer,
+          received,
+          state: QuickSendTransferState.failed,
+          message: '$error',
+        );
+      }
+      rethrow;
+    } finally {
+      if (!keptInInbox && relayFile != null && await relayFile.exists()) {
+        await relayFile.delete();
+      }
+      if (!keptInInbox && token == _sessionToken) _relayBytes -= reserved;
+      _uploadingPeers.remove(peer.id);
     }
   }
 
-  refreshSharedContent();
-  window.setInterval(refreshSharedContent, 1000);
-  window.addEventListener('pageshow', refreshSharedContent);
-  document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) refreshSharedContent();
-  });
-}());
-</script>
-</body>
-</html>''';
+  void _expirePendingTransfers() {
+    final now = DateTime.now();
+    final expired = _downloadTransfers.entries
+        .where(
+          (entry) =>
+              now.difference(entry.value.lastActivity) >
+              const Duration(minutes: 10),
+        )
+        .toList();
+    for (final entry in expired) {
+      _downloadTransfers.remove(entry.key);
+      _quickSend.updateBrowserTransfer(
+        entry.value.id,
+        entry.value.sent,
+        state: QuickSendTransferState.failed,
+        message: 'Browser did not confirm receipt; retry receiving this file.',
+      );
+    }
+    final staleBatches = _batchActivity.entries
+        .where(
+          (entry) => now.difference(entry.value) > const Duration(hours: 2),
+        )
+        .map((e) => e.key)
+        .toList();
+    for (final key in staleBatches) {
+      _batchActivity.remove(key);
+      _finishedBatches.remove(key);
+    }
+    // Expire idle profiles only after a generous reconnect window.
+    _webPeers.removeWhere(
+      (key, peer) =>
+          !_uploadingPeers.contains(key) &&
+          !_inboxOwners.containsValue(key) &&
+          now.difference(peer.lastSeen) > const Duration(hours: 2),
+    );
   }
 
   static String buildWifiQrPayload({
@@ -747,7 +1021,6 @@ class AppleWebTransferService extends ChangeNotifier {
   @visibleForTesting
   static bool isUsableNetworkAddress(String value) => _isPrivateIpv4(value);
 
-  @visibleForTesting
   static bool isIgnoredNetworkInterface(String value) =>
       _isIgnoredInterface(value);
 
@@ -787,10 +1060,6 @@ class AppleWebTransferService extends ChangeNotifier {
         "filename*=UTF-8''${Uri.encodeComponent(p.basename(fileName))}";
   }
 
-  static String _htmlEscape(String value) {
-    return const HtmlEscape(HtmlEscapeMode.element).convert(value);
-  }
-
   static bool _isPrivateIpv4(String value) {
     final parts = value.split('.').map(int.tryParse).toList();
     if (parts.length != 4 || parts.any((part) => part == null)) {
@@ -806,7 +1075,7 @@ class AppleWebTransferService extends ChangeNotifier {
   static bool _isIgnoredInterface(String value) {
     final name = value.toLowerCase();
     return name == 'lo' ||
-        name.startsWith('lo') ||
+        RegExp(r'^lo\d+$').hasMatch(name) ||
         name.startsWith('tun') ||
         name.startsWith('tap') ||
         name.startsWith('utun') ||
@@ -911,4 +1180,21 @@ class _InterfaceAddress {
 
   final String interfaceName;
   final String address;
+}
+
+class _WebPeer {
+  _WebPeer(this.id, this.secret, this.name, this.platform);
+  final String id;
+  final String secret;
+  final String name;
+  final String platform;
+  DateTime lastSeen = DateTime.now();
+}
+
+class _BrowserDownload {
+  _BrowserDownload(this.id, this.size);
+  final String id;
+  final int size;
+  int sent = 0;
+  DateTime lastActivity = DateTime.now();
 }

@@ -10,6 +10,9 @@
 #include <flutter/method_channel.h>
 
 constexpr UINT kLocalistApplyUpdateMessage = WM_APP + 73;
+constexpr UINT kLocalistRestartElevatedMessage = WM_APP + 74;
+
+void MarkLocalistCleanExit();
 
 std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
 CreateLocalistMethodChannel(flutter::BinaryMessenger* messenger, HWND window);

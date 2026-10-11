@@ -1,0 +1,33 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <application>
+        <activity android:name="com.carriez.flutter_hbb.RemoteActivity"
+            android:exported="false" android:launchMode="singleTop"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|navigation"
+            android:theme="@style/RemoteLaunchTheme" android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize" />
+        <activity android:name="com.carriez.flutter_hbb.PermissionRequestTransparentActivity"
+            android:exported="false" android:excludeFromRecents="true"
+            android:theme="@style/Transparent" />
+        <service android:name="com.carriez.flutter_hbb.MainService"
+            android:exported="false" android:foregroundServiceType="specialUse|mediaProjection|microphone">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="@string/foreground_service_special_use_subtype" />
+        </service>
+        <service android:name="com.carriez.flutter_hbb.InputService"
+            android:exported="false" android:label="Localist Input"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service_config" />
+        </service>
+        <service android:name="com.carriez.flutter_hbb.FloatingWindowService" android:exported="false" />
+        <receiver android:name="com.carriez.flutter_hbb.BootReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+        </receiver>
+    </application>
+</manifest>

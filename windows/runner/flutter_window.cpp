@@ -7,6 +7,7 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "windows_native_bridge.h"
+#include <desktop_multi_window/desktop_multi_window_plugin.h>
 
 namespace {
 
@@ -30,8 +31,8 @@ std::string WideToUtf8(const std::wstring& value) {
 
 }  // namespace
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project, bool show_on_first_frame)
+    : project_(project), show_on_first_frame_(show_on_first_frame) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -51,6 +52,10 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  DesktopMultiWindowSetWindowCreatedCallback([](void* controller) {
+    auto* view = reinterpret_cast<flutter::FlutterViewController*>(controller);
+    RegisterPlugins(view->engine());
+  });
   method_channel_ = CreateLocalistMethodChannel(
       flutter_controller_->engine()->messenger(), GetHandle());
   flutter_view_window_ = flutter_controller_->view()->GetNativeWindow();
@@ -75,7 +80,7 @@ bool FlutterWindow::OnCreate() {
   }
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    if (show_on_first_frame_) this->Show();
   });
 
   // Flutter can complete the first frame before the "show window" callback is
@@ -116,7 +121,15 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     return 0;
   }
 
-  if (message == kLocalistApplyUpdateMessage) {
+  if (message == WM_QUERYENDSESSION) return TRUE;
+  if (message == WM_ENDSESSION && wparam) {
+    MarkLocalistCleanExit();
+    ::DestroyWindow(hwnd);
+    return 0;
+  }
+
+  if (message == kLocalistApplyUpdateMessage ||
+      message == kLocalistRestartElevatedMessage) {
     // The updater already has a private copy of itself. Closing the window
     // terminates this process so it can atomically replace the bundle.
     ::DestroyWindow(hwnd);

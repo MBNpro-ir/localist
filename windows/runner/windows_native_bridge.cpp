@@ -9,6 +9,10 @@
 #include <shellapi.h>
 #include <wininet.h>
 #include <windows.h>
+#include <wlanapi.h>
+#include <shobjidl.h>
+#include <wincodec.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <iomanip>
@@ -146,9 +150,15 @@ bool LaunchElevatedSelf(HWND window) {
   if (length == 0 || length >= MAX_PATH) {
     return false;
   }
-  HINSTANCE result = ShellExecuteW(window, L"runas", path, L"--enable-admin",
+  const std::wstring arguments = L"--enable-admin --wait-for-pid=" +
+      std::to_wstring(GetCurrentProcessId());
+  HINSTANCE result = ShellExecuteW(window, L"runas", path, arguments.c_str(),
                                    nullptr, SW_SHOWNORMAL);
-  return reinterpret_cast<intptr_t>(result) > 32;
+  const bool launched = reinterpret_cast<intptr_t>(result) > 32;
+  // The elevated replacement waits for this process before taking the mutex.
+  // Cancellation of the UAC prompt leaves the current instance untouched.
+  if (launched) PostMessageW(window, kLocalistRestartElevatedMessage, 0, 0);
+  return launched;
 }
 
 bool OpenUri(HWND window, const std::string& uri) {
@@ -196,7 +206,7 @@ bool SetLaunchAtStartup(bool enabled) {
         HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName);
     return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
   }
-  const std::wstring command = QuoteArgument(GetModulePath());
+  const std::wstring command = QuoteArgument(GetModulePath()) + L" --startup";
   return RegSetKeyValueW(
              HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName, REG_SZ,
              command.c_str(),
@@ -210,8 +220,144 @@ bool GetLaunchAtStartup() {
   const LSTATUS status =
       RegGetValueW(HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName,
                    RRF_RT_REG_SZ, nullptr, value, &size);
+  const std::wstring command = QuoteArgument(GetModulePath());
   return status == ERROR_SUCCESS &&
-         _wcsicmp(value, QuoteArgument(GetModulePath()).c_str()) == 0;
+         (_wcsicmp(value, command.c_str()) == 0 ||
+          _wcsicmp(value, (command + L" --startup").c_str()) == 0);
+}
+
+HANDLE hosted_network_client = nullptr;
+
+EncodableValue StartWindowsLocalNetwork() {
+  EncodableMap map;
+  map[EncodableValue("supported")] = EncodableValue(false);
+  map[EncodableValue("active")] = EncodableValue(false);
+  map[EncodableValue("managed")] = EncodableValue(false);
+  HANDLE client = nullptr;
+  DWORD version = 0;
+  DWORD error = WlanOpenHandle(2, nullptr, &version, &client);
+  WLAN_HOSTED_NETWORK_REASON reason = wlan_hosted_network_reason_unspecified;
+  if (error == ERROR_SUCCESS) {
+    error = WlanHostedNetworkInitSettings(client, &reason, nullptr);
+  }
+  if (error == ERROR_SUCCESS) {
+    BOOL enabled = TRUE;
+    error = WlanHostedNetworkSetProperty(client,
+        wlan_hosted_network_opcode_enable, sizeof(enabled), &enabled, &reason, nullptr);
+  }
+  if (error == ERROR_SUCCESS) {
+    map[EncodableValue("supported")] = EncodableValue(true);
+    GUID guid{};
+    CoCreateGuid(&guid);
+    wchar_t guid_text[40] = {};
+    StringFromGUID2(guid, guid_text, 40);
+    std::wstring key;
+    for (const wchar_t c : std::wstring(guid_text)) {
+      if (iswxdigit(c)) key.push_back(c);
+    }
+    const std::string password = WideToUtf8(key.substr(0, 24));
+    const std::string ssid = "Localist_" + WideToUtf8(key.substr(24, 6));
+    WLAN_HOSTED_NETWORK_CONNECTION_SETTINGS settings{};
+    settings.hostedNetworkSSID.uSSIDLength = static_cast<ULONG>(ssid.size());
+    memcpy(settings.hostedNetworkSSID.ucSSID, ssid.data(), ssid.size());
+    settings.dwMaxNumberOfPeers = 32;
+    error = WlanHostedNetworkSetProperty(client,
+        wlan_hosted_network_opcode_connection_settings, sizeof(settings),
+        &settings, &reason, nullptr);
+    if (error == ERROR_SUCCESS) {
+      error = WlanHostedNetworkSetSecondaryKey(client,
+          static_cast<DWORD>(password.size() + 1),
+          reinterpret_cast<PUCHAR>(const_cast<char*>(password.c_str())),
+          TRUE, FALSE, &reason, nullptr);
+    }
+    if (error == ERROR_SUCCESS) {
+      error = WlanHostedNetworkStartUsing(client, &reason, nullptr);
+    }
+    if (error == ERROR_SUCCESS) {
+      map[EncodableValue("active")] = EncodableValue(true);
+      map[EncodableValue("managed")] = EncodableValue(true);
+      map[EncodableValue("ssid")] = EncodableValue(ssid);
+      map[EncodableValue("password")] = EncodableValue(password);
+      hosted_network_client = client;
+      client = nullptr;
+    }
+  }
+  if (client != nullptr) WlanCloseHandle(client, nullptr);
+  map[EncodableValue("permissionRequired")] = EncodableValue(error == ERROR_ACCESS_DENIED);
+  map[EncodableValue("errorCode")] = EncodableValue(std::to_string(error));
+  map[EncodableValue("message")] = EncodableValue(error == ERROR_SUCCESS
+    ? "Private Windows hosted network created. Connect the other devices to this Wi-Fi."
+    : error == ERROR_ACCESS_DENIED
+    ? "Administrator access is required to configure the hosted network. Reopen Localist as administrator, or use Windows Mobile hotspot settings."
+    : "This Wi-Fi driver cannot start a hosted network (Windows error " + std::to_string(error) +
+      "). Use Mobile hotspot, a router, USB tethering or an access-point-capable Wi-Fi adapter.");
+  return EncodableValue(map);
+}
+
+bool StopWindowsLocalNetwork() {
+  HANDLE client = hosted_network_client;
+  if (client == nullptr) return true;
+  hosted_network_client = nullptr;
+  WLAN_HOSTED_NETWORK_REASON reason = wlan_hosted_network_reason_unspecified;
+  const DWORD error = WlanHostedNetworkStopUsing(client, &reason, nullptr);
+  WlanCloseHandle(client, nullptr);
+  return error == ERROR_SUCCESS;
+}
+
+bool OpenWirelessDisplay() {
+  INPUT input[4] = {};
+  for (auto& event : input) event.type = INPUT_KEYBOARD;
+  input[0].ki.wVk = VK_LWIN;
+  input[1].ki.wVk = 'K';
+  input[2].ki.wVk = 'K'; input[2].ki.dwFlags = KEYEVENTF_KEYUP;
+  input[3].ki.wVk = VK_LWIN; input[3].ki.dwFlags = KEYEVENTF_KEYUP;
+  return SendInput(4, input, sizeof(INPUT)) == 4;
+}
+
+std::vector<uint8_t> MediaThumbnail(const std::string& path) {
+  using Microsoft::WRL::ComPtr;
+  ComPtr<IShellItemImageFactory> factory;
+  const auto wide = Utf8ToWide(path);
+  if (!IsRegularFile(wide) || FAILED(SHCreateItemFromParsingName(
+      wide.c_str(), nullptr, IID_PPV_ARGS(factory.GetAddressOf())))) return {};
+  HBITMAP bitmap = nullptr;
+  if (FAILED(factory->GetImage({320, 180},
+      static_cast<SIIGBF>(SIIGBF_THUMBNAILONLY | SIIGBF_RESIZETOFIT), &bitmap))) return {};
+  ComPtr<IWICImagingFactory> imaging;
+  ComPtr<IWICBitmap> source;
+  ComPtr<IStream> stream;
+  ComPtr<IWICBitmapEncoder> encoder;
+  ComPtr<IWICBitmapFrameEncode> frame;
+  std::vector<uint8_t> data;
+  HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+      CLSCTX_INPROC_SERVER, IID_PPV_ARGS(imaging.GetAddressOf()));
+  if (SUCCEEDED(hr)) hr = imaging->CreateBitmapFromHBITMAP(bitmap, nullptr,
+      WICBitmapUseAlpha, source.GetAddressOf());
+  if (SUCCEEDED(hr)) hr = CreateStreamOnHGlobal(nullptr, TRUE, stream.GetAddressOf());
+  if (SUCCEEDED(hr)) hr = imaging->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.GetAddressOf());
+  if (SUCCEEDED(hr)) hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+  if (SUCCEEDED(hr)) hr = encoder->CreateNewFrame(frame.GetAddressOf(), nullptr);
+  if (SUCCEEDED(hr)) hr = frame->Initialize(nullptr);
+  UINT width = 0, height = 0;
+  if (SUCCEEDED(hr)) hr = source->GetSize(&width, &height);
+  if (SUCCEEDED(hr)) hr = frame->SetSize(width, height);
+  WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+  if (SUCCEEDED(hr)) hr = frame->SetPixelFormat(&format);
+  if (SUCCEEDED(hr)) hr = frame->WriteSource(source.Get(), nullptr);
+  if (SUCCEEDED(hr)) hr = frame->Commit();
+  if (SUCCEEDED(hr)) hr = encoder->Commit();
+  STATSTG stat{};
+  if (SUCCEEDED(hr)) hr = stream->Stat(&stat, STATFLAG_NONAME);
+  if (SUCCEEDED(hr) && stat.cbSize.QuadPart <= 4 * 1024 * 1024) {
+    data.resize(static_cast<size_t>(stat.cbSize.QuadPart));
+    LARGE_INTEGER start{};
+    stream->Seek(start, STREAM_SEEK_SET, nullptr);
+    ULONG read = 0;
+    if (FAILED(stream->Read(data.data(), static_cast<ULONG>(data.size()), &read))) data.clear();
+    else data.resize(read);
+  }
+  DeleteObject(bitmap);
+  return data;
 }
 
 bool PlayAppSound(const std::string& event) {
@@ -555,6 +701,11 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     return;
   }
 
+  if (method == "getMediaThumbnail") {
+    result->Success(EncodableValue(MediaThumbnail(GetStringArgument(arguments, "path"))));
+    return;
+  }
+
   if (method == "setRootRoutingEnabled") {
     const bool enabled = GetBoolArgument(arguments, "enabled", false);
     const bool elevated = IsRunningElevated();
@@ -649,6 +800,80 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     return;
   }
 
+  if (method == "applyRemoteOption") {
+#ifdef _DEBUG
+    const auto key = GetStringArgument(arguments, "key");
+    const auto value = GetStringArgument(arguments, "value");
+    const auto path = Utf8ToWide(GetStringArgument(arguments, "path"));
+    const std::vector<std::string> allowed = {
+      "custom-rendezvous-server", "relay-server", "api-server", "key",
+      "direct-server", "direct-access-port", "enable-lan-discovery",
+      "enable-keyboard", "enable-clipboard", "enable-file-transfer",
+      "enable-audio", "enable-camera", "enable-terminal", "enable-tunnel",
+      "enable-remote-restart", "enable-record-session", "enable-block-input",
+      "enable-privacy-mode", "enable-remote-printer",
+      "allow-remote-config-modification", "enable-hwcodec", "force-always-relay",
+      "allow-always-software-render", "access-mode", "verification-method",
+      "approve-mode", "enable-abr", "allow-remove-wallpaper",
+      "enable-directx-capture", "enable-tcp-punch", "enable-udp-punch",
+      "enable-ipv6-punch", "enable-webrtc", "relay-fallback-delay",
+      "allow-sync-clipboard-between-sessions", "allow-ask-for-note",
+      "allow-monitor-switch-main-toolbar", "allow-websocket",
+      "allow-insecure-tls-fallback", "disable-udp", "whitelist", "id-whitelist",
+      "allow-auto-disconnect", "auto-disconnect-timeout",
+      "keep-awake-during-incoming-sessions", "allow-only-conn-window-open",
+      "keep-awake-during-outgoing-sessions", "allow-auto-update",
+    };
+    const bool safe = IsRegularFile(path) &&
+        std::find(allowed.begin(), allowed.end(), key) != allowed.end() &&
+        value.size() <= 4096 && value.find_first_of("\r\n\0") == std::string::npos;
+    if (!safe) { result->Success(EncodableValue(false)); return; }
+    const std::wstring parameters = L"--option " + QuoteArgument(Utf8ToWide(key)) +
+      L" " + QuoteArgument(Utf8ToWide(value));
+    const auto launched = ShellExecuteW(window, L"runas", path.c_str(), parameters.c_str(),
+      ParentDirectory(path).c_str(), SW_HIDE);
+    result->Success(EncodableValue(reinterpret_cast<intptr_t>(launched) > 32));
+#else
+    result->NotImplemented();
+#endif
+    return;
+  }
+
+  if (method == "applyRustDeskOption") {
+#ifdef _DEBUG
+    const auto key = GetStringArgument(arguments, "key");
+    const auto value = GetStringArgument(arguments, "value");
+    const auto path = Utf8ToWide(GetStringArgument(arguments, "path"));
+    const std::vector<std::string> allowed = {
+      "direct-server", "enable-lan-discovery", "enable-keyboard", "enable-clipboard",
+      "enable-file-transfer", "enable-audio", "enable-camera", "enable-terminal",
+      "enable-tunnel", "enable-remote-restart", "enable-record-session",
+      "enable-block-input", "enable-privacy-mode", "enable-remote-printer",
+      "allow-remote-config-modification", "enable-hwcodec", "force-always-relay",
+      "allow-always-software-render"};
+    if (!IsRegularFile(path) || std::find(allowed.begin(), allowed.end(), key) == allowed.end() ||
+        (value != "Y" && value != "N")) { result->Success(EncodableValue(false)); return; }
+    const std::wstring parameters = L"--option " + Utf8ToWide(key) + L" " + Utf8ToWide(value);
+    const auto launched = ShellExecuteW(window, L"runas", path.c_str(), parameters.c_str(),
+      ParentDirectory(path).c_str(), SW_HIDE);
+    result->Success(EncodableValue(reinterpret_cast<intptr_t>(launched) > 32));
+#else
+    result->NotImplemented();
+#endif
+    return;
+  }
+  if (method == "startWindowsLocalNetwork") {
+    result->Success(StartWindowsLocalNetwork());
+    return;
+  }
+  if (method == "stopWindowsLocalNetwork") {
+    result->Success(EncodableValue(StopWindowsLocalNetwork()));
+    return;
+  }
+  if (method == "openWirelessDisplay") {
+    result->Success(EncodableValue(OpenWirelessDisplay()));
+    return;
+  }
   if (method == "playAppSound") {
     result->Success(
         EncodableValue(PlayAppSound(GetStringArgument(arguments, "event"))));

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:material_you_dynamic_theme/material_you_dynamic_theme.dart';
@@ -16,18 +17,24 @@ import 'models/app_settings.dart';
 import 'models/service_state.dart';
 import 'screens/android_permission_gate.dart';
 import 'screens/logs_page.dart';
+import 'screens/remote_debug_page.dart';
+import 'remote/embedded_remote_app.dart';
+import 'remote/remote_theme.dart';
+import 'package:flutter_hbb/main.dart' as embedded;
 import 'screens/quick_send_page.dart';
 import 'screens/receiving_page.dart';
 import 'screens/settings_page.dart';
 import 'screens/sharing_page.dart';
 import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
+import 'screens/stream_page.dart';
 import 'services/apple_web_transfer_service.dart';
 import 'services/app_update_service.dart';
 import 'services/crash_reporter_service.dart';
 import 'services/log_service.dart';
 import 'services/localist_discovery_service.dart';
 import 'services/localist_peer_service.dart';
+import 'services/media_stream_service.dart';
 import 'services/native_bridge_service.dart';
 import 'services/quick_send_service.dart';
 import 'services/quick_send_settings_exit_guard.dart';
@@ -39,7 +46,20 @@ import 'widgets/quick_send_profile.dart';
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
 const _windowsAdminBootstrapArg = '--enable-admin';
 
+@pragma('vm:entry-point')
+Future<void> remoteMain() => runEmbeddedRemote();
+
 Future<void> main(List<String> args) async {
+  if (Platform.isWindows &&
+      (Platform.resolvedExecutable.toLowerCase().endsWith(
+            'localistremote.exe',
+          ) ||
+          (args.isNotEmpty &&
+              (args.first == 'multi_window' || args.first == '--cm')))) {
+    configureEmbeddedDesktop(host: args.contains('--localist-host'));
+    await embedded.main(args);
+    return;
+  }
   await runZonedGuarded<Future<void>>(
     () async {
       final binding = WidgetsFlutterBinding.ensureInitialized();
@@ -52,7 +72,16 @@ Future<void> main(List<String> args) async {
         if (!useSimpleTheme) {
           await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         }
+        unawaited(
+          LocalistRemoteRuntime.ensureStarted().catchError((
+            Object error,
+            StackTrace stack,
+          ) {
+            LogService.instance.debug('Remote hosting startup failed: $error');
+          }),
+        );
         final settings = await AppSettings.load();
+        if (kDebugMode) await settings.setActiveDebugMode(true);
         LogService.instance.debug(
           'App bootstrap complete platform=${Platform.operatingSystem} version=${Platform.version}',
         );
@@ -144,9 +173,11 @@ class _LocalistAppState extends State<_LocalistApp>
         GlobalCupertinoLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
       ],
-      builder: (context, child) => Theme(
-        data: _modernLocalistTheme(Theme.of(context)),
-        child: child ?? const Offstage(),
+      builder: (context, child) => LocalistRemoteThemePublisher(
+        child: Theme(
+          data: _modernLocalistTheme(Theme.of(context)),
+          child: child ?? const Offstage(),
+        ),
       ),
       debugShowCheckedModeBanner: false,
       themeAnimationDuration: motionStyle.duration ?? Duration.zero,
@@ -178,6 +209,7 @@ ThemeData _modernLocalistTheme(ThemeData base) {
   const panelRadius = 24.0;
   const controlRadius = 18.0;
   return base.copyWith(
+    iconTheme: base.iconTheme.copyWith(color: scheme.onSurface),
     scaffoldBackgroundColor: scheme.surface,
     cardTheme: base.cardTheme.copyWith(
       margin: EdgeInsets.zero,
@@ -338,6 +370,7 @@ class _LocalistShellState extends State<LocalistShell>
   String? _activeQuickSendDialogRequestId;
   final Map<String, QuickSendTransferState> _knownTransferStates = {};
   bool _transferSoundsPrimed = false;
+  int _knownReceiveBatchCompletions = 0;
 
   @override
   void initState() {
@@ -391,6 +424,7 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(_peerService.stop());
     unawaited(_quickSend.disposeService());
     unawaited(_appleWebTransfer.disposeService());
+    unawaited(MediaStreamService.instance.stop());
     _refreshTimer?.cancel();
     _pageController.dispose();
     super.dispose();
@@ -701,6 +735,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     _exitingApplication = true;
+    await LocalistRemoteRuntime.stop();
     try {
       await _bridge.stopRootSharing();
       await _bridge.stopProxyService();
@@ -953,6 +988,7 @@ class _LocalistShellState extends State<LocalistShell>
         ..clear()
         ..addEntries(transfers.map((item) => MapEntry(item.id, item.state)));
       _transferSoundsPrimed = true;
+      _knownReceiveBatchCompletions = _quickSend.receiveBatchCompletions;
       return;
     }
     AppSoundEvent? event;
@@ -962,11 +998,16 @@ class _LocalistShellState extends State<LocalistShell>
         if (transfer.state == QuickSendTransferState.failed) {
           event = AppSoundEvent.failed;
         } else if (transfer.state == QuickSendTransferState.completed &&
+            transfer.direction != QuickSendDirection.receiving &&
             event != AppSoundEvent.failed) {
           event = AppSoundEvent.completed;
         }
       }
       _knownTransferStates[transfer.id] = transfer.state;
+    }
+    if (_quickSend.receiveBatchCompletions != _knownReceiveBatchCompletions) {
+      _knownReceiveBatchCompletions = _quickSend.receiveBatchCompletions;
+      event ??= AppSoundEvent.completed;
     }
     _knownTransferStates.removeWhere(
       (id, _) => !transfers.any((transfer) => transfer.id == id),
@@ -1774,6 +1815,9 @@ class _LocalistShellState extends State<LocalistShell>
           onRefreshDiscovery: _refreshDiscovery,
         ),
       ),
+      KeepAlivePage(child: StreamPage(service: MediaStreamService.instance)),
+      if (Platform.isAndroid || Platform.isWindows)
+        KeepAlivePage(child: const RemoteDebugPage()),
     ];
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -1979,11 +2023,22 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   List<_NavItem> _navItems(AppLocalizations l10n) {
-    return [
+    final items = <_NavItem>[
       const _NavItem('Quick Send', Icons.send_outlined, Icons.send),
       _NavItem(l10n.sharing, Icons.share_outlined, Icons.share),
       _NavItem(l10n.receiving, Icons.qr_code_scanner, Icons.qr_code_2),
+      const _NavItem('Stream', Icons.cast_outlined, Icons.cast),
     ];
+    if (Platform.isAndroid || Platform.isWindows) {
+      items.add(
+        _NavItem(
+          l10n.isPersian ? 'کنترل از راه دور' : 'Remote Control',
+          Icons.desktop_windows_outlined,
+          Icons.desktop_windows,
+        ),
+      );
+    }
+    return items;
   }
 
   Future<void> _openSettings([SettingsSection? section]) async {
@@ -2007,6 +2062,9 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<void> _configureWindowsStartupPreference() async {
     if (!Platform.isWindows || !mounted) return;
+    // A test build must not replace the installed application's Run entry.
+    // The explicit App behavior toggle remains available for startup testing.
+    if (kDebugMode) return;
     if (widget.settings.windowsLaunchAtStartupPrompted) {
       if (widget.settings.windowsLaunchAtStartup) {
         await _bridge.setWindowsLaunchAtStartup(true);

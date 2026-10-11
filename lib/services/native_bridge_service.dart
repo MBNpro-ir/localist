@@ -29,6 +29,22 @@ class NativeBridgeService {
   final StreamController<void> _quickSendNotificationTapController =
       StreamController<void>.broadcast();
   final Map<String, QuickSendSharedFile> _pendingSharedFiles = {};
+  final _remoteFilesReceived = StreamController<void>.broadcast();
+  Stream<void> get remoteFilesReceived => _remoteFilesReceived.stream;
+
+  Future<List<Map<String, dynamic>>> getRemoteReceivedFiles() async {
+    if (!Platform.isAndroid) return [];
+    final records =
+        await _invoke<List<dynamic>>('getRemoteReceivedFiles') ?? [];
+    return records
+        .map((record) => Map<String, dynamic>.from(record as Map))
+        .toList();
+  }
+
+  Future<void> acknowledgeRemoteReceivedFiles(List<String> ids) async {
+    await _invoke<bool>('acknowledgeRemoteReceivedFiles', {'ids': ids});
+  }
+
   WindowsNotification? _windowsNotifier;
   Future<void>? _windowsNotificationsInitialization;
 
@@ -40,6 +56,10 @@ class NativeBridgeService {
       _quickSendNotificationTapController.stream;
 
   Future<void> _handleNativeCall(MethodCall call) async {
+    if (call.method == 'remoteFilesReceived') {
+      _remoteFilesReceived.add(null);
+      return;
+    }
     if (call.method == 'quickSendSharedFiles') {
       final files = _sharedFilesFromNative(call.arguments);
       if (files.isNotEmpty) {
@@ -92,6 +112,12 @@ class NativeBridgeService {
       return null;
     }
     return _invoke<int>('getAndroidSdkInt');
+  }
+
+  Future<Map<String, bool>> getFeatureAccessStatus() async {
+    if (Platform.isWindows) return {'admin': await checkRootAccess()};
+    final values = await _invokeMap<String, bool>('getFeatureAccessStatus');
+    return values ?? {};
   }
 
   Future<bool> hasLocalNetworkPermission() async {
@@ -340,6 +366,40 @@ class NativeBridgeService {
     }
     return await _invoke<bool>('openLocalistFolder') ?? false;
   }
+
+  Future<bool> openWirelessDisplay() async =>
+      await _invoke<bool>('openWirelessDisplay') ?? false;
+
+  Future<LocalOnlyHotspotInfo> startWindowsLocalNetwork() async {
+    final result = await _invokeMap<Object?, Object?>(
+      'startWindowsLocalNetwork',
+    );
+    return LocalOnlyHotspotInfo.fromMap(result ?? const {});
+  }
+
+  Future<void> stopWindowsLocalNetwork() async {
+    await _invoke<bool>('stopWindowsLocalNetwork');
+  }
+
+  Future<bool> applyRustDeskOption(
+    String path,
+    String key,
+    String value,
+  ) async =>
+      await _invoke<bool>('applyRustDeskOption', {
+        'path': path,
+        'key': key,
+        'value': value,
+      }) ??
+      false;
+
+  Future<bool> applyRemoteOption(String path, String key, String value) async =>
+      await _invoke<bool>('applyRemoteOption', {
+        'path': path,
+        'key': key,
+        'value': value,
+      }) ??
+      false;
 
   Future<List<QuickSendSharedFile>> takeQuickSendSharedFiles() async {
     final files = <String, QuickSendSharedFile>{..._pendingSharedFiles};

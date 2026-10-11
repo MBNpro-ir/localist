@@ -12,6 +12,7 @@
 .swiftpm/
 migrate_working_dir/
 .runlogs/
+.research/
 
 # IntelliJ related
 *.iml

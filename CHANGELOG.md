@@ -2,6 +2,43 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [6.0.0] - 2026-10-11
+
+- Added Localist light/dark palette synchronization to embedded desktop, mobile, file-transfer, camera, tunnel, terminal and approval windows.
+- Expanded Welcome to cover runtime and special access used by file transfer, hotspots, QR/camera, audio, VPN, remote hosting/input, updates and optional elevated/root routing.
+- Removed the remote engine/profile chooser, standalone settings and Apply workflow; server/text options save automatically.
+- Preserved the supplied ID and relay server with an empty API field. Confirmed actual official-client and Localist protocol interoperability, independently of the optional HTTP API.
+- Fixed Windows named-pipe authentication for the identical, same-directory Localist/LocalistRemote executable pair while retaining caller user/session and service-channel checks.
+- Encoded URI passwords and removed native URI logging.
+- Published completed Android engine uploads to unique Download/Localist folders and included them in received history without relaxing peer path validation.
+- Added responsive Stream/Remote layouts, browser media controls, device metadata, thumbnails, web peer relaying, corrected progress and batch sounds from the development builds.
+- Packaged corresponding source, native dependencies and checksums; added analyzer/tests to the release workflow.
+
+See [validation](docs/VALIDATION_6.0.0.md) for live interoperability evidence and platform limits.
+
+## [5.0.10] - 2026-10-10 (development)
+
+- Embedded the RustDesk 1.5.0 native engine, generated bridge and full session UI; Android packages its capture, input, audio, clipboard and boot services for three ABIs.
+- Remote Control and its Localist Settings section are available in Debug and Release. Removed the installed-client fallback and Android companion requirement.
+- Windows uses the bundled Localist runner for sessions, command dispatch and connection manager, with its own configuration and IPC namespace.
+- Added corresponding native source, build tools, runtime/APK checksum verification and retained third-party license notices.
+- Preserved compatible official-client protocols, supplied relay defaults and large text-labelled server import/export controls. Platform permissions, drivers and server capabilities still govern feature availability.
+- Added a formatted self-ID/password card with individual copy actions, an
+  encoded connection payload and explicit Paste & connect parsing.
+
+See [validation](docs/VALIDATION_5.0.10.md) for the tested scope.
+
+## [5.0.9] - 2026-10-10 (development)
+
+- Fixed Windows sign-in launch: absolute Flutter assets, normal-user manifest, quoted startup command, silent duplicate startup, clean shutdown marker and elevation handoff.
+- Added named web peers, browser-to-browser and browser-to-app relaying, private inboxes, raw streamed uploads and receipt-confirmed downloads.
+- Corrected transfer progress, byte/time/rate accounting, partial-file commits and receive-session cleanup; received sounds fire once per successful batch.
+- Added Stream with HTTP range playback, QR/URLs, DLNA AVTransport controls and OS screen-mirroring settings. Receiver codecs/hardware still determine compatibility; AirPlay/Chromecast/transcoding remain unimplemented.
+- Redesigned received history with gallery/video thumbnails, categories, search, date/status filters and sorting. Android saves to Download/Localist/category/file-name by default.
+- Android navigation shows inactive icons and the selected label; Windows chrome uses opaque colors for older graphics systems.
+- Added a Windows hosted-network fallback subject to adapter/driver AP support.
+- Added debug-only RustDesk companion entry points and selected engine options. Full embedded RustDesk functionality is still pending; see docs/RUSTDESK_INTEGRATION.md.
+
 ## [5.0.8] - 2026-09-07
 
 ### Notifications and background receiving
@@ -127,3 +164,9 @@ All notable user-facing changes are documented here. Version numbers follow [Sem
 
 [5.0.7]: https://github.com/MBNpro-ir/localist/compare/v5.0.0...v5.0.7
 [5.0.0]: https://github.com/MBNpro-ir/localist/compare/v4.1.5...v5.0.0
+## [5.0.11] - 2026-10-11
+
+- Integrated remote hosting into Localist startup with automatic profile application.
+- Removed the standalone remote settings/profile window and engine chooser.
+- Improved Stream web-player discoverability and Windows host/runtime packaging.
+

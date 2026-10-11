@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 5.0.8+58
+version: 6.0.0+62
 
 environment:
   sdk: ^3.12.0
@@ -28,6 +28,8 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  flutter_hbb:
+    path: third_party/localist_remote
   flutter:
     sdk: flutter
   flutter_localizations:
@@ -52,6 +54,7 @@ dependencies:
   path_provider: 2.1.6
   path: 1.9.1
   mime: ^2.0.0
+  xml: ^7.0.1
   crypto: ^3.0.7
   basic_utils: 5.8.2
   characters: ^1.4.0
@@ -69,6 +72,14 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 dependency_overrides:
+  uni_links:
+    path: third_party/flutter_plugins/uni_links
+  intl: ^0.20.3
+  win32_registry: ^3.0.3
+  window_manager:
+    git:
+      url: https://github.com/rustdesk-org/window_manager
+      ref: cf4aef0512092fad9344a27ffe1c47ad83269dfc
   dynamic_color:
     path: third_party/flutter_plugins/dynamic_color
   material_color_utilities: ^0.13.0
@@ -90,9 +101,32 @@ flutter:
   assets:
     - pubspec.yaml
     - THIRD_PARTY_NOTICES.md
+    - third_party/localist_remote/LICENSE
     - ico/logo.png
     - ico/logo.ico
     - assets/sounds/
+    - assets/web_transfer.html
+    - assets/remote/
+
+  fonts:
+    - family: gestureicons
+      fonts:
+        - asset: assets/remote/gestures.ttf
+    - family: Tabbar
+      fonts:
+        - asset: assets/remote/tabbar.ttf
+    - family: PeerSearchbar
+      fonts:
+        - asset: assets/remote/peer_searchbar.ttf
+    - family: AddressBook
+      fonts:
+        - asset: assets/remote/address_book.ttf
+    - family: DeviceGroup
+      fonts:
+        - asset: assets/remote/device_group.ttf
+    - family: More
+      fonts:
+        - asset: assets/remote/more.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

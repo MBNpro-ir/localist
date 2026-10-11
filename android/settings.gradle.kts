@@ -23,6 +23,9 @@ pluginManagement {
                 includeGroupByRegex("com\\.android(\\..*)?")
                 includeGroupByRegex("androidx(\\..*)?")
                 includeGroupByRegex("com\\.google\\.android(\\..*)?")
+                includeGroupByRegex("com\\.google\\.mlkit(\\..*)?")
+                includeGroupByRegex("com\\.google\\.firebase(\\..*)?")
+                includeGroupByRegex("com\\.google\\.android\\.datatransport(\\..*)?")
             }
         }
     }

@@ -4,9 +4,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../models/transfer_history_filter.dart';
 import '../services/native_bridge_service.dart';
 import '../services/quick_send_service.dart';
 import '../widgets/glass.dart';
+import '../widgets/received_media_preview.dart';
 
 class TransferHistoryPage extends StatefulWidget {
   const TransferHistoryPage({super.key, required this.service});
@@ -19,6 +21,12 @@ class TransferHistoryPage extends StatefulWidget {
 
 class _TransferHistoryPageState extends State<TransferHistoryPage> {
   final NativeBridgeService _bridge = NativeBridgeService.instance;
+  String _query = '';
+  String _category = 'All';
+  HistoryPeriod _period = HistoryPeriod.all;
+  HistorySort _sort = HistorySort.newest;
+  QuickSendTransferState? _state;
+  bool _gallery = true;
 
   String _t(String fa, String en) => context.l10n.isPersian ? fa : en;
 
@@ -69,9 +77,6 @@ class _TransferHistoryPageState extends State<TransferHistoryPage> {
             animation: widget.service,
             builder: (context, _) {
               final records = widget.service.receivedHistory;
-              if (records.isEmpty) {
-                return _emptyState();
-              }
               return _historyList(records);
             },
           ),
@@ -123,6 +128,13 @@ class _TransferHistoryPageState extends State<TransferHistoryPage> {
   }
 
   Widget _historyList(List<QuickSendTransfer> records) {
+    final filtered = TransferHistoryFilter(
+      query: _query,
+      category: _category,
+      period: _period,
+      sort: _sort,
+      state: _state,
+    ).apply(records);
     final completed = records
         .where((item) => item.state == QuickSendTransferState.completed)
         .length;
@@ -137,36 +149,375 @@ class _TransferHistoryPageState extends State<TransferHistoryPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final horizontalPadding = constraints.maxWidth < 500 ? 12.0 : 22.0;
-        return ListView.separated(
-          padding: EdgeInsets.fromLTRB(
-            horizontalPadding,
-            16,
-            horizontalPadding,
-            40,
-          ),
-          itemCount: records.length + 1,
-          separatorBuilder: (_, _) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final child = index == 0
-                ? _summaryCard(
-                    count: records.length,
-                    completed: completed,
-                    failed: failed,
-                    active: active,
-                    totalBytes: totalBytes,
-                  )
-                : _historyCard(records[index - 1]);
-            return Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 980),
-                child: child,
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                16,
+                horizontalPadding,
+                16,
               ),
-            );
-          },
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    _summaryCard(
+                      count: records.length,
+                      completed: completed,
+                      failed: failed,
+                      active: active,
+                      totalBytes: totalBytes,
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      onChanged: (value) => setState(() => _query = value),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
+                        hintText: _t(
+                          'جستجوی فایل، دستگاه یا مسیر',
+                          'Search files, devices or paths',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final category in [
+                            'All',
+                            'Images',
+                            'Videos',
+                            'Audio',
+                            'Documents',
+                            'Archives',
+                            'Apps',
+                            'Other',
+                          ])
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 8),
+                              child: ChoiceChip(
+                                selected: _category == category,
+                                label: Text(_categoryLabel(category)),
+                                avatar: Icon(_categoryIcon(category), size: 18),
+                                onSelected: (_) =>
+                                    setState(() => _category = category),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        DropdownButton<HistoryPeriod>(
+                          value: _period,
+                          items: [
+                            for (final period in HistoryPeriod.values)
+                              DropdownMenuItem(
+                                value: period,
+                                child: Text(switch (period) {
+                                  HistoryPeriod.all => _t(
+                                    'همهٔ زمان‌ها',
+                                    'All dates',
+                                  ),
+                                  HistoryPeriod.today => _t('امروز', 'Today'),
+                                  HistoryPeriod.week => _t(
+                                    '۷ روز اخیر',
+                                    'Last 7 days',
+                                  ),
+                                  HistoryPeriod.month => _t(
+                                    '۳۰ روز اخیر',
+                                    'Last 30 days',
+                                  ),
+                                }),
+                              ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _period = value!),
+                        ),
+                        DropdownButton<HistorySort>(
+                          value: _sort,
+                          items: [
+                            for (final sort in HistorySort.values)
+                              DropdownMenuItem(
+                                value: sort,
+                                child: Text(switch (sort) {
+                                  HistorySort.newest => _t(
+                                    'جدیدترین',
+                                    'Newest',
+                                  ),
+                                  HistorySort.oldest => _t(
+                                    'قدیمی‌ترین',
+                                    'Oldest',
+                                  ),
+                                  HistorySort.name => _t(
+                                    'نام فایل',
+                                    'File name',
+                                  ),
+                                  HistorySort.largest => _t(
+                                    'بزرگ‌ترین',
+                                    'Largest',
+                                  ),
+                                  HistorySort.smallest => _t(
+                                    'کوچک‌ترین',
+                                    'Smallest',
+                                  ),
+                                  HistorySort.device => _t('دستگاه', 'Device'),
+                                }),
+                              ),
+                          ],
+                          onChanged: (value) => setState(() => _sort = value!),
+                        ),
+                        DropdownButton<String>(
+                          value: _state?.name ?? 'all',
+                          items: [
+                            DropdownMenuItem(
+                              value: 'all',
+                              child: Text(_t('همهٔ وضعیت‌ها', 'All statuses')),
+                            ),
+                            for (final state in QuickSendTransferState.values)
+                              DropdownMenuItem(
+                                value: state.name,
+                                child: Text(_stateLabel(state)),
+                              ),
+                          ],
+                          onChanged: (value) => setState(
+                            () => _state = QuickSendTransferState.values
+                                .where((s) => s.name == value)
+                                .firstOrNull,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => setState(() => _gallery = !_gallery),
+                          tooltip: _gallery
+                              ? _t('نمای فهرست', 'List view')
+                              : _t('نمای گالری', 'Gallery view'),
+                          icon: Icon(
+                            _gallery
+                                ? Icons.view_list_outlined
+                                : Icons.grid_view_rounded,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                        _t(
+                          '${filtered.length} مورد',
+                          '${filtered.length} items',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (filtered.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: records.isEmpty
+                    ? _emptyState()
+                    : Center(
+                        child: Text(
+                          _t('موردی مطابق فیلتر نیست', 'No matching files'),
+                        ),
+                      ),
+              )
+            else
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  0,
+                  horizontalPadding,
+                  40,
+                ),
+                sliver: _gallery
+                    ? SliverGrid.builder(
+                        gridDelegate:
+                            const SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: 290,
+                              mainAxisExtent: 250,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                            ),
+                        itemCount: filtered.length,
+                        itemBuilder: (_, index) =>
+                            _galleryCard(filtered[index]),
+                      )
+                    : SliverList.builder(
+                        itemCount: filtered.length,
+                        itemBuilder: (_, index) {
+                          final transfer = filtered[index];
+                          final date = transfer.updatedAt.toLocal();
+                          final previous = index == 0
+                              ? null
+                              : filtered[index - 1].updatedAt.toLocal();
+                          final showDate =
+                              (_sort == HistorySort.newest ||
+                                  _sort == HistorySort.oldest) &&
+                              (previous == null ||
+                                  previous.year != date.year ||
+                                  previous.month != date.month ||
+                                  previous.day != date.day);
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (showDate)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  child: Text(
+                                    '${date.year}/${date.month}/${date.day}',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleSmall,
+                                  ),
+                                ),
+                              Card(
+                                child: ListTile(
+                                  leading: Icon(
+                                    _categoryIcon(
+                                      TransferHistoryFilter.categoryOf(
+                                        transfer,
+                                      ),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    transfer.fileName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    '${transfer.deviceName} • ${_formatBytes(transfer.totalBytes)}\n${_stateLabel(transfer.state)} • ${_formatDate(transfer.updatedAt)}',
+                                  ),
+                                  isThreeLine: true,
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: () => _showDetails(transfer),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+              ),
+          ],
         );
       },
     );
+  }
+
+  String _categoryLabel(String category) => switch (category) {
+    'All' => _t('همه', 'All'),
+    'Images' => _t('عکس‌ها', 'Photos'),
+    'Videos' => _t('ویدیوها', 'Videos'),
+    'Audio' => _t('موسیقی', 'Music'),
+    'Documents' => _t('اسناد', 'Documents'),
+    'Archives' => _t('آرشیو', 'Archives'),
+    'Apps' => _t('برنامه‌ها', 'Apps'),
+    _ => _t('سایر', 'Other'),
+  };
+  IconData _categoryIcon(String category) => switch (category) {
+    'Images' => Icons.image_outlined,
+    'Videos' => Icons.movie_outlined,
+    'Audio' => Icons.music_note_outlined,
+    'Documents' => Icons.description_outlined,
+    'Archives' => Icons.folder_zip_outlined,
+    'Apps' => Icons.apps,
+    _ => Icons.folder_outlined,
+  };
+  Widget _galleryCard(QuickSendTransfer transfer) {
+    final scheme = Theme.of(context).colorScheme;
+    final category = TransferHistoryFilter.categoryOf(transfer);
+    final isImage =
+        category == 'Images' &&
+        transfer.state == QuickSendTransferState.completed;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _showDetails(transfer),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: SizedBox(
+                width: double.infinity,
+                child: ColoredBox(
+                  color: scheme.surfaceContainerHighest,
+                  child: isImage
+                      ? Image.file(
+                          File(transfer.path),
+                          fit: BoxFit.cover,
+                          cacheWidth: 480,
+                          errorBuilder: (_, _, _) => Icon(
+                            Icons.broken_image_outlined,
+                            size: 44,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        )
+                      : category == 'Videos' &&
+                            transfer.state == QuickSendTransferState.completed
+                      ? ReceivedVideoPreview(path: transfer.path)
+                      : Icon(
+                          _categoryIcon(category),
+                          size: 54,
+                          color: scheme.primary,
+                        ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    transfer.fileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_formatBytes(transfer.totalBytes)} • ${transfer.deviceName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_stateLabel(transfer.state)} • ${_formatDate(transfer.updatedAt)}',
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
+            ),
+            if (transfer.state == QuickSendTransferState.transferring)
+              LinearProgressIndicator(value: transfer.progress),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDetails(QuickSendTransfer transfer) async {
+    final share = await showModalBottomSheet<QuickSendTransfer>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(18),
+          child: _historyCard(transfer),
+        ),
+      ),
+    );
+    if (share != null && mounted) Navigator.of(context).pop(share);
   }
 
   Widget _summaryCard({

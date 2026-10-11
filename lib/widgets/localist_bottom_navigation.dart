@@ -69,7 +69,9 @@ class LocalistBottomNavigationBar extends StatelessWidget {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final showAction =
-                      showActionButton && onActionPressed != null;
+                      showActionButton &&
+                      onActionPressed != null &&
+                      constraints.maxWidth >= items.length * 48 + 82;
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -114,6 +116,7 @@ class _LocalistNavigationPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    if (items.isEmpty) return const SizedBox.shrink();
     final selectedIndex = currentIndex.clamp(0, items.length - 1);
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -133,20 +136,32 @@ class _LocalistNavigationPill extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: Padding(
           padding: const EdgeInsets.all(6),
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.center,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var index = 0; index < items.length; index++)
-                  _LocalistNavigationDestination(
-                    item: items[index],
-                    selected: index == selectedIndex,
-                    onTap: () => onDestinationSelected(index),
-                  ),
-              ],
-            ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final selectedWidth =
+                  (constraints.maxWidth - (items.length - 1) * 48).clamp(
+                    48.0,
+                    200.0,
+                  );
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var index = 0; index < items.length; index++)
+                      SizedBox(
+                        width: index == selectedIndex ? selectedWidth : 48,
+                        height: 48,
+                        child: _LocalistNavigationDestination(
+                          item: items[index],
+                          selected: index == selectedIndex,
+                          onTap: () => onDestinationSelected(index),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -189,7 +204,6 @@ class _LocalistNavigationDestination extends StatelessWidget {
         child: selected
             ? Row(
                 key: ValueKey(item.label),
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   AnimatedNavIcon(
                     icon: item.selectedIcon,
@@ -197,25 +211,24 @@ class _LocalistNavigationDestination extends StatelessWidget {
                     selectedColor: scheme.onPrimaryContainer,
                     unselectedColor: scheme.onPrimaryContainer,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    item.label,
-                    maxLines: 1,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: scheme.onPrimaryContainer,
-                      fontWeight: FontWeight.w800,
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: scheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ],
               )
-            : Text(
-                item.label,
+            : Icon(
+                item.icon,
                 key: const ValueKey('unselected'),
-                maxLines: 1,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
+                color: scheme.onSurfaceVariant,
               ),
       ),
     );
@@ -234,7 +247,7 @@ class _LocalistNavigationDestination extends StatelessWidget {
               duration: duration,
               curve: Curves.easeInOutCubicEmphasized,
               padding: EdgeInsets.symmetric(
-                horizontal: selected ? 10 : 16,
+                horizontal: selected ? 8 : 12,
                 vertical: 7,
               ),
               decoration: BoxDecoration(

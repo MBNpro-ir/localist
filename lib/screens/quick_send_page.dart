@@ -583,6 +583,19 @@ class QuickSendPageState extends State<QuickSendPage> {
                     _t('به‌روزرسانی فایل‌ها', 'Refresh shared files'),
                   ),
                 ),
+                if (isWindows && !service.managedHotspot)
+                  OutlinedButton.icon(
+                    onPressed: service.starting
+                        ? null
+                        : () => unawaited(service.createWindowsLocalNetwork()),
+                    icon: const Icon(Icons.wifi_tethering),
+                    label: Text(
+                      _t(
+                        'ساخت شبکهٔ محلی جایگزین',
+                        'Create fallback local network',
+                      ),
+                    ),
+                  ),
                 FilledButton.tonalIcon(
                   onPressed: _stopAppleWebTransfer,
                   icon: const Icon(Icons.stop_circle_outlined),
@@ -590,6 +603,24 @@ class QuickSendPageState extends State<QuickSendPage> {
                 ),
               ],
             ),
+            if (service.browserDevices.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text(
+                _t('مرورگرهای متصل', 'Connected browsers'),
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final peer in service.browserDevices)
+                    Chip(
+                      avatar: const Icon(Icons.devices_other, size: 18),
+                      label: Text('${peer['name']} · ${peer['platform']}'),
+                    ),
+                ],
+              ),
+            ],
           ],
         ],
       ),
@@ -1074,6 +1105,13 @@ class QuickSendPageState extends State<QuickSendPage> {
                           transfer.message,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
+                        ),
+                      if (transfer.state ==
+                              QuickSendTransferState.transferring &&
+                          transfer.bytesPerSecond > 0)
+                        Text(
+                          '${_formatBytes(transfer.bytesPerSecond.round())}/s • ${transfer.elapsed.inSeconds}s • ${_t('مانده', 'Remaining')}: ${transfer.remaining?.inSeconds ?? 0}s',
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       if (completedReceivedFile && compactActions)
                         Align(
@@ -2046,8 +2084,8 @@ class QuickSendStatusPanel extends StatelessWidget {
                   child: Text(
                     _t(
                       context,
-                      'برای ذخیره فایل‌ها در پوشه /Localist دسترسی فایل لازم است.',
-                      'File access is required to save received files in /Localist.',
+                      'برای ذخیره فایل‌ها در پوشه Download/Localist دسترسی فایل لازم است.',
+                      'File access is required to save received files in Download/Localist.',
                     ),
                   ),
                 ),
@@ -2088,8 +2126,8 @@ class QuickSendStatusPanel extends StatelessWidget {
           ? _t(context, 'دسترسی فایل فعال شد.', 'File access was enabled.')
           : _t(
               context,
-              'دسترسی فایل داده نشد؛ مسیر پیش‌فرض /Localist قابل نوشتن نیست.',
-              'File access was not granted; the default /Localist path is not writable.',
+              'دسترسی فایل داده نشد؛ مسیر پیش‌فرض Download/Localist قابل نوشتن نیست.',
+              'File access was not granted; the default Download/Localist path is not writable.',
             ),
       tone: granted ? InAppNoticeTone.success : InAppNoticeTone.warning,
     );

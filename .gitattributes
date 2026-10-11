@@ -1,0 +1,7 @@
+# Pinned engine dependencies and corresponding source must retain exact bytes.
+third_party/localist_remote/LICENSE -text
+third_party/localist_remote/native-source.tar.gz -text
+third_party/localist_remote/patches/** -text
+third_party/localist_remote/windows/runtime/** -text
+third_party/localist_remote/android/src/main/jniLibs/** -text
+third_party/localist_remote/android/maven/** -text

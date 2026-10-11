@@ -11,6 +11,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('Windows hosted Wi-Fi interface is not mistaken for loopback', () {
+    expect(
+      AppleWebTransferService.isIgnoredNetworkInterface(
+        'Local Area Connection* 12',
+      ),
+      isFalse,
+    );
+    expect(AppleWebTransferService.isIgnoredNetworkInterface('lo0'), isTrue);
+    expect(
+      AppleWebTransferService.isIgnoredNetworkInterface(
+        'Loopback Pseudo-Interface 1',
+      ),
+      isTrue,
+    );
+  });
 
   test('Quick Send strips traversal and invalid file-name characters', () {
     expect(
@@ -340,6 +355,112 @@ void main() {
     }
   });
 
+  test(
+    'native batch confirms exact bytes and preserves an existing file on failure',
+    () async {
+      final service = QuickSendService.instance;
+      final originalSettings = service.settings!;
+      final directory = await Directory.systemTemp.createTemp(
+        'localist-native-batch',
+      );
+      final reservation = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final port = reservation.port;
+      await reservation.close();
+      const channel = MethodChannel('com.prs.localist.vpn');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (_) async => null);
+      final before = service.receiveBatchCompletions;
+      final existing = await File(
+        '${directory.path}/report.txt',
+      ).writeAsString('original');
+      try {
+        await service.updateSettings(
+          service.settings!.copyWith(
+            port: port,
+            destinationDirectory: directory.path,
+            destinationCustomized: true,
+            quickSave: true,
+            overwrite: true,
+          ),
+        );
+        await service.restart();
+        final prepared = await _rawHttpRequest(
+          Uri.parse('http://127.0.0.1:$port/api/localsend/v2/prepare-upload'),
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: utf8.encode(
+            jsonEncode({
+              'info': {'alias': 'Native QA'},
+              'files': {
+                'a': {'fileName': 'a.txt', 'size': 3, 'fileType': 'text/plain'},
+                'b': {
+                  'fileName': 'report.txt',
+                  'size': 5,
+                  'fileType': 'text/plain',
+                },
+              },
+            }),
+          ),
+        );
+        expect(prepared.status, 200);
+        final session = jsonDecode(prepared.body) as Map<String, dynamic>;
+        Uri upload(String id) =>
+            Uri.parse('http://127.0.0.1:$port/api/localsend/v2/upload').replace(
+              queryParameters: {
+                'sessionId': session['sessionId'] as String,
+                'fileId': id,
+                'token': (session['files'] as Map)[id] as String,
+              },
+            );
+        expect(
+          (await _rawHttpRequest(
+            upload('a'),
+            method: 'POST',
+            body: utf8.encode('one'),
+          )).status,
+          200,
+        );
+        expect(service.receiveBatchCompletions, before);
+        expect(
+          (await _rawHttpRequest(
+            upload('b'),
+            method: 'POST',
+            body: utf8.encode('no'),
+          )).status,
+          500,
+        );
+        expect(await existing.readAsString(), 'original');
+        expect(service.receiveBatchCompletions, before);
+        expect(
+          (await _rawHttpRequest(
+            upload('b'),
+            method: 'POST',
+            body: utf8.encode('final'),
+          )).status,
+          200,
+        );
+        expect(await existing.readAsString(), 'final');
+        expect(await File('${directory.path}/a.txt').readAsString(), 'one');
+        expect(service.receiveBatchCompletions, before + 1);
+        expect(
+          await directory
+              .list()
+              .where((f) => f.path.endsWith('.part'))
+              .toList(),
+          isEmpty,
+        );
+      } finally {
+        await service.updateSettings(originalSettings);
+        await service.disposeService();
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+
   test('Apple browser transfer serves downloads and accepts uploads', () async {
     final unique = DateTime.now().microsecondsSinceEpoch;
     final offeredFile = File(
@@ -373,15 +494,20 @@ void main() {
       final homeResponse = await _rawHttpRequest(service.loopbackTestUri);
       expect(homeResponse.status, HttpStatus.ok);
       expect(homeResponse.body, contains('Localist Web Transfer'));
-      expect(homeResponse.body, contains('hello.txt'));
+      expect(homeResponse.body, contains('Connected devices'));
       expect(
         homeResponse.body,
         contains('window.setInterval(refreshSharedContent, 1000)'),
       );
 
-      final downloadPath = RegExp(
-        r'href="([^"]+/download/[^"]+)"',
-      ).firstMatch(homeResponse.body)!.group(1)!;
+      final initial = await _rawHttpRequest(
+        service.loopbackTestUri.resolve('state'),
+      );
+      final initialFiles =
+          (jsonDecode(initial.body) as Map<String, dynamic>)['files']
+              as List<dynamic>;
+      expect(initialFiles.single['name'], 'hello.txt');
+      final downloadPath = initialFiles.single['url'] as String;
       final downloadResponse = await _rawHttpRequest(
         service.loopbackTestUri.resolve(downloadPath),
       );
@@ -423,6 +549,110 @@ void main() {
       );
       expect(uploadResponse.status, HttpStatus.seeOther);
       expect(await uploadedFile.readAsString(), 'hello from Safari');
+
+      Future<Map<String, dynamic>> join(String name) async {
+        final result = await _rawHttpRequest(
+          service.loopbackTestUri.resolve('join'),
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: utf8.encode(jsonEncode({'name': name, 'platform': 'iPhone'})),
+        );
+        expect(result.status, 200);
+        return jsonDecode(result.body) as Map<String, dynamic>;
+      }
+
+      final alice = await join('iPhone A');
+      final bob = await join('iPhone B');
+      final charlie = await join('Browser C');
+      Uri peerUri(
+        String route,
+        Map<String, dynamic> peer, [
+        Map<String, String> extra = const {},
+      ]) => service.loopbackTestUri
+          .resolve(route)
+          .replace(
+            queryParameters: {
+              'peer': peer['id'] as String,
+              'key': peer['key'] as String,
+              ...extra,
+            },
+          );
+      final before = QuickSendService.instance.receiveBatchCompletions;
+      for (var index = 0; index < 2; index++) {
+        final result = await _rawHttpRequest(
+          peerUri('upload-file', alice, {
+            'name': 'relay-$index.txt',
+            'size': '5',
+            'target': bob['id'] as String,
+            'batch': 'test-batch',
+            'count': '2',
+            'index': '$index',
+          }),
+          method: 'POST',
+          body: utf8.encode('hello'),
+        );
+        expect(result.status, 200);
+        expect(
+          QuickSendService.instance.receiveBatchCompletions,
+          before + (index == 1 ? 1 : 0),
+        );
+      }
+      final bobState =
+          jsonDecode((await _rawHttpRequest(peerUri('state', bob))).body)
+              as Map<String, dynamic>;
+      expect(bobState['devices'], hasLength(greaterThanOrEqualTo(4)));
+      final inbox = bobState['inbox'] as List<dynamic>;
+      expect(inbox, hasLength(2));
+      final privateFile = inbox.first as Map<String, dynamic>;
+      final otherState =
+          jsonDecode((await _rawHttpRequest(peerUri('state', charlie))).body)
+              as Map<String, dynamic>;
+      expect(otherState['inbox'], isEmpty);
+      expect(
+        (await _rawHttpRequest(
+          peerUri('download/${privateFile['id']}', charlie),
+        )).status,
+        404,
+      );
+      final received = await _rawHttpRequest(
+        peerUri('download/${privateFile['id']}', bob),
+      );
+      expect(received.status, 200);
+      expect(received.body, 'hello');
+      final outgoing = QuickSendService.instance.transfers.firstWhere(
+        (file) =>
+            file.direction == QuickSendDirection.sending &&
+            file.deviceName == 'iPhone B',
+      );
+      expect(outgoing.state, QuickSendTransferState.transferring);
+      expect(outgoing.progress, lessThan(1));
+      expect(
+        (await _rawHttpRequest(
+          peerUri('receipt', bob, {
+            'file': privateFile['id'] as String,
+            'bytes': '4',
+          }),
+          method: 'POST',
+        )).status,
+        400,
+      );
+      // A wrong receipt must not consume the pending transfer.
+      expect(
+        (await _rawHttpRequest(
+          peerUri('receipt', bob, {
+            'file': privateFile['id'] as String,
+            'bytes': '5',
+          }),
+          method: 'POST',
+        )).status,
+        204,
+      );
+      expect(
+        QuickSendService.instance.transfers
+            .firstWhere((file) => file.id == outgoing.id)
+            .state,
+        QuickSendTransferState.completed,
+      );
     } finally {
       await service.stop();
       if (await offeredFile.exists()) {
@@ -468,7 +698,7 @@ Future<({int status, String body})> _rawHttpRequest(
     (buffer, chunk) => buffer..addAll(chunk),
   );
   socket.destroy();
-  final response = utf8.decode(responseBytes, allowMalformed: true);
+  final response = latin1.decode(responseBytes);
   final headerEnd = response.indexOf('\r\n\r\n');
   if (headerEnd < 0) {
     throw const FormatException('Invalid HTTP response.');
@@ -476,5 +706,29 @@ Future<({int status, String body})> _rawHttpRequest(
   final status =
       int.tryParse(response.substring(0, headerEnd).split(' ').elementAt(1)) ??
       0;
-  return (status: status, body: response.substring(headerEnd + 4));
+  var responseBody = response.substring(headerEnd + 4);
+  if (response
+      .substring(0, headerEnd)
+      .toLowerCase()
+      .contains('transfer-encoding: chunked')) {
+    final output = StringBuffer();
+    var cursor = 0;
+    while (cursor < responseBody.length) {
+      final end = responseBody.indexOf('\r\n', cursor);
+      if (end < 0) break;
+      final length = int.parse(
+        responseBody.substring(cursor, end).split(';').first,
+        radix: 16,
+      );
+      if (length == 0) break;
+      cursor = end + 2;
+      output.write(responseBody.substring(cursor, cursor + length));
+      cursor += length + 2;
+    }
+    responseBody = output.toString();
+  }
+  return (
+    status: status,
+    body: utf8.decode(latin1.encode(responseBody), allowMalformed: true),
+  );
 }

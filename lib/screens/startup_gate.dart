@@ -52,6 +52,7 @@ class _StartupGateState extends State<StartupGate> {
     final steps = Platform.isWindows
         ? [
             l10n.languageStep,
+            l10n.permissionsStep,
             l10n.isPersian ? 'پروفایل' : 'Profile',
             l10n.mainStep,
           ]

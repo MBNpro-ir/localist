@@ -1,0 +1,4 @@
+-keep, includedescriptorclasses class ffi.FFI { *; }
+-keep, includedescriptorclasses class com.carriez.flutter_hbb.** { *; }
+-keep, includedescriptorclasses class org.rustls.platformverifier.** { *; }
+-keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite { <fields>; }
