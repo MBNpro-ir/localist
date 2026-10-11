@@ -8,6 +8,8 @@ import '../services/rustdesk_debug_service.dart';
 import '../services/remote_device_service.dart';
 import '../widgets/glass.dart';
 import '../widgets/feature_page_layout.dart';
+import '../widgets/remote_ready_indicator.dart';
+import 'remote_address_book.dart';
 
 class RemoteDebugPage extends StatefulWidget {
   const RemoteDebugPage({super.key});
@@ -23,14 +25,14 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
   final _password = TextEditingController();
   String _mode = 'connect';
   bool _relay = false;
+  String? _relayConfig;
   String _notice = '';
   bool _connecting = false;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_service.initialize());
-    unawaited(_devices.initialize());
+    unawaited(_initialize());
     _service.addListener(_refreshSavedPeers);
   }
 
@@ -45,8 +47,26 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     super.dispose();
   }
 
+  Future<void> _initialize() async {
+    await _service.initialize();
+    if (!mounted) return;
+    await _devices.initialize();
+    if (!mounted) return;
+    final known = _devices.devices.map((d) => d.id).toSet();
+    for (final id in _service.recent.reversed) {
+      if (!known.contains(id)) await _devices.rememberOpened(id);
+    }
+    await _refreshSavedPeers();
+  }
+
   bool _loadingPeers = false;
   Future<void> _refreshSavedPeers() async {
+    if (!mounted) return;
+    final config = _service.profile.server.encode();
+    if (_relayConfig != config) {
+      _relayConfig = config;
+      _relay = _service.profile.server.usesRelay;
+    }
     if (_loadingPeers || !_service.ready) return;
     _loadingPeers = true;
     try {
@@ -102,47 +122,42 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      Chip(
-                        avatar: Icon(
-                          _service.online
-                              ? Icons.cloud_done_outlined
-                              : Icons.cloud_off_outlined,
-                        ),
-                        label: Text(
-                          _service.online
-                              ? t('متصل به سرور', 'Server connected')
-                              : _service.ready
-                              ? t('در انتظار شبکه', 'Waiting for network')
-                              : t('در حال آماده‌سازی', 'Starting engine'),
-                        ),
-                      ),
-                      Chip(
-                        label: Text(
-                          _service.hosting
-                              ? t('میزبانی فعال', 'Hosting active')
-                              : t('میزبانی متوقف', 'Hosting stopped'),
-                        ),
-                      ),
-                    ],
+                  RemoteReadyIndicator(
+                    ready: _service.ready,
+                    online: _service.online,
+                    hosting: _service.hosting,
+                    server: _service.serverLabel,
                   ),
                   const SizedBox(height: 10),
                   if (_service.localId.isNotEmpty)
                     LocalistConnectionCard(
                       id: _service.localId,
                       password: _service.localPassword,
-                      onCopyId: () => _copy(_service.localId),
+                      onCopyId: () => _copy(
+                        _service.localId,
+                        t(
+                          'آیدی ${_service.localId} کپی شد.',
+                          'ID ${_service.localId} copied.',
+                        ),
+                      ),
                       onCopyPassword: _service.localPassword.isEmpty
                           ? null
-                          : () => _copy(_service.localPassword),
+                          : () => _copy(
+                              _service.localPassword,
+                              t(
+                                'رمز یک‌بارمصرف کپی شد.',
+                                'One-time password copied.',
+                              ),
+                            ),
                       onCopyConnection: () => _copy(
                         RemoteConnectionInfo(
                           id: _service.localId,
                           password: _service.localPassword,
                         ).toClipboardText(),
+                        t(
+                          'آیدی و رمز اتصال کپی شدند.',
+                          'Connection ID and password copied.',
+                        ),
                       ),
                     )
                   else
@@ -275,125 +290,15 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                 ],
               ),
             ),
-            if (_service.recent.isNotEmpty) ...[
-              GlassPanel(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      t('اتصال‌های اخیر', 'Recent connections'),
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    for (final id in _service.recent)
-                      ListTile(
-                        leading: const Icon(Icons.computer),
-                        title: Text(id),
-                        onTap: () => _target.text = id,
-                      ),
-                  ],
-                ),
-              ),
-            ],
-            AnimatedBuilder(
-              animation: _devices,
-              builder: (context, _) => GlassPanel(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            t(
-                              'دستگاه‌های شبکه و ذخیره‌شده',
-                              'LAN and saved devices',
-                            ),
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: t('جستجوی شبکه', 'Scan LAN'),
-                          onPressed: _devices.scanning
-                              ? null
-                              : () => unawaited(
-                                  _devices.scan(localId: _service.localId),
-                                ),
-                          icon: _devices.scanning
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.radar),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      t(
-                        'شناسه، نام، مدل و آخرین وضعیت شبکه ذخیره می‌شود؛ اتصال فقط با اقدام شما انجام می‌گیرد.',
-                        'ID, name, model and the last LAN state are saved; connections are opened only by your action.',
-                      ),
-                    ),
-                    if (_devices.error.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(_devices.error),
-                      ),
-                    if (_devices.devices.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        child: Text(
-                          t(
-                            'هنوز دستگاهی ثبت نشده است.',
-                            'No devices have been saved yet.',
-                          ),
-                        ),
-                      ),
-                    for (final device in _devices.devices)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          device.onLan ? Icons.wifi : Icons.history,
-                        ),
-                        title: Text(
-                          device.name.isNotEmpty ? device.name : device.id,
-                        ),
-                        subtitle: Text(
-                          [
-                            'ID: ${device.id}',
-                            if (device.model.isNotEmpty) device.model,
-                            if (device.platform.isNotEmpty) device.platform,
-                            if (device.ip.isNotEmpty) device.ip,
-                            device.onLan
-                                ? t('در شبکه', 'Online on LAN')
-                                : t('ذخیره‌شده', 'Saved'),
-                          ].join(' • '),
-                        ),
-                        trailing: Wrap(
-                          children: [
-                            IconButton(
-                              tooltip: t('اتصال', 'Connect'),
-                              onPressed: () {
-                                _target.text = device.id;
-                                unawaited(_launch());
-                              },
-                              icon: const Icon(Icons.link),
-                            ),
-                            IconButton(
-                              tooltip: t('حذف', 'Forget'),
-                              onPressed: () =>
-                                  unawaited(_devices.forget(device.id)),
-                              icon: const Icon(Icons.delete_outline),
-                            ),
-                          ],
-                        ),
-                        onTap: () => setState(() => _target.text = device.id),
-                      ),
-                  ],
-                ),
-              ),
+            RemoteAddressBook(
+              service: _devices,
+              localId: _service.localId,
+              canConnect: _service.ready && !_connecting,
+              onConnect: (id) {
+                _target.text = id;
+                _password.clear();
+                unawaited(_launch());
+              },
             ),
           ],
         ),
@@ -412,7 +317,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
         password: _password.text,
       );
       if (_target.text.trim().isNotEmpty) {
-        await _devices.rememberOpened(_target.text.trim());
+        await _devices.rememberOpened(normalizeRemoteTarget(_target.text));
       }
       if (mounted) {
         setState(
@@ -438,15 +343,14 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     }
   }
 
-  Future<void> _copy(String value) async {
+  Future<void> _copy(String value, String message) async {
     await Clipboard.setData(ClipboardData(text: value));
     if (mounted) {
-      setState(
-        () => _notice = faText(
-          context,
-          'در کلیپ‌بورد کپی شد.',
-          'Copied to clipboard.',
-        ),
+      showLocalistNotice(
+        context,
+        message: message,
+        tone: InAppNoticeTone.success,
+        icon: Icons.check_circle_outline,
       );
     }
   }

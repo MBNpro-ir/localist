@@ -14,9 +14,16 @@ class RemoteDevice {
     this.ip = '',
     this.lastSeen,
     this.lastOpened,
+    this.tags = const [],
+    this.favorite = false,
+    this.inAddressBook = false,
+    this.createdAt,
   });
   final String id, name, model, platform, ip;
   final DateTime? lastSeen, lastOpened;
+  final DateTime? createdAt;
+  final List<String> tags;
+  final bool favorite, inAddressBook;
   bool get onLan =>
       lastSeen != null &&
       DateTime.now().difference(lastSeen!) < const Duration(seconds: 30);
@@ -27,6 +34,10 @@ class RemoteDevice {
     String? ip,
     DateTime? lastSeen,
     DateTime? lastOpened,
+    List<String>? tags,
+    bool? favorite,
+    bool? inAddressBook,
+    DateTime? createdAt,
   }) => RemoteDevice(
     id: id,
     name: name ?? this.name,
@@ -35,6 +46,10 @@ class RemoteDevice {
     ip: ip ?? this.ip,
     lastSeen: lastSeen ?? this.lastSeen,
     lastOpened: lastOpened ?? this.lastOpened,
+    tags: tags ?? this.tags,
+    favorite: favorite ?? this.favorite,
+    inAddressBook: inAddressBook ?? this.inAddressBook,
+    createdAt: createdAt ?? this.createdAt,
   );
   Map<String, Object?> toJson() => {
     'id': id,
@@ -43,6 +58,10 @@ class RemoteDevice {
     'platform': platform,
     'ip': ip,
     'lastOpened': lastOpened?.toIso8601String(),
+    'createdAt': createdAt?.toIso8601String(),
+    'tags': tags,
+    'favorite': favorite,
+    'inAddressBook': inAddressBook,
   };
   factory RemoteDevice.fromJson(Map<String, dynamic> json) => RemoteDevice(
     id: json['id'] as String,
@@ -51,6 +70,12 @@ class RemoteDevice {
     platform: json['platform'] as String? ?? '',
     ip: json['ip'] as String? ?? '',
     lastOpened: DateTime.tryParse(json['lastOpened'] as String? ?? ''),
+    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? ''),
+    tags: (json['tags'] as List? ?? []).whereType<String>().take(30).toList(),
+    favorite: json['favorite'] == true,
+    inAddressBook: json.containsKey('inAddressBook')
+        ? json['inAddressBook'] == true
+        : (json['name'] as String? ?? '').isNotEmpty,
   );
 }
 
@@ -178,11 +203,15 @@ class RemoteDeviceService extends ChangeNotifier {
     );
     if (raw != null) {
       try {
-        for (final item in (jsonDecode(raw) as List).take(100)) {
-          final device = RemoteDevice.fromJson(
-            Map<String, dynamic>.from(item as Map),
-          );
-          if (device.id.isNotEmpty) _devices[device.id] = device;
+        for (final item in (jsonDecode(raw) as List).take(500)) {
+          try {
+            final device = RemoteDevice.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            );
+            if (device.id.isNotEmpty) _devices[device.id] = device;
+          } catch (_) {
+            /* Skip malformed records individually. */
+          }
         }
       } catch (_) {
         /* Retain valid records when one old record is malformed. */
@@ -196,17 +225,85 @@ class RemoteDeviceService extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  Future<void> _save() => _write = _write.then((_) async {
-    final data = devices.take(100).map((d) => d.toJson()).toList();
-    await (await SharedPreferences.getInstance()).setString(
-      'remote.devices.v1',
-      jsonEncode(data),
-    );
-  });
+  Future<void> _save() =>
+      _write = _write.catchError((Object _) {}).then((_) async {
+        final data = devices.take(500).map((d) => d.toJson()).toList();
+        await (await SharedPreferences.getInstance()).setString(
+          'remote.devices.v1',
+          jsonEncode(data),
+        );
+      });
   Future<void> rememberOpened(String id) async {
     if (_disposed) return;
     final previous = _devices[id] ?? RemoteDevice(id: id);
-    _devices[id] = previous.copyWith(lastOpened: DateTime.now());
+    _devices[id] = previous.copyWith(
+      lastOpened: DateTime.now(),
+      createdAt: previous.createdAt ?? DateTime.now(),
+    );
+    await _save();
+    _notify();
+  }
+
+  List<String> get tags =>
+      _devices.values.expand((d) => d.tags).toSet().toList()..sort();
+
+  Future<void> saveAddress({
+    required String id,
+    required String name,
+    String model = '',
+    List<String> tags = const [],
+  }) async {
+    id = id.trim().replaceAll(RegExp(r'\s'), '');
+    if (id.isEmpty ||
+        id.length > 200 ||
+        id.startsWith('-') ||
+        id.contains(RegExp(r'[\x00-\x1f]'))) {
+      throw const FormatException('Enter a valid ID or IP.');
+    }
+    if (!_devices.containsKey(id) && _devices.length >= 500) {
+      throw StateError('Address book is full (500 devices).');
+    }
+    final previous = _devices[id] ?? RemoteDevice(id: id);
+    _devices[id] = previous.copyWith(
+      name: name.trim().substring(0, name.trim().length.clamp(0, 160)),
+      model: model.trim(),
+      tags:
+          tags
+              .map((t) => t.trim())
+              .where((t) => t.isNotEmpty)
+              .map((t) => t.substring(0, t.length.clamp(0, 60)))
+              .toSet()
+              .take(30)
+              .toList()
+            ..sort(),
+      inAddressBook: true,
+      createdAt: previous.createdAt ?? DateTime.now(),
+    );
+    await _save();
+    _notify();
+  }
+
+  Future<void> setFavorite(String id, bool value) async {
+    final device = _devices[id];
+    if (device == null || _disposed) return;
+    _devices[id] = device.copyWith(favorite: value);
+    await _save();
+    _notify();
+  }
+
+  Future<void> renameTag(String oldTag, String newTag) async {
+    newTag = newTag.trim();
+    if (newTag.length > 60) throw const FormatException('Tag is too long.');
+    for (final device in _devices.values.toList()) {
+      if (!device.tags.contains(oldTag)) continue;
+      _devices[device.id] = device.copyWith(
+        tags: {
+          for (final tag in device.tags)
+            if (tag != oldTag) tag,
+          if (newTag.isNotEmpty) newTag,
+        }.toList()..sort(),
+      );
+    }
     await _save();
     _notify();
   }
@@ -243,6 +340,8 @@ class RemoteDeviceService extends ChangeNotifier {
   Future<void> scan({String localId = ''}) async {
     if (scanning || _disposed) return;
     scanning = true;
+    // Remove stale advertisements for our own ID from earlier scans.
+    if (localId.isNotEmpty) _devices.remove(localId);
     error = '';
     _notify();
     try {
@@ -278,12 +377,15 @@ class RemoteDeviceService extends ChangeNotifier {
                 continue;
               }
               final previous = _devices[device.id];
-              _devices[device.id] = device.copyWith(
+              _devices[device.id] = (previous ?? device).copyWith(
                 name: previous?.name.isNotEmpty == true
                     ? previous!.name
                     : device.name,
                 model: previous?.model,
                 lastOpened: previous?.lastOpened,
+                platform: device.platform,
+                ip: device.ip,
+                lastSeen: device.lastSeen,
               );
               _notify();
             }
@@ -324,4 +426,55 @@ class RemoteDeviceService extends ChangeNotifier {
     _sockets.clear();
     super.dispose();
   }
+}
+
+enum RemoteDeviceGroup { all, recent, favorites, addressBook, lan }
+
+enum RemoteDeviceSort { recent, name, id, oldest }
+
+List<RemoteDevice> filterRemoteDevices(
+  Iterable<RemoteDevice> devices, {
+  String query = '',
+  Set<String> tags = const {},
+  RemoteDeviceGroup group = RemoteDeviceGroup.all,
+  RemoteDeviceSort sort = RemoteDeviceSort.recent,
+}) {
+  final needle = query.trim().toLowerCase();
+  final result = devices.where((d) {
+    final inGroup = switch (group) {
+      RemoteDeviceGroup.all => true,
+      RemoteDeviceGroup.recent => d.lastOpened != null,
+      RemoteDeviceGroup.favorites => d.favorite,
+      RemoteDeviceGroup.addressBook => d.inAddressBook,
+      RemoteDeviceGroup.lan => d.onLan,
+    };
+    return inGroup &&
+        tags.every(d.tags.contains) &&
+        [
+          d.id,
+          d.name,
+          d.model,
+          d.platform,
+          d.ip,
+          ...d.tags,
+        ].any((s) => s.toLowerCase().contains(needle));
+  }).toList();
+  result.sort((a, b) {
+    final order = switch (sort) {
+      RemoteDeviceSort.name =>
+        (a.name.isEmpty ? a.id : a.name).toLowerCase().compareTo(
+          (b.name.isEmpty ? b.id : b.name).toLowerCase(),
+        ),
+      RemoteDeviceSort.id => a.id.compareTo(b.id),
+      RemoteDeviceSort.recent =>
+        (b.lastOpened ?? b.createdAt ?? DateTime(1970)).compareTo(
+          a.lastOpened ?? a.createdAt ?? DateTime(1970),
+        ),
+      RemoteDeviceSort.oldest => (a.createdAt ?? DateTime(1970)).compareTo(
+        b.createdAt ?? DateTime(1970),
+      ),
+    };
+    return order == 0 ? a.id.compareTo(b.id) : order;
+  });
+  return result;
 }

@@ -1,5 +1,15 @@
 # Release Notes
 
+## [6.0.1] — automatic updates and remote connection fixes
+
+Updates now download and verify automatically, show real progress, and prepare the Windows bundle before asking to restart. The updater backs up the installed bundle, restores it after a failed copy and preserves unrelated files. Android uses the system installer and its required consent. Update notifications open the Updates page directly.
+
+Remote Control automatically selects relay when private-server settings are populated. Temporary engine passwords are the default; incoming connections support password or manual approval. Mouse-button swapping is off by default, and copying an ID, password or connection shows an in-app confirmation. Windows printer settings enumerate actual installed printers.
+
+The local Address Book supports names, tags, favorites, search, filters and sorting. Device cards connect directly, LAN discovery excludes the current device, and an animated status reflects engine registration and the selected server. Remote preferences adapt to wider Windows layouts with icon navigation.
+
+Launching Localist again restores the existing window without an “already running” dialog. Forced closure, crashes and Debug builds no longer enable the user’s Debug logging preference automatically. See [validation and remaining device checks](docs/VALIDATION_6.0.1.md).
+
 ## [6.0.0] — Localist remote, stream and web sharing
 
 Remote Control packages its native engine and session interface on Windows and Android. Settings apply inside Localist, the ID/relay defaults use the supplied server with an empty API field, and sessions interoperate with compatible official clients. Separate client installation is unnecessary.

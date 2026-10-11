@@ -331,10 +331,11 @@ showCmWindow({bool isStartup = false}) async {
   } else if (_isCmReadyToShow) {
     if (await windowManager.getOpacity() != 1) {
       await windowManager.setOpacity(1);
-      await windowManager.focus();
-      await windowManager.minimize(); //needed
+      await windowManager.show();
+      if (await windowManager.isMinimized()) await windowManager.restore();
       await windowManager.setSizeAlignment(
           kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
+      await windowManager.focus();
       windowOnTop(null);
     }
   }

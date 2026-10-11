@@ -33,6 +33,9 @@ class _RemoteControlSettingsSectionState
   bool _ready = false;
   bool _serverEdited = false;
   String _notice = '';
+  List<String> _printers = [];
+  bool _loadingPrinters = false;
+  String? _printerError;
 
   @override
   void initState() {
@@ -70,6 +73,30 @@ class _RemoteControlSettingsSectionState
       );
     }
     setState(() => _ready = true);
+    unawaited(_loadPrinters());
+  }
+
+  Future<void> _loadPrinters() async {
+    if (_loadingPrinters || !Platform.isWindows) return;
+    setState(() {
+      _loadingPrinters = true;
+      _printerError = null;
+    });
+    try {
+      final names = await _engine.printerNames();
+      if (!mounted) return;
+      setState(() => _printers = names);
+      if (_engine.profile.values['printer-incomming-job-action'] ==
+              'selected' &&
+          !names.contains(_engine.profile.values['printer-selected-name'])) {
+        await _save('printer-incomming-job-action', '');
+        await _save('printer-selected-name', names.firstOrNull ?? '');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _printerError = '$e');
+    } finally {
+      if (mounted) setState(() => _loadingPrinters = false);
+    }
   }
 
   void _fillServer(RemoteServerConfig config) {
@@ -113,6 +140,13 @@ class _RemoteControlSettingsSectionState
     RemoteSettingsTab.display => _t('نمایش', 'Display'),
     RemoteSettingsTab.printer => _t('چاپگر', 'Printer'),
   };
+  IconData _tabIcon(RemoteSettingsTab tab) => switch (tab) {
+    RemoteSettingsTab.general => Icons.tune,
+    RemoteSettingsTab.security => Icons.shield_outlined,
+    RemoteSettingsTab.network => Icons.dns_outlined,
+    RemoteSettingsTab.display => Icons.desktop_windows_outlined,
+    RemoteSettingsTab.printer => Icons.print_outlined,
+  };
   String _cardName(String name) => context.l10n.isPersian
       ? switch (name) {
           'Service' => 'سرویس',
@@ -148,11 +182,12 @@ class _RemoteControlSettingsSectionState
             color: Theme.of(context).colorScheme.surfaceContainer,
             child: wide
                 ? SizedBox(
-                    width: 180,
+                    width: 220,
                     child: ListView(
                       children: [
                         for (final tab in RemoteSettingsTab.values)
                           ListTile(
+                            leading: Icon(_tabIcon(tab)),
                             selected: _tab == tab,
                             title: Text(_tabName(tab)),
                             onTap: () => setState(() => _tab = tab),
@@ -171,6 +206,7 @@ class _RemoteControlSettingsSectionState
                             Padding(
                               padding: const EdgeInsetsDirectional.only(end: 8),
                               child: ChoiceChip(
+                                avatar: Icon(_tabIcon(tab), size: 18),
                                 label: Text(_tabName(tab)),
                                 selected: _tab == tab,
                                 onSelected: (_) => setState(() => _tab = tab),
@@ -181,28 +217,53 @@ class _RemoteControlSettingsSectionState
                     ),
                   ),
           );
-          final content = ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
-            children: [
-              if (_notice.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(_notice),
-                ),
-              if (_tab == RemoteSettingsTab.network) _serverCard(),
-              for (final card
-                  in remoteSettings
-                      .where((s) => s.tab == _tab)
-                      .map((s) => s.card)
-                      .toSet())
-                _card(_cardName(card), [
-                  for (final setting in remoteSettings.where(
-                    (s) => s.tab == _tab && s.card == card,
-                  ))
-                    _setting(setting),
-                  if (card == 'Password') _passwordControls(),
-                ]),
-            ],
+          final cards = <Widget>[
+            if (_tab == RemoteSettingsTab.network) _serverCard(),
+            for (final card
+                in remoteSettings
+                    .where((s) => s.tab == _tab)
+                    .map((s) => s.card)
+                    .toSet())
+              _card(_cardName(card), [
+                for (final setting in remoteSettings.where(
+                  (s) =>
+                      s.tab == _tab &&
+                      s.card == card &&
+                      (s.key != 'verification-method' ||
+                          _engine.hasPermanentPassword),
+                ))
+                  _setting(setting),
+                if (card == 'Password') _passwordControls(),
+              ]),
+          ];
+          final content = LayoutBuilder(
+            builder: (context, box) => SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_notice.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(_notice),
+                    ),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    crossAxisAlignment: WrapCrossAlignment.start,
+                    children: [
+                      for (final card in cards)
+                        SizedBox(
+                          width: box.maxWidth >= 850
+                              ? (box.maxWidth - 56) / 2
+                              : box.maxWidth - 40,
+                          child: card,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           );
           return wide
               ? Row(
@@ -223,9 +284,9 @@ class _RemoteControlSettingsSectionState
   }
 
   Widget _card(String title, List<Widget> children) => Card(
-    margin: const EdgeInsets.only(bottom: 16),
+    margin: EdgeInsets.zero,
     color: Theme.of(context).colorScheme.surfaceContainerHigh,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     child: Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -274,6 +335,17 @@ class _RemoteControlSettingsSectionState
         setting.card == 'Permissions' &&
         setting.boolean &&
         accessMode.isNotEmpty;
+    if (setting.key == 'printer-selected-name') return _printerPicker();
+    if (setting.tab == RemoteSettingsTab.printer && !Platform.isWindows) {
+      return setting.key == 'printer-incomming-job-action'
+          ? Text(
+              _t(
+                'دریافت کار چاپ روی ویندوز پشتیبانی می‌شود.',
+                'Receiving print jobs is supported on Windows.',
+              ),
+            )
+          : const SizedBox.shrink();
+    }
     if (setting.key == '2fa') {
       return CheckboxListTile(
         contentPadding: EdgeInsets.zero,
@@ -311,16 +383,24 @@ class _RemoteControlSettingsSectionState
             const SizedBox(height: 6),
             DropdownButtonFormField<String>(
               key: ValueKey('${setting.key}:$value'),
-              initialValue: setting.choices!.containsKey(value)
+              initialValue:
+                  setting.key == 'printer-incomming-job-action' &&
+                      value == 'selected' &&
+                      _printers.isEmpty
+                  ? ''
+                  : setting.choices!.containsKey(value)
                   ? value
                   : setting.defaultValue,
               isExpanded: true,
               items: [
                 for (final entry in setting.choices!.entries)
-                  DropdownMenuItem(
-                    value: entry.key,
-                    child: Text(entry.value, overflow: TextOverflow.ellipsis),
-                  ),
+                  if (setting.key != 'printer-incomming-job-action' ||
+                      entry.key != 'selected' ||
+                      _printers.isNotEmpty)
+                    DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value, overflow: TextOverflow.ellipsis),
+                    ),
               ],
               onChanged: disabled
                   ? null
@@ -351,6 +431,57 @@ class _RemoteControlSettingsSectionState
         onChanged: (v) => _queueSave(setting.key, v.trim()),
         onSubmitted: (_) => _flushSave(setting.key),
       ),
+    );
+  }
+
+  Widget _printerPicker() {
+    if (!Platform.isWindows) return const SizedBox.shrink();
+    final selected = _engine.profile.values['printer-selected-name'];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(_t('چاپگر این دستگاه', 'Printer on this device')),
+            ),
+            IconButton(
+              onPressed: _loadingPrinters ? null : _loadPrinters,
+              tooltip: _t('تازه‌سازی چاپگرها', 'Refresh printers'),
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        if (_loadingPrinters) const LinearProgressIndicator(),
+        if (_printerError != null) Text(_printerError!),
+        if (_printers.isEmpty && !_loadingPrinters)
+          Text(
+            _t(
+              'چاپگری در ویندوز یافت نشد. پس از افزودن چاپگر، تازه‌سازی کنید.',
+              'No Windows printers found. Add a printer, then refresh.',
+            ),
+          ),
+        if (_printers.isNotEmpty)
+          DropdownButtonFormField<String>(
+            key: ValueKey('printer:$selected:${_printers.join('|')}'),
+            initialValue: _printers.contains(selected) ? selected : null,
+            isExpanded: true,
+            hint: Text(_t('انتخاب چاپگر', 'Select printer')),
+            items: [
+              for (final name in _printers)
+                DropdownMenuItem(
+                  value: name,
+                  child: Text(name, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (name) async {
+              if (name == null) return;
+              await _save('printer-selected-name', name);
+              await _save('printer-incomming-job-action', 'selected');
+            },
+          ),
+        const SizedBox(height: 12),
+      ],
     );
   }
 
@@ -510,33 +641,56 @@ class _RemoteControlSettingsSectionState
 
   Widget _passwordControls() => Padding(
     padding: const EdgeInsets.only(top: 8),
-    child: Wrap(
-      spacing: 12,
-      runSpacing: 12,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        OutlinedButton.icon(
-          onPressed: () => unawaited(_changePermanentPassword()),
-          icon: const Icon(Icons.password),
-          label: Text(_t('تنظیم رمز دائمی', 'Set permanent password')),
-        ),
-        OutlinedButton.icon(
-          onPressed: () async {
-            try {
-              await _engine.regeneratePassword();
-              if (mounted) {
-                setState(
-                  () => _notice = _t(
-                    'رمز موقت جدید ساخته شد',
-                    'Temporary password regenerated',
-                  ),
-                );
-              }
-            } catch (e) {
-              _showError(e);
-            }
-          },
-          icon: const Icon(Icons.refresh),
-          label: Text(_t('رمز موقت جدید', 'Regenerate temporary password')),
+        if (!_engine.hasPermanentPassword) ...[
+          Text(
+            _t(
+              'رمز دائمی تنظیم نشده؛ اتصال با رمز یک‌بارمصرف انجین انجام می‌شود.',
+              'No permanent password is set. Connections use the engine’s one-time password.',
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => unawaited(_changePermanentPassword()),
+              icon: const Icon(Icons.password),
+              label: Text(_t('تنظیم رمز دائمی', 'Set permanent password')),
+            ),
+            OutlinedButton.icon(
+              onPressed: () async {
+                try {
+                  await _engine.regeneratePassword();
+                  if (mounted) {
+                    setState(
+                      () => _notice = _t(
+                        'رمز موقت جدید ساخته شد',
+                        'Temporary password regenerated',
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  _showError(e);
+                }
+              },
+              icon: const Icon(Icons.refresh),
+              label: Text(_t('رمز موقت جدید', 'Regenerate temporary password')),
+            ),
+            if (_engine.hasPermanentPassword)
+              TextButton.icon(
+                onPressed: () async {
+                  await _engine.setPermanentPassword('');
+                  await _save('verification-method', 'use-temporary-password');
+                },
+                icon: const Icon(Icons.delete_outline),
+                label: Text(_t('حذف رمز دائمی', 'Remove permanent password')),
+              ),
+          ],
         ),
       ],
     ),

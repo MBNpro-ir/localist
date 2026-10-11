@@ -24,6 +24,11 @@ class RustDeskDebugService extends ChangeNotifier {
   bool busy = false;
   bool ready = false;
   bool online = false;
+  int connectionStatus = 0;
+  bool hasPermanentPassword = false;
+  String get serverLabel => profile.server.idServer.isEmpty
+      ? 'Public servers'
+      : profile.server.idServer;
   bool hosting = false;
   bool inputEnabled = false;
   bool twoFactorEnabled = false;
@@ -95,6 +100,12 @@ class RustDeskDebugService extends ChangeNotifier {
       }
     }
     await refresh();
+    if (ready &&
+        !hasPermanentPassword &&
+        profile.values['verification-method'] != 'use-temporary-password') {
+      await saveProfileValue('verification-method', 'use-temporary-password');
+      await refresh();
+    }
     _refreshTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
       unawaited(refresh());
     });
@@ -106,6 +117,7 @@ class RustDeskDebugService extends ChangeNotifier {
 
   Future<void> _refresh() async {
     if (_disposed) return;
+    profile = await RemoteControlProfile.load();
     options.clear();
     localPassword = '';
     if (Platform.isAndroid) {
@@ -117,7 +129,10 @@ class RustDeskDebugService extends ChangeNotifier {
         localPassword = await bind.mainGetTemporaryPassword();
         final state = jsonDecode(await bind.mainGetConnectStatus()) as Map;
         ready = true;
-        online = (state['status_num'] as num? ?? 0) > 0;
+        connectionStatus = (state['status_num'] as num? ?? 0).toInt();
+        online = connectionStatus > 0;
+        hasPermanentPassword =
+            await bind.mainGetCommon(key: 'permanent-password-set') == 'true';
         hosting = remote.gFFI.serverModel.isStart;
         inputEnabled = remote.gFFI.serverModel.inputOk;
         options.addAll(
@@ -133,6 +148,7 @@ class RustDeskDebugService extends ChangeNotifier {
         error = '';
       } catch (exception) {
         ready = false;
+        online = false;
         error = '$exception';
       }
     }
@@ -142,9 +158,12 @@ class RustDeskDebugService extends ChangeNotifier {
         await LocalistRemoteRuntime.ensureStarted();
         final status = await LocalistRemoteRuntime.desktopStatus();
         ready = status?['ready'] == true;
-        online = (status?['statusNum'] as num? ?? 0) > 0;
+        connectionStatus = (status?['statusNum'] as num? ?? 0).toInt();
+        online = ready && connectionStatus > 0;
         hosting = profile.values['stop-service'] != 'Y';
         final api = await RemoteNativeApi.get();
+        hasPermanentPassword =
+            await api.mainGetCommon(key: 'permanent-password-set') == 'true';
         localId = await api.mainGetMyId();
         localPassword = await api.mainGetTemporaryPassword();
         twoFactorEnabled = api.mainHasValid2FaSync();
@@ -157,6 +176,8 @@ class RustDeskDebugService extends ChangeNotifier {
           localPassword = '';
         }
       } catch (exception) {
+        ready = false;
+        online = false;
         error = '$exception';
       }
     }
@@ -199,8 +220,7 @@ class RustDeskDebugService extends ChangeNotifier {
         'Inactivity timeout must be between 1 and 1440 minutes.',
       );
     }
-    profile.values[key] = value;
-    await profile.save();
+    await _updateProfile((latest) => latest.values[key] = value);
     if (Platform.isAndroid) await applyNativeRemoteProfile();
     if (key == 'share-rdp' && Platform.isWindows) {
       final api = await RemoteNativeApi.get();
@@ -214,12 +234,20 @@ class RustDeskDebugService extends ChangeNotifier {
 
   Future<void> saveServerConfig(RemoteServerConfig config) async {
     config.validate();
-    profile.server = config;
-    await profile.save();
+    await _updateProfile((latest) => latest.server = config);
     if (Platform.isAndroid) await applyNativeRemoteProfile();
     applyStatus = 'Server configuration saved in Localist.';
     _notify();
   }
+
+  static Future<void> _writes = Future<void>.value();
+  Future<void> _updateProfile(void Function(RemoteControlProfile) edit) =>
+      _writes = _writes.catchError((Object _) {}).then((_) async {
+        final latest = await RemoteControlProfile.load();
+        edit(latest);
+        await latest.save();
+        profile = latest;
+      });
 
   Future<void> launch({
     String? target,
@@ -238,6 +266,26 @@ class RustDeskDebugService extends ChangeNotifier {
       throw const FormatException('Unsupported connection mode');
     }
     await LocalistRemoteRuntime.ensureStarted();
+    profile = await RemoteControlProfile.load();
+    final api = await RemoteNativeApi.get();
+    // Sync the chosen server before session creation; never route an ID via
+    // stale public-server options while the hidden host applies a new profile.
+    await api.mainSetOptions(
+      json: jsonEncode({
+        ...Map<String, String>.from(
+          jsonDecode(api.mainGetOptionsSync()) as Map,
+        ),
+        ...profile.serverOptions,
+        'allow-auto-update': 'N',
+      }),
+    );
+    final targetId = normalizeRemoteTarget(target);
+    // Repair off values written by Localist 6.0.0 to existing peer configs.
+    for (final key in ['swap-left-right-mouse', 'i444', 'collapse_toolbar']) {
+      if (api.mainGetPeerOptionSync(id: targetId, key: key) == 'N') {
+        await api.mainSetPeerOption(id: targetId, key: key, value: '');
+      }
+    }
     if (Platform.isWindows) {
       if (!File(enginePath).existsSync()) {
         throw const FileSystemException(
@@ -247,7 +295,7 @@ class RustDeskDebugService extends ChangeNotifier {
       await LocalistRemoteRuntime.ensureStarted();
       await Process.start(enginePath, [
         '--$mode',
-        target.trim(),
+        targetId,
         if (relay) '--relay',
         if (password.isNotEmpty) ...['--password', password],
       ], mode: ProcessStartMode.detached);
@@ -258,7 +306,7 @@ class RustDeskDebugService extends ChangeNotifier {
       await _native.invokeMethod<bool>(
         'open',
         jsonEncode({
-          'target': target.trim(),
+          'target': targetId,
           'mode': mode,
           'relay': relay,
           if (password.isNotEmpty) 'password': password,
@@ -267,8 +315,8 @@ class RustDeskDebugService extends ChangeNotifier {
     }
     {
       recent = [
-        target.trim(),
-        ...recent.where((id) => id != target.trim()),
+        targetId,
+        ...recent.where((id) => id != targetId),
       ].take(20).toList();
       await (await SharedPreferences.getInstance()).setStringList(
         'remote.recent',
@@ -298,6 +346,24 @@ class RustDeskDebugService extends ChangeNotifier {
     if (!await api.mainSetPermanentPasswordWithResult(password: password)) {
       throw StateError('The engine could not save the permanent password.');
     }
+    await refresh();
+    await saveProfileValue(
+      'verification-method',
+      password.isEmpty ? 'use-temporary-password' : 'use-both-passwords',
+    );
+  }
+
+  Future<List<String>> printerNames() async {
+    if (!Platform.isWindows) return [];
+    final raw = (await RemoteNativeApi.get()).mainGetPrinterNames();
+    final names =
+        (jsonDecode(raw.isEmpty ? '[]' : raw) as List)
+            .whereType<String>()
+            .where((s) => s.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    return names;
   }
 
   Future<void> regeneratePassword() async {
@@ -358,4 +424,11 @@ class RustDeskDebugService extends ChangeNotifier {
       _notify();
     }
   }
+}
+
+String normalizeRemoteTarget(String target) {
+  final trimmed = target.trim();
+  return RegExp(r'^[\d\s]+$').hasMatch(trimmed)
+      ? trimmed.replaceAll(RegExp(r'\s'), '')
+      : trimmed;
 }

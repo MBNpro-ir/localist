@@ -1081,6 +1081,12 @@ class _CmControlPanel extends StatelessWidget {
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        if (!showAccept)
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Text(bind.mainGetLocalOption(key: 'lang') == 'fa'
+              ? 'در حالت تأیید با رمز، فرستنده باید رمز اتصال را وارد کند. روش تأیید در تنظیمات Localist قابل تغییر است.'
+              : 'Password-only approval: the sender must enter your connection password. Change the approval method in Localist settings.',
+              style: Theme.of(context).textTheme.bodySmall)),
         Offstage(
           offstage: !showElevation || !showAccept,
           child: buildButton(context, color: Colors.green[700], onClick: () {

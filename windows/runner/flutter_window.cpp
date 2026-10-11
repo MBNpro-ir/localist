@@ -58,6 +58,7 @@ bool FlutterWindow::OnCreate() {
   });
   method_channel_ = CreateLocalistMethodChannel(
       flutter_controller_->engine()->messenger(), GetHandle());
+  ChangeWindowMessageFilterEx(GetHandle(), RegisterWindowMessageW(L"PRS.Localist.Activate"), MSGFLT_ALLOW, nullptr);
   flutter_view_window_ = flutter_controller_->view()->GetNativeWindow();
   SetChildContent(flutter_view_window_);
 
@@ -125,6 +126,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   if (message == WM_ENDSESSION && wparam) {
     MarkLocalistCleanExit();
     ::DestroyWindow(hwnd);
+    return 0;
+  }
+  if (message == RegisterWindowMessageW(L"PRS.Localist.Activate")) {
+    ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+    SetForegroundWindow(hwnd);
+    if (method_channel_) method_channel_->InvokeMethod("activateWindow", nullptr);
     return 0;
   }
 

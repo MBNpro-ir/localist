@@ -19,6 +19,8 @@ void main() {
       expect(api.translate(name: 'Connect', locale: 'en'), 'Connect');
       expect(api.translate(name: 'Connect', locale: 'fa'), isNotEmpty);
       expect(api.mainGetAppNameSync(), 'LocalistRemote');
+      final printers = api.mainGetPrinterNames();
+      expect(printers, startsWith('['));
     },
     skip: !Platform.isWindows,
   );

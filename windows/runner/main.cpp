@@ -31,9 +31,19 @@ bool IsAnotherInstanceRunning(HANDLE mutex) {
   return ::GetLastError() == ERROR_ALREADY_EXISTS;
 }
 
-void ShowAlreadyRunningMessage() {
-  ::MessageBoxW(nullptr, L"Localist is already open.", L"Localist",
-                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+void ActivateExistingWindow() {
+  const UINT activate = RegisterWindowMessageW(L"PRS.Localist.Activate");
+  for (int attempt = 0; attempt < 30; ++attempt) {
+    const HWND window = FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Localist");
+    if (window != nullptr) {
+      DWORD owner = 0;
+      GetWindowThreadProcessId(window, &owner);
+      AllowSetForegroundWindow(owner);
+      PostMessageW(window, activate, 0, 0);
+      return;
+    }
+    Sleep(100);
+  }
 }
 
 std::wstring ModulePath() {
@@ -146,23 +156,6 @@ void AppendTextFile(const std::wstring& path, const std::string& text) {
   fclose(file);
 }
 
-bool DirectoryExists(const std::wstring& path) {
-  const DWORD attributes = ::GetFileAttributesW(path.c_str());
-  return attributes != INVALID_FILE_ATTRIBUTES &&
-         (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-}
-
-void EnsureDirectory(const std::wstring& path) {
-  if (path.empty() || DirectoryExists(path)) {
-    return;
-  }
-  const std::wstring parent = ParentDirectory(path);
-  if (!parent.empty() && parent != path) {
-    EnsureDirectory(parent);
-  }
-  ::CreateDirectoryW(path.c_str(), nullptr);
-}
-
 std::wstring EnvironmentVariable(const wchar_t* name) {
   const DWORD size = ::GetEnvironmentVariableW(name, nullptr, 0);
   if (size == 0) {
@@ -222,48 +215,8 @@ bool IsDebugPreferenceEnabled() {
   return preferences.compare(value, 4, "true") == 0;
 }
 
-void SetDebugPreferenceEnabled(bool enabled) {
-  const std::wstring path = PreferencesPath();
-  if (path.empty()) {
-    return;
-  }
-  EnsureDirectory(ParentDirectory(path));
-  std::string preferences;
-  if (!ReadTextFile(path, &preferences) || preferences.empty()) {
-    preferences = "{}";
-  }
-  const std::string replacement = enabled ? "true" : "false";
-  const size_t key = preferences.find(kDebugPreferenceKey);
-  if (key == std::string::npos) {
-    const size_t brace = preferences.rfind('}');
-    if (brace == std::string::npos) {
-      preferences = std::string("{") + kDebugPreferenceKey + ":" +
-                    replacement + "}";
-    } else {
-      const bool has_values = preferences.find(':') != std::string::npos;
-      preferences.insert(brace, std::string(has_values ? "," : "") +
-                                    kDebugPreferenceKey + ":" + replacement);
-    }
-  } else {
-    const size_t colon = preferences.find(':', key);
-    if (colon != std::string::npos) {
-      size_t value_start = colon + 1;
-      while (value_start < preferences.size() &&
-             isspace(static_cast<unsigned char>(preferences[value_start]))) {
-        ++value_start;
-      }
-      size_t value_end = value_start;
-      while (value_end < preferences.size() &&
-             isalpha(static_cast<unsigned char>(preferences[value_end]))) {
-        ++value_end;
-      }
-      preferences.replace(value_start, value_end - value_start, replacement);
-    }
-  }
-  WriteTextFile(path, preferences);
-}
-
 void AppendNativeDebugLog(const std::string& message) {
+  if (!IsDebugPreferenceEnabled()) return;
   AppendTextFile(DebugLogPath(),
                  "[" + Timestamp() + "] Native: " + message + "\r\n");
 }
@@ -324,43 +277,12 @@ void DeleteRunMarker() {
   ::DeleteFileW(RunMarkerPath().c_str());
 }
 
-void ShowCrashDebugEnabledMessage() {
-  ::MessageBoxW(
-      nullptr,
-      L"Localist crashed during the previous run.\n\n"
-      L"Debug mode was enabled automatically.\n"
-      L"Open Localist again so startup logs are saved as debug.log next to "
-      L"Localist.exe.",
-      L"Localist crash detected",
-      MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
-}
-
-void ShowCrashLogSavedMessage() {
-  const std::wstring message =
-      L"Localist crashed while debug mode was active.\n\n"
-      L"The debug log was saved here:\n" +
-      DebugLogPath() +
-      L"\n\nSend debug.log to the developer so the crash can be traced.";
-  ::MessageBoxW(nullptr, message.c_str(), L"Localist debug log saved",
-                MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
-}
-
-void HandlePreviousAbnormalExit(bool* debug_preference_enabled, bool startup) {
-  const RunMarker marker = ReadRunMarker();
-  if (!marker.exists) {
-    return;
+// An uncleared marker also occurs after Task Manager / forced shutdown.
+// It must never change the user's logging preference or block startup.
+void HandlePreviousAbnormalExit(bool debug_preference_enabled) {
+  if (ReadRunMarker().exists && debug_preference_enabled) {
+    AppendNativeDebugLog("Previous run ended without a clean shutdown.");
   }
-  if (marker.debug_at_start || *debug_preference_enabled) {
-    AppendNativeDebugLog(
-        "Previous run ended abnormally while debug mode was active.");
-    if (!startup) ShowCrashLogSavedMessage();
-    return;
-  }
-  SetDebugPreferenceEnabled(true);
-  *debug_preference_enabled = true;
-  AppendNativeDebugLog(
-      "Previous run ended abnormally. Debug mode was enabled automatically.");
-  if (!startup) ShowCrashDebugEnabledMessage();
 }
 
 LONG WINAPI HandleUnhandledException(EXCEPTION_POINTERS* exception_info) {
@@ -423,7 +345,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   HANDLE single_instance_mutex =
       ::CreateMutexW(nullptr, TRUE, kSingleInstanceMutexName);
   if (IsAnotherInstanceRunning(single_instance_mutex)) {
-    if (!startup) ShowAlreadyRunningMessage();
+    if (!startup) ActivateExistingWindow();
     if (single_instance_mutex != nullptr) {
       ::CloseHandle(single_instance_mutex);
     }
@@ -431,10 +353,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   bool debug_preference_enabled = IsDebugPreferenceEnabled();
-#ifdef _DEBUG
-  debug_preference_enabled = true;
-#endif
-  HandlePreviousAbnormalExit(&debug_preference_enabled, startup);
+  HandlePreviousAbnormalExit(debug_preference_enabled);
   if (debug_preference_enabled) {
     AppendBootDiagnostics();
   }
@@ -472,8 +391,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   Win32Window::Size size = Win32Window::Size::SystemDefault();
   if (!window.Create(L"Localist", origin, size)) {
     AppendNativeDebugLog("Flutter window creation failed.");
-    SetDebugPreferenceEnabled(true);
-    ShowCrashDebugEnabledMessage();
     if (com_initialized) {
       ::CoUninitialize();
     }

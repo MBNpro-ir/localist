@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:archive/archive_io.dart';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -19,11 +22,50 @@ const localistLatestReleaseUrl =
 const _windowsCurlExecutable = 'curl.exe';
 
 class AppUpdateService {
-  AppUpdateService({NativeBridgeService? bridge})
-    : _bridge = bridge ?? NativeBridgeService.instance;
+  AppUpdateService({
+    NativeBridgeService? bridge,
+    this.downloadDirectory,
+    this.latestReleaseUri,
+    this.clientFactory,
+  }) : _bridge = bridge ?? NativeBridgeService.instance;
 
   final NativeBridgeService _bridge;
   final LogService _logs = LogService.instance;
+  final Directory? downloadDirectory;
+  final Uri? latestReleaseUri;
+  final HttpClient Function()? clientFactory;
+
+  Future<String> prepareWindowsUpdate(File archive, AppVersion version) async {
+    final marker = File('${archive.path}.ready.json');
+    if (await marker.exists()) {
+      try {
+        final data = jsonDecode(await marker.readAsString()) as Map;
+        final bundle = data['bundle'] as String;
+        if (data['version'] == version.displayName &&
+            p.isWithin(archive.parent.path, bundle) &&
+            isCompleteWindowsBundle(bundle, version.displayName)) {
+          return bundle;
+        }
+      } catch (_) {
+        /* Rebuild incomplete staging. */
+      }
+    }
+    final stage = Directory(
+      '${archive.path}.stage-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    final bundle = await compute(stageWindowsArchive, [
+      archive.path,
+      stage.path,
+      version.displayName,
+    ]);
+    final partialMarker = File('${marker.path}.part');
+    await partialMarker.writeAsString(
+      jsonEncode({'version': version.displayName, 'bundle': bundle}),
+      flush: true,
+    );
+    await partialMarker.rename(marker.path);
+    return bundle;
+  }
 
   Future<AppUpdateCheck> checkForUpdate() async {
     _logs.debug('Update check started');
@@ -53,11 +95,13 @@ class AppUpdateService {
     required void Function(int received, int total) onProgress,
   }) async {
     final nativeUpdatesPath = await _bridge.getAndroidUpdateDirectory();
-    final updatesDir = Directory(
-      nativeUpdatesPath == null || nativeUpdatesPath.isEmpty
-          ? p.join(Directory.systemTemp.path, 'updates')
-          : nativeUpdatesPath,
-    );
+    final updatesDir =
+        downloadDirectory ??
+        Directory(
+          nativeUpdatesPath == null || nativeUpdatesPath.isEmpty
+              ? p.join(Directory.systemTemp.path, 'updates')
+              : nativeUpdatesPath,
+        );
     return _downloadAsset(
       asset,
       directory: updatesDir,
@@ -70,10 +114,13 @@ class AppUpdateService {
     UpdateAsset asset, {
     required void Function(int received, int total) onProgress,
   }) async {
-    final supportDirectory = await getApplicationSupportDirectory();
+    final supportDirectory =
+        downloadDirectory ?? await getApplicationSupportDirectory();
     return _downloadAsset(
       asset,
-      directory: Directory(p.join(supportDirectory.path, 'updates')),
+      directory:
+          downloadDirectory ??
+          Directory(p.join(supportDirectory.path, 'updates')),
       platformName: 'Windows',
       onProgress: onProgress,
     );
@@ -85,6 +132,17 @@ class AppUpdateService {
     required String platformName,
     required void Function(int received, int total) onProgress,
   }) async {
+    final cached = File(p.join(directory.path, p.basename(asset.name)));
+    if ((asset.size > 0 || asset.digest.isNotEmpty) && await cached.exists()) {
+      try {
+        await validateUpdateFile(cached, asset);
+        final length = await cached.length();
+        onProgress(length, length);
+        return cached;
+      } catch (_) {
+        /* A partial or changed release must be downloaded again. */
+      }
+    }
     try {
       return await _downloadAssetWithDartHttp(
         asset,
@@ -124,7 +182,8 @@ class AppUpdateService {
     required String platformName,
     required void Function(int received, int total) onProgress,
   }) async {
-    final client = HttpClient();
+    final client = clientFactory?.call() ?? HttpClient();
+    client.connectionTimeout = const Duration(seconds: 20);
     try {
       _logs.debug('$platformName update download started asset=${asset.name}');
       final request = await client.getUrl(Uri.parse(asset.downloadUrl));
@@ -142,12 +201,15 @@ class AppUpdateService {
       if (!directory.existsSync()) {
         directory.createSync(recursive: true);
       }
-      final file = File(p.join(directory.path, asset.name));
-      final sink = file.openWrite();
+      final file = File(p.join(directory.path, p.basename(asset.name)));
+      final partial = File('${file.path}.part');
+      final sink = partial.openWrite();
       var received = 0;
-      final total = response.contentLength;
+      final total = asset.size > 0 ? asset.size : response.contentLength;
       try {
-        await for (final chunk in response) {
+        await for (final chunk in response.timeout(
+          const Duration(seconds: 60),
+        )) {
           received += chunk.length;
           sink.add(chunk);
           onProgress(received, total);
@@ -160,6 +222,9 @@ class AppUpdateService {
           'Downloaded $platformName update size mismatch.',
         );
       }
+      await validateUpdateFile(partial, asset);
+      await partial.rename(file.path);
+      onProgress(received, received);
       _logs.debug('$platformName update saved to ${file.path}');
       return file;
     } catch (error, stack) {
@@ -190,17 +255,23 @@ class AppUpdateService {
   }
 
   Future<AppRelease> _fetchLatestReleaseWithDartHttp() async {
-    final client = HttpClient();
+    final client = clientFactory?.call() ?? HttpClient();
+    client.connectionTimeout = const Duration(seconds: 20);
     try {
       _logs.debug('Fetching latest GitHub release: $_latestReleaseApi');
-      final request = await client.getUrl(Uri.parse(_latestReleaseApi));
+      final request = await client.getUrl(
+        latestReleaseUri ?? Uri.parse(_latestReleaseApi),
+      );
       request.headers.set(
         HttpHeaders.acceptHeader,
         'application/vnd.github+json',
       );
       request.headers.set(HttpHeaders.userAgentHeader, 'Localist updater');
       final response = await request.close();
-      final body = await utf8.decoder.bind(response).join();
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 45));
       _logs.debug(
         'Latest GitHub release response status=${response.statusCode} bytes=${body.length}',
       );
@@ -306,31 +377,41 @@ class AppUpdateService {
       'asset=${asset.name}',
     );
     try {
-      final result = await Process.run(
-        _windowsCurlExecutable,
-        [
-          '--fail',
-          '--silent',
-          '--show-error',
-          '--location',
-          '--connect-timeout',
-          '20',
-          '--max-time',
-          '600',
-          '--retry',
-          '2',
-          '--retry-delay',
-          '1',
-          '--user-agent',
-          'Localist updater',
-          '--output',
-          partial.path,
-          asset.downloadUrl,
-        ],
-        runInShell: false,
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
-      );
+      final progressTimer = Timer.periodic(const Duration(milliseconds: 300), (
+        _,
+      ) {
+        if (partial.existsSync()) onProgress(partial.lengthSync(), asset.size);
+      });
+      ProcessResult result;
+      try {
+        result = await Process.run(
+          _windowsCurlExecutable,
+          [
+            '--fail',
+            '--silent',
+            '--show-error',
+            '--location',
+            '--connect-timeout',
+            '20',
+            '--max-time',
+            '600',
+            '--retry',
+            '2',
+            '--retry-delay',
+            '1',
+            '--user-agent',
+            'Localist updater',
+            '--output',
+            partial.path,
+            asset.downloadUrl,
+          ],
+          runInShell: false,
+          stdoutEncoding: utf8,
+          stderrEncoding: utf8,
+        );
+      } finally {
+        progressTimer.cancel();
+      }
       final error = result.stderr.toString().trim();
       if (result.exitCode != 0) {
         throw HttpException(
@@ -350,6 +431,7 @@ class AppUpdateService {
           'Windows certificate-store download returned an empty file.',
         );
       }
+      await validateUpdateFile(partial, asset);
       onProgress(received, received);
       if (file.existsSync()) {
         await file.delete();
@@ -375,6 +457,104 @@ class AppUpdateService {
       _ => '',
     };
   }
+}
+
+Future<void> validateUpdateFile(File file, UpdateAsset asset) async {
+  final size = await file.length();
+  if (size == 0 || (asset.size > 0 && size != asset.size)) {
+    throw const FileSystemException(
+      'Update package size does not match the release.',
+    );
+  }
+  if (asset.digest.isNotEmpty) {
+    final match = RegExp(
+      r'^sha256:([a-fA-F0-9]{64})$',
+    ).firstMatch(asset.digest);
+    if (match == null) {
+      throw const FormatException('Unsupported update digest.');
+    }
+    final actual = await sha256.bind(file.openRead()).first;
+    if (actual.toString() != match.group(1)!.toLowerCase()) {
+      throw const FileSystemException(
+        'Update package SHA-256 does not match the release.',
+      );
+    }
+  }
+}
+
+/// Extract away from the UI isolate. Reject paths/links outside the staging
+/// tree and incomplete bundles before offering a restart.
+String stageWindowsArchive(List<String> args) {
+  final input = InputFileStream(args[0]);
+  final destination = p.normalize(p.absolute(args[1]));
+  Directory(destination).createSync(recursive: true);
+  try {
+    final archive = ZipDecoder().decodeStream(input);
+    var expandedSize = 0;
+    if (archive.length > 10000) {
+      throw const FormatException('Too many update files.');
+    }
+    for (final entry in archive) {
+      final path = p.normalize(
+        p.join(destination, entry.name.replaceAll('\\', '/')),
+      );
+      if (!p.isWithin(destination, path) || entry.isSymbolicLink) {
+        throw const FormatException('Unsafe update archive path.');
+      }
+      expandedSize += entry.size;
+      if (expandedSize > 2 * 1024 * 1024 * 1024) {
+        throw const FormatException('Update is too large.');
+      }
+      if (!entry.isFile) {
+        Directory(path).createSync(recursive: true);
+        continue;
+      }
+      Directory(p.dirname(path)).createSync(recursive: true);
+      final output = OutputFileStream(path);
+      try {
+        entry.writeContent(output);
+      } finally {
+        output.closeSync();
+      }
+      if (File(path).lengthSync() != entry.size) {
+        throw const FormatException('Incomplete update file.');
+      }
+    }
+  } finally {
+    input.closeSync();
+  }
+  final candidates = [
+    destination,
+    ...Directory(
+      destination,
+    ).listSync().whereType<Directory>().map((d) => d.path),
+  ];
+  for (final bundle in candidates) {
+    if (isCompleteWindowsBundle(bundle, args[2])) return bundle;
+  }
+  throw const FormatException(
+    'The update does not contain a complete Localist bundle.',
+  );
+}
+
+bool isCompleteWindowsBundle(String bundle, String version) {
+  final files = [
+    'Localist.exe',
+    'LocalistUpdater.exe',
+    'LocalistRemote.exe',
+    'librustdesk.dll',
+    'flutter_windows.dll',
+    'data/flutter_assets/pubspec.yaml',
+  ].map((name) => File(p.join(bundle, name)));
+  if (!files.every((file) => file.existsSync() && file.lengthSync() > 0)) {
+    return false;
+  }
+  final pubspec = files.last.readAsStringSync();
+  final match = RegExp(
+    r'^version:\s*(.+)$',
+    multiLine: true,
+  ).firstMatch(pubspec);
+  return AppVersion.tryParse(match?.group(1) ?? '')?.displayName == version;
 }
 
 bool isCertificateVerificationFailure(Object error) {
@@ -501,15 +681,24 @@ class AppRelease {
 }
 
 class UpdateAsset {
-  const UpdateAsset({required this.name, required this.downloadUrl});
+  const UpdateAsset({
+    required this.name,
+    required this.downloadUrl,
+    this.size = 0,
+    this.digest = '',
+  });
 
   final String name;
   final String downloadUrl;
+  final int size;
+  final String digest;
 
   factory UpdateAsset.fromJson(Map<String, Object?> json) {
     return UpdateAsset(
       name: json['name'] as String? ?? '',
       downloadUrl: json['browser_download_url'] as String? ?? '',
+      size: (json['size'] as num? ?? 0).toInt(),
+      digest: json['digest'] as String? ?? '',
     );
   }
 }

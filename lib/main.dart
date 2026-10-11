@@ -29,7 +29,7 @@ import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
 import 'screens/stream_page.dart';
 import 'services/apple_web_transfer_service.dart';
-import 'services/app_update_service.dart';
+import 'services/automatic_update_controller.dart';
 import 'services/crash_reporter_service.dart';
 import 'services/log_service.dart';
 import 'services/localist_discovery_service.dart';
@@ -81,7 +81,6 @@ Future<void> main(List<String> args) async {
           }),
         );
         final settings = await AppSettings.load();
-        if (kDebugMode) await settings.setActiveDebugMode(true);
         LogService.instance.debug(
           'App bootstrap complete platform=${Platform.operatingSystem} version=${Platform.version}',
         );
@@ -336,7 +335,7 @@ class _LocalistShellState extends State<LocalistShell>
   final QuickSendService _quickSend = QuickSendService.instance;
   final AppleWebTransferService _appleWebTransfer =
       AppleWebTransferService.instance;
-  final AppUpdateService _updates = AppUpdateService();
+  final _updates = AutomaticUpdateController.instance;
   final LogService _logs = LogService.instance;
   final GlobalKey<QuickSendPageState> _quickSendPageKey =
       GlobalKey<QuickSendPageState>();
@@ -344,6 +343,8 @@ class _LocalistShellState extends State<LocalistShell>
   StreamSubscription<List<QuickSendSharedFile>>?
   _sharedQuickSendFilesSubscription;
   StreamSubscription<void>? _quickSendNotificationSubscription;
+  StreamSubscription<void>? _windowActivationSubscription;
+  Timer? _updateCheckTimer;
   Timer? _refreshTimer;
 
   int _index = 0;
@@ -391,6 +392,9 @@ class _LocalistShellState extends State<LocalistShell>
     );
     _quickSendNotificationSubscription = _bridge.quickSendNotificationTaps
         .listen((_) => unawaited(_openQuickSendRequest()));
+    _windowActivationSubscription = _bridge.windowActivationRequests.listen(
+      (_) => unawaited(_showWindowFromTray()),
+    );
     unawaited(_bridge.initializeNotifications());
     unawaited(_quickSend.initialize());
     _refreshState();
@@ -400,6 +404,12 @@ class _LocalistShellState extends State<LocalistShell>
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForStartupUpdate();
+      if (Platform.isWindows || Platform.isAndroid) {
+        _updateCheckTimer = Timer.periodic(
+          const Duration(hours: 4),
+          (_) => unawaited(_checkForStartupUpdate(repeat: true)),
+        );
+      }
       _openQuickSendForPendingSharedFiles();
       _openQuickSendForPendingNotification();
       _showWindowsUpdateSuccessNotice();
@@ -420,6 +430,8 @@ class _LocalistShellState extends State<LocalistShell>
     _quickSend.removeListener(_handleQuickSendChanged);
     _sharedQuickSendFilesSubscription?.cancel();
     _quickSendNotificationSubscription?.cancel();
+    _windowActivationSubscription?.cancel();
+    _updateCheckTimer?.cancel();
     unawaited(_discovery.stop());
     unawaited(_peerService.stop());
     unawaited(_quickSend.disposeService());
@@ -904,30 +916,40 @@ class _LocalistShellState extends State<LocalistShell>
     );
   }
 
-  Future<void> _checkForStartupUpdate() async {
-    if (_startupUpdateChecked || (!Platform.isAndroid && !Platform.isWindows)) {
+  Future<void> _checkForStartupUpdate({bool repeat = false}) async {
+    if ((!repeat && _startupUpdateChecked) ||
+        _updates.busy ||
+        (!Platform.isAndroid && !Platform.isWindows)) {
       return;
     }
     _startupUpdateChecked = true;
     try {
-      final result = await _updates.checkForUpdate();
+      await _updates.checkAndPrepare();
+      final result = _updates.check;
       if (!mounted ||
-          !result.updateAvailable ||
-          !result.canInstallOnThisDevice) {
+          result == null ||
+          _updates.state != AutomaticUpdateState.ready) {
         return;
       }
       showLocalistNotice(
         context,
-        message: context.l10n.updaterAvailable(
-          result.release.version.toString(),
-        ),
-        tone: InAppNoticeTone.info,
+        message: Platform.isWindows
+            ? (_usePersianText
+                  ? 'نسخهٔ ${result.release.version} دانلود و آماده شد. برای اعمال آن ری‌استارت کنید.'
+                  : 'Version ${result.release.version} is downloaded and ready. Restart to apply.')
+            : (_usePersianText
+                  ? 'نسخهٔ ${result.release.version} دانلود و آمادهٔ نصب است.'
+                  : 'Version ${result.release.version} is downloaded and ready to install.'),
+        tone: InAppNoticeTone.success,
         icon: Icons.system_update_alt_outlined,
-        duration: const Duration(seconds: 9),
-        actionLabel: context.l10n.installUpdate,
+        duration: const Duration(seconds: 12),
+        actionLabel: context.l10n.updates,
         actionIcon: Icons.arrow_forward,
-        onTap: _openSettings,
+        onTap: () => unawaited(_openSettings(SettingsSection.updates)),
       );
+      if (Platform.isAndroid && _appIsActive) {
+        await _updates.installPreparedUpdate(automatic: true);
+      }
     } catch (error) {
       _logs.warning('Startup update check failed: $error');
     }

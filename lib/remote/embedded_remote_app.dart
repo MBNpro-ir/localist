@@ -211,7 +211,14 @@ Future<void> _applyProfile() async {
           await bind.mainSetLocalOption(key: setting.key, value: effective);
         }
       case RemoteOptionScope.display:
-        await bind.mainSetUserDefaultOption(key: setting.key, value: value);
+        if (setting.key == 'allow-terminal-clipboard-write') {
+          await bind.mainSetLocalOption(key: setting.key, value: value);
+        } else {
+          await bind.mainSetUserDefaultOption(
+            key: setting.key,
+            value: remoteDisplayValue(setting, value),
+          );
+        }
       case RemoteOptionScope.native:
         // Native settings have explicit Localist controls. Applying a profile
         // must not silently generate 2FA secrets or change an elevated registry.

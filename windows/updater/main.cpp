@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 
 #include <string>
 #include <vector>
@@ -12,6 +13,7 @@ struct UpdateArguments {
   std::wstring target;
   std::wstring launch;
   std::wstring version;
+  std::wstring bundle;
 };
 
 std::wstring QuoteArgument(const std::wstring& value) {
@@ -82,12 +84,45 @@ bool ParseArguments(UpdateArguments* output) {
       output->launch = value;
     } else if (key == L"--version") {
       output->version = value;
+    } else if (key == L"--bundle") {
+      output->bundle = value;
     }
   }
   LocalFree(values);
   return output->wait_pid != 0 && IsRegularFile(output->archive) &&
          IsDirectory(output->target) && !output->launch.empty() &&
          !output->version.empty();
+}
+
+BOOL CALLBACK CloseRemoteWindow(HWND window, LPARAM process_id) {
+  DWORD owner = 0;
+  GetWindowThreadProcessId(window, &owner);
+  if (owner == static_cast<DWORD>(process_id)) PostMessageW(window, WM_CLOSE, 0, 0);
+  return TRUE;
+}
+
+// Restart confirmation explicitly closes Localist sessions. Match the full
+// executable path so an installed third-party client is never affected.
+void CloseBundledRemoteProcesses(const std::wstring& target) {
+  const std::wstring expected = JoinPath(target, L"LocalistRemote.exe");
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (snapshot == INVALID_HANDLE_VALUE) return;
+  PROCESSENTRY32W entry{}; entry.dwSize = sizeof(entry);
+  if (Process32FirstW(snapshot, &entry)) do {
+    if (_wcsicmp(entry.szExeFile, L"LocalistRemote.exe") != 0) continue;
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE, FALSE, entry.th32ProcessID);
+    if (!process) continue;
+    wchar_t image[32768]; DWORD size = 32768;
+    if (QueryFullProcessImageNameW(process, 0, image, &size) && _wcsicmp(image, expected.c_str()) == 0) {
+      EnumWindows(CloseRemoteWindow, static_cast<LPARAM>(entry.th32ProcessID));
+      if (WaitForSingleObject(process, 3000) == WAIT_TIMEOUT) {
+        TerminateProcess(process, 0);
+        WaitForSingleObject(process, 3000);
+      }
+    }
+    CloseHandle(process);
+  } while (Process32NextW(snapshot, &entry));
+  CloseHandle(snapshot);
 }
 
 bool WaitForApplication(DWORD process_id) {
@@ -126,6 +161,10 @@ bool RunAndWait(const std::wstring& executable, const std::wstring& arguments,
   const DWORD wait_result = WaitForSingleObject(process_info.hProcess, 120000);
   if (wait_result == WAIT_OBJECT_0) {
     GetExitCodeProcess(process_info.hProcess, exit_code);
+  } else {
+    // Do not let a timed-out copy continue while rollback is starting.
+    TerminateProcess(process_info.hProcess, 1);
+    WaitForSingleObject(process_info.hProcess, 5000);
   }
   CloseHandle(process_info.hProcess);
   return wait_result == WAIT_OBJECT_0;
@@ -170,6 +209,16 @@ std::wstring FindBundleDirectory(const std::wstring& staging) {
   return bundle;
 }
 
+bool IsCompleteBundle(const std::wstring& bundle) {
+  for (const auto* file : {L"Localist.exe", L"LocalistUpdater.exe",
+                          L"LocalistRemote.exe", L"librustdesk.dll",
+                          L"flutter_windows.dll",
+                          L"data\\flutter_assets\\pubspec.yaml"}) {
+    if (!IsRegularFile(JoinPath(bundle, file))) return false;
+  }
+  return true;
+}
+
 bool LaunchUpdatedApplication(const std::wstring& executable,
                               const std::wstring& version) {
   std::wstring command_line = QuoteArgument(executable) + L" --updated-to=" +
@@ -205,6 +254,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   if (!WaitForApplication(arguments.wait_pid)) {
     return Fail(L"Localist did not close in time. Please close it and try the update again.");
   }
+  CloseBundledRemoteProcesses(arguments.target);
 
   wchar_t temp_path[MAX_PATH];
   const DWORD temp_length = GetTempPathW(MAX_PATH, temp_path);
@@ -226,27 +276,49 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
       QuoteArgument(L"$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath " +
                     PowerShellLiteral(arguments.archive) + L" -DestinationPath " +
                     PowerShellLiteral(staging) + L" -Force");
-  if (powershell.empty() || !RunAndWait(powershell, extraction_command,
+  if (arguments.bundle.empty() && (powershell.empty() || !RunAndWait(powershell, extraction_command,
                                         &extraction_exit_code) ||
-      extraction_exit_code != 0) {
+      extraction_exit_code != 0)) {
     DeleteTree(staging);
     return Fail(L"The downloaded Localist update could not be unpacked.");
   }
 
-  const std::wstring bundle = FindBundleDirectory(staging);
+  std::wstring bundle = arguments.bundle;
   if (bundle.empty()) {
+    bundle = FindBundleDirectory(staging);
+  }
+  if (bundle.empty() || !IsCompleteBundle(bundle)) {
     DeleteTree(staging);
-    return Fail(L"The update package does not contain Localist.exe.");
+    return Fail(L"The update does not contain a complete Localist bundle. Please download it again.");
   }
   const std::wstring robocopy = SystemExecutable(L"robocopy.exe");
+  const std::wstring backup = JoinPath(staging, L"previous-bundle");
+  DWORD backup_exit_code = 16;
+  const std::wstring backup_arguments =
+      QuoteArgument(arguments.target) + L" " + QuoteArgument(backup) +
+      L" /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP /XF debug.log localist-update.log";
+  if (robocopy.empty() || !RunAndWait(robocopy, backup_arguments, &backup_exit_code) ||
+      backup_exit_code > 7) {
+    DeleteTree(staging);
+    LaunchUpdatedApplication(arguments.launch, L"");
+    return Fail(L"The previous version could not be backed up. No update was applied.");
+  }
   DWORD copy_exit_code = 16;
   const std::wstring copy_arguments =
       QuoteArgument(bundle) + L" " + QuoteArgument(arguments.target) +
-      L" /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS /NP /XF debug.log localist-update.log";
+      L" /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NP /XF debug.log localist-update.log";
   if (robocopy.empty() || !RunAndWait(robocopy, copy_arguments, &copy_exit_code) ||
       copy_exit_code > 7) {
-    DeleteTree(staging);
-    return Fail(L"Localist files could not be replaced. Please try again with administrator access.");
+    DWORD rollback_exit_code = 16;
+    const std::wstring rollback_arguments = QuoteArgument(backup) + L" " +
+        QuoteArgument(arguments.target) + L" /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NP";
+    const bool restored = RunAndWait(robocopy, rollback_arguments, &rollback_exit_code) && rollback_exit_code <= 7;
+    if (restored) {
+      DeleteTree(staging);
+      LaunchUpdatedApplication(arguments.launch, L"");
+      return Fail(L"The update could not be installed. The previous version was restored.");
+    }
+    return Fail(L"Update installation failed. The previous version backup is at: " + backup);
   }
 
   DeleteFileW(arguments.archive.c_str());

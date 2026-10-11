@@ -30,6 +30,8 @@ class NativeBridgeService {
       StreamController<void>.broadcast();
   final Map<String, QuickSendSharedFile> _pendingSharedFiles = {};
   final _remoteFilesReceived = StreamController<void>.broadcast();
+  final _windowActivation = StreamController<void>.broadcast();
+  Stream<void> get windowActivationRequests => _windowActivation.stream;
   Stream<void> get remoteFilesReceived => _remoteFilesReceived.stream;
 
   Future<List<Map<String, dynamic>>> getRemoteReceivedFiles() async {
@@ -56,6 +58,10 @@ class NativeBridgeService {
       _quickSendNotificationTapController.stream;
 
   Future<void> _handleNativeCall(MethodCall call) async {
+    if (call.method == 'activateWindow') {
+      _windowActivation.add(null);
+      return;
+    }
     if (call.method == 'remoteFilesReceived') {
       _remoteFilesReceived.add(null);
       return;
@@ -434,6 +440,7 @@ class NativeBridgeService {
   Future<bool> startWindowsUpdate({
     required String archivePath,
     required String version,
+    String? bundlePath,
   }) async {
     if (!Platform.isWindows) {
       return false;
@@ -441,6 +448,7 @@ class NativeBridgeService {
     return await _invoke<bool>('startWindowsUpdate', {
           'archivePath': archivePath,
           'version': version,
+          'bundlePath': ?bundlePath,
         }) ??
         false;
   }

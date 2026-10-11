@@ -401,6 +401,7 @@ bool StartWindowsUpdate(HWND window, const EncodableValue* arguments) {
   const std::wstring archive_path =
       Utf8ToWide(GetStringArgument(arguments, "archivePath"));
   const std::wstring version = Utf8ToWide(GetStringArgument(arguments, "version"));
+  const std::wstring bundle_path = Utf8ToWide(GetStringArgument(arguments, "bundlePath"));
   const std::wstring executable_path = GetModulePath();
   const std::wstring executable_directory = ParentDirectory(executable_path);
   if (!IsRegularFile(archive_path) || executable_path.empty() ||
@@ -433,6 +434,7 @@ bool StartWindowsUpdate(HWND window, const EncodableValue* arguments) {
       QuoteArgument(archive_path) + L" --target " +
       QuoteArgument(executable_directory) + L" --launch " +
       QuoteArgument(executable_path) + L" --version " + QuoteArgument(version);
+  if (!bundle_path.empty()) command_line += L" --bundle " + QuoteArgument(bundle_path);
   std::vector<wchar_t> command_line_buffer(command_line.begin(), command_line.end());
   command_line_buffer.push_back(L'\0');
   STARTUPINFOW startup_info{};

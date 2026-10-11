@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
 import '../services/app_update_service.dart';
+import '../services/automatic_update_controller.dart';
 import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
 import 'quick_send_page.dart';
@@ -1084,393 +1085,213 @@ class _UpdatePanel extends StatefulWidget {
   State<_UpdatePanel> createState() => _UpdatePanelState();
 }
 
-class _UpdatePanelState extends State<_UpdatePanel> {
-  final AppUpdateService _updates = AppUpdateService();
-  final NativeBridgeService _bridge = NativeBridgeService.instance;
-  final LogService _logs = LogService.instance;
-  AppUpdateCheck? _check;
-  File? _downloadedApk;
-  bool _checking = false;
-  bool _downloading = false;
-  bool _installing = false;
-  bool _needsInstallPermission = false;
-  double? _progress;
-  String? _message;
-
+class _UpdatePanelState extends State<_UpdatePanel>
+    with WidgetsBindingObserver {
+  final _updates = AutomaticUpdateController.instance;
+  final _bridge = NativeBridgeService.instance;
+  bool _openingInstaller = false;
   @override
   void initState() {
     super.initState();
-    if (Platform.isAndroid || Platform.isWindows) {
-      unawaited(_checkForUpdates(quiet: true));
+    WidgetsBinding.instance.addObserver(this);
+    if ((Platform.isAndroid || Platform.isWindows) &&
+        !_updates.busy &&
+        _updates.check == null) {
+      unawaited(_updates.checkAndPrepare());
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final check = _check;
-    final latestVersion = check?.release.version.toString() ?? '-';
-    final currentVersion = check?.current.toString() ?? '-';
-    final hasInstallableUpdate =
-        check?.updateAvailable == true && check?.canInstallOnThisDevice == true;
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l10n.updates, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Text(
-            l10n.updateSubtitle,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: MetricTile(
-                  label: l10n.currentVersion,
-                  value: currentVersion,
-                  icon: Platform.isWindows
-                      ? Icons.desktop_windows_outlined
-                      : Icons.phone_android_outlined,
-                ),
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _updates.installPermissionNeeded &&
+        !_openingInstaller) {
+      unawaited(_install());
+    }
+  }
+
+  String _t(String fa, String en) => context.l10n.isPersian ? fa : en;
+  Future<void> _install() async {
+    if (_openingInstaller) return;
+    _openingInstaller = true;
+    try {
+      if (Platform.isWindows) {
+        final restart = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(_t('اعمال به‌روزرسانی', 'Apply update')),
+            content: Text(
+              _t(
+                'نسخه جدید دانلود و آماده شده است. برای نصب و اجرای آن، برنامه و جلسه‌های ریموت بسته می‌شوند. اکنون ری‌استارت شود؟',
+                'The update is downloaded and prepared. Installing and restarting closes Localist and its remote sessions. Restart now?',
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: MetricTile(
-                  label: l10n.latestVersion,
-                  value: latestVersion,
-                  icon: Icons.cloud_download_outlined,
-                ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(_t('بعداً', 'Later')),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(_t('نصب و ری‌استارت', 'Install & restart')),
               ),
             ],
           ),
-          if (_message != null) ...[
+        );
+        if (restart != true) return;
+      }
+      await _updates.installPreparedUpdate();
+    } finally {
+      _openingInstaller = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _updates,
+    builder: (context, _) {
+      final l10n = context.l10n;
+      final status = switch (_updates.state) {
+        AutomaticUpdateState.idle => l10n.updateSubtitle,
+        AutomaticUpdateState.checking => l10n.checkingForUpdates,
+        AutomaticUpdateState.current => l10n.updaterUpToDate,
+        AutomaticUpdateState.downloading => _t(
+          'دانلود خودکار به‌روزرسانی…',
+          'Downloading update automatically…',
+        ),
+        AutomaticUpdateState.preparing => _t(
+          'بررسی و آماده‌سازی خودکار فایل‌های نسخه جدید…',
+          'Verifying and preparing the new version…',
+        ),
+        AutomaticUpdateState.ready =>
+          Platform.isWindows
+              ? _t(
+                  'نسخه جدید آماده است. برای اعمال آن می‌توانید اکنون یا بعداً برنامه را ری‌استارت کنید.',
+                  'Update ready. Restart now or later to apply it.',
+                )
+              : _t(
+                  'نسخه جدید دانلود شده است. نصب آن به تأیید نصب‌کنندهٔ اندروید نیاز دارد.',
+                  'Update downloaded. Android requires installer confirmation.',
+                ),
+        AutomaticUpdateState.installing => _t(
+          'در حال اجرای نصب‌کننده…',
+          'Starting installer…',
+        ),
+        AutomaticUpdateState.failed => _t(
+          'به‌روزرسانی انجام نشد؛ دوباره تلاش کنید.',
+          'Update failed. Please retry.',
+        ),
+      };
+      return GlassPanel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.updates, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(
+              _t(
+                'نسخه‌های جدید به‌صورت خودکار دانلود و آماده می‌شوند.',
+                'New versions download and prepare automatically.',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: MetricTile(
+                    label: l10n.currentVersion,
+                    value: _updates.check?.current.displayName ?? '-',
+                    icon: Icons.devices,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: MetricTile(
+                    label: l10n.latestVersion,
+                    value: _updates.check?.release.version.displayName ?? '-',
+                    icon: Icons.cloud_download_outlined,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             ServiceLockNotice(
-              message: _message!,
-              icon: _message == l10n.updaterUpToDate
+              message: status,
+              icon: _updates.state == AutomaticUpdateState.ready
                   ? Icons.check_circle_outline
                   : Icons.info_outline,
             ),
-          ],
-          if (_progress != null) ...[
-            const SizedBox(height: 12),
-            LinearProgressIndicator(value: _progress),
-          ],
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.tonalIcon(
-                onPressed: _checking ? null : () => _checkForUpdates(),
-                icon: _checking
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.refresh),
-                label: Text(
-                  _checking ? l10n.checkingForUpdates : l10n.checkForUpdates,
-                ),
+            if (_updates.error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(_updates.error!),
               ),
-              if (Platform.isAndroid && hasInstallableUpdate)
-                FilledButton.icon(
-                  onPressed: _downloading || _installing
-                      ? null
-                      : _downloadAndInstallAndroid,
-                  icon: _downloading
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.system_update_alt_outlined),
-                  label: Text(
-                    _downloading
-                        ? l10n.downloadingUpdate
-                        : l10n.downloadAndInstall,
-                  ),
-                ),
-              if (Platform.isAndroid && _needsInstallPermission)
-                FilledButton.tonalIcon(
-                  onPressed: _bridge.openAndroidInstallPermissionSettings,
-                  icon: const Icon(Icons.security_outlined),
-                  label: Text(l10n.allowInstallPermission),
-                ),
-              if (Platform.isAndroid && _downloadedApk != null)
-                FilledButton.tonalIcon(
-                  onPressed: _installing ? null : _installDownloadedApk,
-                  icon: _installing
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.install_mobile_outlined),
-                  label: Text(l10n.installUpdate),
-                ),
-              if (Platform.isWindows && hasInstallableUpdate)
-                FilledButton.icon(
-                  onPressed: _downloading || _installing
-                      ? null
-                      : _downloadAndInstallWindows,
-                  icon: _downloading
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.system_update_alt_outlined),
-                  label: Text(
-                    _downloading
-                        ? l10n.downloadingUpdate
-                        : l10n.downloadAndInstall,
-                  ),
-                ),
-              if (!Platform.isAndroid && !Platform.isWindows)
-                FilledButton.tonalIcon(
-                  onPressed: () => _bridge.openUri(localistLatestReleaseUrl),
-                  icon: const Icon(Icons.open_in_new),
-                  label: Text(l10n.openGithubRelease),
-                ),
+            if (_updates.state == AutomaticUpdateState.downloading) ...[
+              const SizedBox(height: 12),
+              LinearProgressIndicator(value: _updates.progress),
+              Text(
+                '${(_updates.received / 1048576).toStringAsFixed(1)} / ${_updates.total > 0 ? (_updates.total / 1048576).toStringAsFixed(1) : "?"} MB',
+              ),
             ],
-          ),
-          if (!Platform.isAndroid && !Platform.isWindows) ...[
-            const SizedBox(height: 12),
-            ServiceLockNotice(
-              message: l10n.updaterAndroidOnly,
-              icon: Icons.phone_android_outlined,
+            if (_updates.state == AutomaticUpdateState.preparing)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: LinearProgressIndicator(),
+              ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _updates.busy
+                      ? null
+                      : () => unawaited(_updates.checkAndPrepare()),
+                  icon: const Icon(Icons.refresh),
+                  label: Text(l10n.checkForUpdates),
+                ),
+                if (_updates.state == AutomaticUpdateState.ready)
+                  FilledButton.icon(
+                    onPressed: () => unawaited(_install()),
+                    icon: Icon(
+                      Platform.isWindows
+                          ? Icons.restart_alt
+                          : Icons.install_mobile,
+                    ),
+                    label: Text(
+                      Platform.isWindows
+                          ? _t(
+                              'ری‌استارت و اعمال آپدیت',
+                              'Restart & apply update',
+                            )
+                          : l10n.installUpdate,
+                    ),
+                  ),
+                if (Platform.isAndroid && _updates.installPermissionNeeded)
+                  OutlinedButton.icon(
+                    onPressed: _bridge.openAndroidInstallPermissionSettings,
+                    icon: const Icon(Icons.security),
+                    label: Text(l10n.allowInstallPermission),
+                  ),
+                if (!Platform.isAndroid && !Platform.isWindows)
+                  OutlinedButton.icon(
+                    onPressed: () => _bridge.openUri(localistLatestReleaseUrl),
+                    icon: const Icon(Icons.open_in_new),
+                    label: Text(l10n.openGithubRelease),
+                  ),
+              ],
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Future<void> _checkForUpdates({bool quiet = false}) async {
-    _logs.debug('Update check button pressed quiet=$quiet');
-    setState(() {
-      _checking = true;
-      _needsInstallPermission = false;
-      _message = quiet ? _message : null;
-    });
-    try {
-      final result = await _updates.checkForUpdate();
-      _logs.debug(
-        'Update check UI result updateAvailable=${result.updateAvailable} canInstall=${result.canInstallOnThisDevice}',
+        ),
       );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _check = result;
-        _downloadedApk = null;
-        _progress = null;
-        _message = _messageForCheck(result);
-      });
-    } catch (error) {
-      _logs.debug('Update check UI failed quiet=$quiet', error: error);
-      if (!mounted) {
-        return;
-      }
-      if (!quiet) {
-        setState(() => _message = context.l10n.updaterFailed);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _checking = false);
-      }
-    }
-  }
-
-  String _messageForCheck(AppUpdateCheck result) {
-    final l10n = context.l10n;
-    if (!result.updateAvailable) {
-      return l10n.updaterUpToDate;
-    }
-    if (!result.canInstallOnThisDevice) {
-      return l10n.updaterNoCompatibleApk;
-    }
-    return l10n.updaterAvailable(result.release.version.toString());
-  }
-
-  Future<void> _downloadAndInstallAndroid() async {
-    _logs.debug('Download and install update button pressed');
-    var check = _check;
-    if (check == null) {
-      await _checkForUpdates();
-      check = _check;
-    }
-    final asset = check?.androidAsset;
-    if (asset == null) {
-      _logs.debug('Download update blocked: no compatible asset');
-      setState(() => _message = context.l10n.updaterNoCompatibleApk);
-      return;
-    }
-    final canInstall = await _bridge.canInstallAndroidPackages();
-    _logs.debug('Android install permission canInstall=$canInstall');
-    if (!canInstall) {
-      await _bridge.openAndroidInstallPermissionSettings();
-      if (mounted) {
-        setState(() {
-          _needsInstallPermission = true;
-          _message = context.l10n.updaterInstallPermissionNeeded;
-        });
-      }
-      return;
-    }
-    setState(() {
-      _downloading = true;
-      _needsInstallPermission = false;
-      _progress = 0;
-      _message = null;
-    });
-    try {
-      final file = await _updates.downloadAndroidUpdate(
-        asset,
-        onProgress: (received, total) {
-          if (!mounted || total <= 0) {
-            return;
-          }
-          setState(() => _progress = received / total);
-        },
-      );
-      if (!mounted) {
-        return;
-      }
-      _logs.debug('Android update downloaded path=${file.path}');
-      setState(() {
-        _downloadedApk = file;
-        _progress = 1;
-        _message = context.l10n.updaterDownloaded;
-      });
-      await _installDownloadedApk();
-    } catch (error) {
-      _logs.debug('Download and install update failed', error: error);
-      if (mounted) {
-        setState(() => _message = context.l10n.updaterFailed);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _downloading = false);
-      }
-    }
-  }
-
-  Future<void> _installDownloadedApk() async {
-    final apk = _downloadedApk;
-    if (apk == null) {
-      _logs.debug('Install downloaded APK skipped: no file');
-      return;
-    }
-    _logs.debug('Install downloaded APK button pressed path=${apk.path}');
-    final canInstall = await _bridge.canInstallAndroidPackages();
-    _logs.debug('Install downloaded APK permission canInstall=$canInstall');
-    if (!canInstall) {
-      await _bridge.openAndroidInstallPermissionSettings();
-      if (mounted) {
-        setState(() {
-          _needsInstallPermission = true;
-          _message = context.l10n.updaterInstallPermissionNeeded;
-        });
-      }
-      return;
-    }
-    setState(() {
-      _installing = true;
-      _needsInstallPermission = false;
-    });
-    try {
-      final opened = await _bridge.installAndroidApk(apk.path);
-      _logs.debug('Install downloaded APK result opened=$opened');
-      if (mounted) {
-        setState(() {
-          _needsInstallPermission = !opened;
-          _message = opened
-              ? context.l10n.updaterInstallStarted
-              : context.l10n.updaterInstallPermissionNeeded;
-        });
-      }
-    } catch (error) {
-      _logs.debug('Install downloaded APK failed', error: error);
-      _logs.error('Unable to open Android update installer: $error');
-      if (mounted) {
-        setState(() => _message = context.l10n.updaterFailed);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _installing = false);
-      }
-    }
-  }
-
-  Future<void> _downloadAndInstallWindows() async {
-    _logs.debug('Windows download and install update button pressed');
-    var check = _check;
-    if (check == null) {
-      await _checkForUpdates();
-      check = _check;
-    }
-    final asset = check?.windowsAsset;
-    if (asset == null) {
-      _logs.debug('Windows update blocked: no compatible asset');
-      if (mounted) {
-        setState(() => _message = context.l10n.updaterNoCompatibleApk);
-      }
-      return;
-    }
-    setState(() {
-      _downloading = true;
-      _progress = 0;
-      _message = null;
-    });
-    try {
-      final archive = await _updates.downloadWindowsUpdate(
-        asset,
-        onProgress: (received, total) {
-          if (!mounted || total <= 0) {
-            return;
-          }
-          setState(() => _progress = received / total);
-        },
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _downloading = false;
-        _installing = true;
-        _progress = 1;
-        _message = 'Preparing the Localist update…';
-      });
-      await _bridge.stopRootSharing();
-      await _bridge.stopProxyService();
-      final started = await _bridge.startWindowsUpdate(
-        archivePath: archive.path,
-        version: check!.release.version.toString(),
-      );
-      _logs.debug(
-        'Windows update helper started=$started path=${archive.path}',
-      );
-      if (!started && mounted) {
-        setState(() {
-          _installing = false;
-          _message = context.l10n.updaterFailed;
-        });
-      }
-    } catch (error) {
-      _logs.debug('Windows download and install update failed', error: error);
-      if (mounted) {
-        setState(() {
-          _installing = false;
-          _message = context.l10n.updaterFailed;
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _downloading = false);
-      }
-    }
-  }
+    },
+  );
 }
 
 class _ProtocolToggle extends StatelessWidget {
