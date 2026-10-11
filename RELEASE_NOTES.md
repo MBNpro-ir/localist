@@ -1,5 +1,24 @@
 # Release Notes
 
+## [6.0.3] — Android permissions and remote hosting fixes
+
+Android Settings now has a Permissions page with separate screen capture, input,
+file transfer, audio, clipboard and camera controls, plus system access status.
+Welcome requests notifications, background activity and storage together; other
+access remains optional and is requested with guidance when a feature needs it.
+Restricted Accessibility instructions cover APKs installed from GitHub.
+
+The Android host listens for incoming connections before screen capture is
+enabled. Localist provides Accept, Decline and one-time-password sharing, checks
+the required access before approval, restores native events after returning from
+a session, and returns to the existing app when the final session closes.
+
+Private server settings automatically enable relay. Clearing them selects public
+servers. Windows retries settings IPC on the existing bridge, repairs disabled
+startup approval when startup is enabled, and requests VPN elevation through a
+scoped worker without restarting the main app. See [validation and remaining
+device checks](docs/VALIDATION_6.0.3.md).
+
 ## [6.0.2] — Remote Control startup and attribution fix
 
 Remote Control now shows the requested `Powered by RustDesk` attribution above

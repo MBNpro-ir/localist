@@ -62,6 +62,14 @@ Upstream: [pinned source](https://github.com/rustdesk/rustdesk/tree/4411d10f450a
 
 ## Localist theme and first-run permissions
 
-All embedded session and connection-manager isolates read the light/dark palette and mode published by Localist. Open windows refresh it without restarting the engine. The remote preferences do not offer a separate theme. Welcome lists notification, Downloads storage, battery, QR/camera, microphone, nearby Wi-Fi/location, overlay, update installation, VPN, accessibility, screen capture and optional root access. Special access uses the corresponding Android settings screen. MediaProjection requires fresh per-session OS consent; it is not persisted. Windows elevation is an explicit optional Welcome action.
+All embedded session and connection-manager isolates read the light/dark palette and mode published by Localist. Open windows refresh it without restarting the engine. The remote preferences do not offer a separate theme.
+
+Welcome requests notifications, battery exemption and Downloads storage with one action. All other permissions are optional, and Welcome can be skipped. Missing access is explained and requested again at the feature that needs it. Android Settings → Permissions includes individual capture, accessibility input, file transfer, audio, clipboard and camera controls, plus system permission status. Special access uses the corresponding Android settings screen; status refreshes on return. Restricted accessibility guidance explains App info → Allow restricted settings for sideloaded APKs.
+
+The Android listening host is separate from MediaProjection. It can receive incoming requests before capture is granted. Localist shows Accept, Decline and one-time-password sharing, then asks for capture/camera before authorizing the requested feature. Input permission remains optional for viewing. MediaProjection is not persisted. Exiting the final session route closes only the session Activity and returns to the existing Localist Activity.
+
+Windows starts unelevated. VPN routing uses a scoped elevated worker while the original Localist process and page stay open. The upstream connection manager retains its explicit elevation action for privileged remote input. Startup registration checks and repairs both the Run entry and Windows StartupApproved state when the user enables startup.
+
+See [6.0.3 validation](VALIDATION_6.0.3.md) for verification and remaining device acceptance checks.
 
 Android remote uploads remain confined to the upstream app workspace. Completed `.download` renames are published through MediaStore to unique folders in `Download/Localist` and imported into the received gallery/history. Partial or rejected transfers are not published. The engine cannot enumerate arbitrary public storage.

@@ -24,3 +24,7 @@ before sharing them.
 Screen capture, accessibility input, microphone/audio and camera access depend on
 platform permissions and the options selected by the user. Android requests the
 system screen-sharing permission when screen capture starts.
+Welcome can be skipped; missing access is requested when a feature needs it.
+Settings → Permissions lets Android users manage individual remote capabilities
+and opens the relevant system settings to revoke OS permissions. Incoming remote
+requests can be accepted or declined without creating a permanent password.

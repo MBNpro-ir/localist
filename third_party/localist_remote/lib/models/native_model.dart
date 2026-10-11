@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
@@ -50,6 +51,9 @@ class PlatformFFI {
   String _homeDir = '';
   final _eventHandlers = <String, Map<String, HandleEvent>>{};
   late RustdeskImpl _ffiBind;
+  Future<RustdeskImpl>? _constructing;
+  bool _listening = false;
+  StreamSubscription<String>? _globalEvents;
   late String _appType;
   StreamEventHandler? _eventCallback;
 
@@ -156,7 +160,7 @@ class PlatformFFI {
       } catch (e) {
         debugPrint('Failed to get documents directory: $e');
       }
-      _ffiBind = RustdeskImpl(dylib);
+      _ffiBind = await (_constructing ??= Future.sync(() => RustdeskImpl(dylib)));
 
       if (isLinux) {
         if (isMain) {
@@ -167,7 +171,10 @@ class PlatformFFI {
         // Start ipc service for uri links.
         _ffiBind.mainStartIpcUrlServer();
       }
-      _startListenEvent(_ffiBind); // global event
+      if (!_listening) {
+        _startListenEvent(_ffiBind);
+        _listening = true;
+      }
       try {
         if (isAndroid) {
           // Android file transfer uses app-specific storage. User-selected
@@ -237,6 +244,7 @@ class PlatformFFI {
       );
     } catch (e) {
       debugPrintStack(label: 'initialize failed: $e');
+      rethrow;
     }
     version = await getVersion();
   }
@@ -262,7 +270,7 @@ class PlatformFFI {
     final appType =
         _appType == kAppTypeDesktopRemote ? '$_appType,$kWindowId' : _appType;
     var sink = rustdeskImpl.startGlobalEventStream(appType: appType);
-    sink.listen((message) {
+    _globalEvents = sink.listen((message) {
       () async {
         try {
           Map<String, dynamic> event = json.decode(message);
@@ -277,6 +285,12 @@ class PlatformFFI {
         }
       }();
     });
+  }
+
+  Future<void> resumeEventListener() async {
+    if (!_listening) return;
+    await _globalEvents?.cancel();
+    _startListenEvent(_ffiBind);
   }
 
   void setEventCallback(StreamEventHandler fun) async {

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/native_bridge_service.dart';
+import '../services/feature_permission_service.dart';
 import '../services/rustdesk_debug_service.dart';
 import '../widgets/onboarding_flow.dart';
 
@@ -89,7 +90,7 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
     await _refreshStatuses();
     if (mounted) {
       setState(() {
-        _complete = previouslyCompleted && _allGranted;
+        _complete = previouslyCompleted;
         _loading = false;
       });
     }
@@ -164,17 +165,11 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       onBack: widget.onBackToLanguage,
       children: [
         if (Platform.isWindows) ...[
-          _PermissionTile(
-            granted: _features['admin'] == true,
-            icon: Icons.admin_panel_settings_outlined,
-            title: _t('دسترسی مدیر ویندوز', 'Windows administrator access'),
-            subtitle: _t(
-              'برای VPN، اشتراک مسیرهای شبکه و کنترل برنامه‌های دارای دسترسی مدیر. با زدن دکمه، ویندوز تأیید UAC می‌خواهد.',
-              'For VPN, network routing and elevated remote applications. The button opens Windows UAC confirmation.',
+          Text(
+            _t(
+              'Localist بدون دسترسی مدیر اجرا می‌شود. فقط هنگام استفاده از قابلیتی که به مدیر نیاز دارد، ویندوز تأیید UAC می‌خواهد و کار در همان بخش ادامه پیدا می‌کند.',
+              'Localist runs without administrator access. Windows requests UAC only for an operation that needs it, and the operation continues in the same page.',
             ),
-            onPressed: _busy
-                ? null
-                : () => _featureRequest(() => _bridge.ensureVpnPermission()),
           ),
           const SizedBox(height: 12),
           Text(
@@ -188,7 +183,10 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
             onPressed: _busy ? null : _requestRuntimePermissions,
             icon: const Icon(Icons.checklist),
             label: Text(
-              _t('درخواست مجوزهای معمول', 'Request runtime permissions'),
+              _t(
+                'فعال کردن سه دسترسی اصلی',
+                'Enable the three main permissions',
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -324,8 +322,8 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
               'Remote input and Accessibility',
             ),
             subtitle: _t(
-              'سرویس Localist را در صفحهٔ دسترس‌پذیری برای کنترل لمس و صفحه‌کلید فعال کنید.',
-              'Enable the Localist accessibility service to allow remote touch and keyboard input.',
+              'سرویس Localist را در Accessibility فعال کنید. اگر دسترسی محدود است: App info ← منوی سه‌نقطه ← Allow restricted settings.',
+              'Enable Localist in Accessibility. If restricted: App info → three-dot menu → Allow restricted settings.',
             ),
             onPressed: _busy
                 ? null
@@ -383,15 +381,18 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: _allGranted && !_busy ? _enterApp : null,
-            icon: Icon(_allGranted ? Icons.check_circle : Icons.lock_outline),
+            onPressed: !_busy ? _enterApp : null,
+            icon: const Icon(Icons.arrow_forward),
             label: Text(l10n.enterLocalist),
           ),
         ),
         if (!_allGranted) ...[
           const SizedBox(height: 12),
           Text(
-            l10n.grantEveryItem,
+            _t(
+              'می‌توانید ادامه دهید؛ هر دسترسیِ داده‌نشده هنگام نیاز دوباره درخواست می‌شود. وضعیت همهٔ دسترسی‌ها در تنظیمات ← دسترسی‌ها قابل تغییر است.',
+              'You can continue. Missing permissions will be requested when needed. Manage them in Settings → Permissions.',
+            ),
             style: TextStyle(color: scheme.onSurfaceVariant),
             textAlign: TextAlign.center,
           ),
@@ -437,20 +438,20 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
 
   Future<void> _requestPermission(Permission permission) =>
       _featureRequest(() async {
-        final status = await permission.request();
-        if (status.isPermanentlyDenied) await openAppSettings();
-        return status.isGranted;
+        final access = permission == _storage
+            ? FeatureAccess.storage
+            : permission == _wifi
+            ? FeatureAccess.nearbyDevices
+            : permission == Permission.camera
+            ? FeatureAccess.camera
+            : permission == Permission.microphone
+            ? FeatureAccess.microphone
+            : FeatureAccess.overlay;
+        return FeaturePermissionService.instance.ensure([access]);
       });
 
   Future<void> _requestRuntimePermissions() => _featureRequest(() async {
-    await [
-      Permission.notification,
-      Permission.camera,
-      Permission.microphone,
-      _wifi,
-      if (_sdk < 30) Permission.storage,
-    ].request();
-    return true;
+    return FeaturePermissionService.instance.requestWelcome();
   });
 
   Future<void> _requestBattery() async {

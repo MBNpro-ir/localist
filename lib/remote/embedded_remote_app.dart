@@ -14,7 +14,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/remote_control_settings.dart';
 import '../services/log_service.dart';
+import '../services/feature_permission_service.dart';
 import 'remote_theme.dart';
+import 'remote_session_return.dart';
+import 'android_remote_host.dart';
 
 class LocalistRemoteRuntime {
   static Future<void>? _starting;
@@ -78,11 +81,31 @@ class LocalistRemoteRuntime {
     } else if (Platform.isAndroid) {
       remote.localistThemeBootstrap = RemoteThemeSync.start;
       remote.kBootArgs = [];
+      engine.localistOwnsAndroidHosting = true;
+      engine.localistPermissionRequest = (type) {
+        final access = switch (type) {
+          'android.permission.RECORD_AUDIO' => FeatureAccess.microphone,
+          'android.permission.CAMERA' => FeatureAccess.camera,
+          'android.permission.POST_NOTIFICATIONS' =>
+            FeatureAccess.notifications,
+          'android.permission.SYSTEM_ALERT_WINDOW' => FeatureAccess.overlay,
+          'android.permission.WRITE_EXTERNAL_STORAGE' => FeatureAccess.storage,
+          'android.permission.MANAGE_EXTERNAL_STORAGE' => FeatureAccess.storage,
+          _ => null,
+        };
+        return access == null
+            ? null
+            : FeaturePermissionService.instance.ensure([access]);
+      };
       await remote.initEnv(kAppTypeMain);
       androidChannelInit();
       platformFFI.syncAndroidServiceAppDirConfigPath();
       await applyNativeRemoteProfile();
-      // Capture permission is requested only by Localist's hosting button.
+      await engine.gFFI.invokeMethod('start_listening');
+      if ((await RemoteControlProfile.load()).values['stop-service'] != 'Y') {
+        await bind.mainStartService();
+      }
+      await bind.mainCheckConnectStatus();
       await engine.gFFI.invokeMethod('check_service');
     }
   }
@@ -96,13 +119,20 @@ class LocalistRemoteRuntime {
 
 Future<void> runEmbeddedRemote() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FeaturePermissionService.instance.useSessionNavigator(engine.globalKey);
   const channel = MethodChannel('localist/remote');
   final launch =
       jsonDecode(await channel.invokeMethod<String>('launchOptions') ?? '{}')
           as Map;
   await LocalistRemoteRuntime.ensureStarted();
   draggablePositions.load();
-  runApp(remote.App(home: const Scaffold(body: SizedBox.shrink())));
+  runApp(
+    AndroidRemoteHost(
+      child: remote.App(
+        home: RemoteSessionReturnPage(navigatorKey: engine.globalKey),
+      ),
+    ),
+  );
   final target = launch['target'];
   if (target is String && target.isNotEmpty) {
     WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -690,6 +690,20 @@ class MainService : Service() {
         stopSelf()
     }
 
+    fun releaseCapturePermission() {
+        // Keep rendezvous and incoming notifications alive after the user
+        // revokes capture. A new session must ask for projection again.
+        _isReady = false
+        stopCapture()
+        virtualDisplay?.release()
+        virtualDisplay = null
+        releaseMediaProjection()
+        mediaProjectionForegroundService = false
+        microphoneForegroundService = false
+        createForegroundNotification()
+        checkMediaPermission()
+    }
+
     fun checkMediaPermission(): Boolean {
         Handler(Looper.getMainLooper()).post {
             MainActivity.flutterMethodChannel?.invokeMethod(

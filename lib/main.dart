@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:material_you_dynamic_theme/material_you_dynamic_theme.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tray_manager/tray_manager.dart' as tray;
@@ -19,8 +18,11 @@ import 'screens/android_permission_gate.dart';
 import 'screens/logs_page.dart';
 import 'screens/remote_debug_page.dart';
 import 'remote/embedded_remote_app.dart';
+import 'remote/android_remote_host.dart';
+import 'services/feature_permission_service.dart';
 import 'remote/remote_theme.dart';
 import 'package:flutter_hbb/main.dart' as embedded;
+import 'package:flutter_hbb/common.dart' as remote_engine;
 import 'screens/quick_send_page.dart';
 import 'screens/receiving_page.dart';
 import 'screens/settings_page.dart';
@@ -63,6 +65,11 @@ Future<void> main(List<String> args) async {
   await runZonedGuarded<Future<void>>(
     () async {
       final binding = WidgetsFlutterBinding.ensureInitialized();
+      if (Platform.isAndroid) {
+        FeaturePermissionService.instance.useSessionNavigator(
+          remote_engine.globalKey,
+        );
+      }
       binding.deferFirstFrame();
       try {
         await CrashReporterService.instance.initialize();
@@ -162,6 +169,7 @@ class _LocalistAppState extends State<_LocalistApp>
             reverseCurve: Curves.easeInOutCubic,
           );
     return AppDynamic(
+      navigatorKey: FeaturePermissionService.instance.navigatorKey,
       title: 'Localist',
       locale: currentSettings.locale,
       supportedLocales: AppLocalizations.supportedLocales,
@@ -173,9 +181,11 @@ class _LocalistAppState extends State<_LocalistApp>
         GlobalWidgetsLocalizations.delegate,
       ],
       builder: (context, child) => LocalistRemoteThemePublisher(
-        child: Theme(
-          data: _modernLocalistTheme(Theme.of(context)),
-          child: child ?? const Offstage(),
+        child: AndroidRemoteHost(
+          child: Theme(
+            data: _modernLocalistTheme(Theme.of(context)),
+            child: child ?? const Offstage(),
+          ),
         ),
       ),
       debugShowCheckedModeBanner: false,
@@ -1291,22 +1301,9 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<bool> _requestRuntimePermissions() async {
-    _logs.debug('Runtime permission request started');
-    final notification = await Permission.notification.request();
-    final ok = notification.isGranted;
-    _logs.debug('Runtime permission request result notification=$notification');
-    if (ok) {
-      _logs.info('Runtime permissions granted');
-    } else {
-      _logs.warning('Runtime permissions are incomplete');
-      if (mounted) {
-        await _showPermissionDialog(
-          title: context.l10n.notificationPermissionRequired,
-          message: context.l10n.notificationPermissionRequiredBody,
-        );
-      }
-    }
-    return ok;
+    return FeaturePermissionService.instance.ensure([
+      FeatureAccess.notifications,
+    ]);
   }
 
   Future<void> _startSharing() async {
@@ -1511,7 +1508,12 @@ class _LocalistShellState extends State<LocalistShell>
         }
         return;
       }
-      final vpnReady = await _bridge.ensureVpnPermission();
+      final vpnReady = Platform.isAndroid
+          ? await FeaturePermissionService.instance.ensure([
+              FeatureAccess.vpn,
+              FeatureAccess.notifications,
+            ])
+          : await _bridge.ensureVpnPermission();
       _logs.debug('VPN permission result ready=$vpnReady');
       if (!vpnReady) {
         _logs.warning('VPN permission was not granted');

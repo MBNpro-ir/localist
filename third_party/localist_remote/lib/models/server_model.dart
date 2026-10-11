@@ -23,6 +23,9 @@ const kUseTemporaryPassword = "use-temporary-password";
 const kUsePermanentPassword = "use-permanent-password";
 const kUseBothPasswords = "use-both-passwords";
 
+/// Localist owns incoming approval in its primary Android activity.
+void Function(Client)? localistLoginRequest;
+
 class ServerModel with ChangeNotifier {
   bool _isStart = false; // Android MainService status
   bool _mediaOk = false;
@@ -590,6 +593,11 @@ class ServerModel with ChangeNotifier {
   }
 
   void showLoginDialog(Client client) {
+    final handler = localistLoginRequest;
+    if (handler != null) {
+      handler(client);
+      return;
+    }
     showClientDialog(
       client,
       client.isFileTransfer
@@ -668,6 +676,7 @@ class ServerModel with ChangeNotifier {
   scrollToBottom() {
     if (isDesktop) return;
     Future.delayed(Duration(milliseconds: 200), () {
+      if (!controller.hasClients) return;
       controller.animateTo(controller.position.maxScrollExtent,
           duration: Duration(milliseconds: 200),
           curve: Curves.fastLinearToSlowEaseIn);

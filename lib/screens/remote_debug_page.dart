@@ -175,6 +175,13 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                     ),
                   if (Platform.isAndroid) ...[
                     const SizedBox(height: 16),
+                    Text(
+                      t(
+                        'درخواست اتصال روی همین گوشی نمایش داده می‌شود. می‌توانید آن را قبول کنید یا رمز یک‌بارمصرف را بفرستید. رمز ثابت اختیاری است و در تنظیمات امنیت قرار دارد.',
+                        'Incoming requests appear on this phone. Accept the request or share your one-time password. A permanent password is optional in Security settings.',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     FilledButton.icon(
                       onPressed: _service.ready
                           ? () => unawaited(_hosting())
@@ -267,7 +274,17 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                     contentPadding: EdgeInsets.zero,
                     title: Text(t('استفاده از Relay', 'Use relay')),
                     value: _relay,
-                    onChanged: (v) => setState(() => _relay = v),
+                    subtitle: _service.profile.server.usesRelay
+                        ? Text(
+                            t(
+                              'برای سرور شخصی به‌صورت خودکار فعال است.',
+                              'Enabled automatically for your private server.',
+                            ),
+                          )
+                        : null,
+                    onChanged: _service.profile.server.usesRelay
+                        ? null
+                        : (v) => setState(() => _relay = v),
                   ),
                   Wrap(
                     spacing: 8,

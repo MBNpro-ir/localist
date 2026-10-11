@@ -1603,6 +1603,9 @@ class AndroidPermissionManager {
       return Future.value(true);
     }
 
+    final localistRequest = localistPermissionRequest?.call(type);
+    if (localistRequest != null) return localistRequest;
+
     gFFI.invokeMethod("request_permission", type);
 
     // clear last task
@@ -1635,6 +1638,9 @@ class AndroidPermissionManager {
   }
 }
 
+Future<bool>? Function(String type)? localistPermissionRequest;
+bool localistOwnsAndroidHosting = false;
+
 RadioListTile<T> getRadio<T>(
     Widget title, T toValue, T curValue, ValueChanged<T?>? onChange,
     {bool? dense}) {
@@ -1657,15 +1663,18 @@ FFI ffi(String? tag) {
 
 /// Global FFI object
 late FFI _globalFFI;
+bool _globalFFIInitialized = false;
 
 FFI get gFFI => _globalFFI;
 
 Future<void> initGlobalFFI() async {
+  if (_globalFFIInitialized) return;
   debugPrint("_globalFFI init");
   _globalFFI = FFI(null);
   debugPrint("_globalFFI init end");
   // after `put`, can also be globally found by Get.find<FFI>();
   Get.put<FFI>(_globalFFI, permanent: true);
+  _globalFFIInitialized = true;
 }
 
 String translate(String name) {

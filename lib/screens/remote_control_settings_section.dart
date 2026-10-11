@@ -327,9 +327,11 @@ class _RemoteControlSettingsSectionState
 
   Widget _setting(RemoteSetting setting) {
     final label = context.l10n.isPersian ? setting.fa : setting.en;
-    final value = _engine.profile.values[setting.key] ?? setting.defaultValue;
+    final value = setting.key == 'force-always-relay'
+        ? (_engine.profile.server.usesRelay ? 'Y' : 'N')
+        : _engine.profile.values[setting.key] ?? setting.defaultValue;
     final scope = _scopeNotice(setting);
-    final disabled = _engine.busy;
+    final disabled = _engine.busy || setting.key == 'force-always-relay';
     final accessMode = _engine.profile.values['access-mode'] ?? '';
     final permissionPreset =
         setting.card == 'Permissions' &&
@@ -503,6 +505,21 @@ class _RemoteControlSettingsSectionState
           onPressed: () => unawaited(_export()),
           icon: const Icon(Icons.copy),
           label: Text(_t('کپی کردن · Export', 'Export configuration')),
+        ),
+        OutlinedButton.icon(
+          onPressed: () async {
+            const config = RemoteServerConfig();
+            _serverSaveTimer?.cancel();
+            await _engine.saveServerConfig(config);
+            if (mounted) {
+              setState(() {
+                _fillServer(config);
+                _serverEdited = false;
+              });
+            }
+          },
+          icon: const Icon(Icons.public),
+          label: Text(_t('استفاده از سرورهای عمومی', 'Use public servers')),
         ),
       ],
     ),

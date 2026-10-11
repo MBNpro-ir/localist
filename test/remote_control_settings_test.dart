@@ -6,6 +6,23 @@ import 'package:localist/services/remote_device_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test(
+    'private relay is automatic and clearing servers restores public routing',
+    () {
+      final private = RemoteControlProfile();
+      expect(private.serverOptions['force-always-relay'], 'Y');
+      final public = RemoteControlProfile(server: const RemoteServerConfig());
+      for (final key in [
+        'custom-rendezvous-server',
+        'relay-server',
+        'api-server',
+        'key',
+      ]) {
+        expect(public.serverOptions[key], isEmpty);
+      }
+      expect(public.serverOptions['force-always-relay'], 'N');
+    },
+  );
   test('decodes the supplied server code and round trips it', () {
     final config = RemoteServerConfig.decode(RemoteServerConfig.suppliedCode);
     expect(config.idServer, '81.30.108.248');
@@ -14,7 +31,10 @@ void main() {
     expect(config.key, 'n4Zq55BrNpmfqWENX5ZqO3xo0oCsbASuSO71a5SGk5Y=');
     final decodedAgain = RemoteServerConfig.decode(config.encode());
     expect(decodedAgain.key, config.key);
-    expect(decodedAgain.engineOptions['custom-rendezvous-server'], config.idServer);
+    expect(
+      decodedAgain.engineOptions['custom-rendezvous-server'],
+      config.idServer,
+    );
   });
 
   test('rejects unsafe or malformed server values', () {
@@ -23,7 +43,9 @@ void main() {
       throwsFormatException,
     );
     expect(
-      () => RemoteServerConfig.decode(jsonEncode({'host': '1.2.3.4', 'key': 'bad'})),
+      () => RemoteServerConfig.decode(
+        jsonEncode({'host': '1.2.3.4', 'key': 'bad'}),
+      ),
       throwsFormatException,
     );
   });
@@ -37,17 +59,19 @@ void main() {
       } while (value > 0);
       return output;
     }
+
     List<int> field(int number, String value) {
       final data = utf8.encode(value);
       return [...varint((number << 3) | 2), ...varint(data.length), ...data];
     }
+
     final peer = [
-      ...field(1, 'pong'), ...field(3, '123456'),
-      ...field(5, 'Office PC'), ...field(6, 'windows'),
+      ...field(1, 'pong'),
+      ...field(3, '123456'),
+      ...field(5, 'Office PC'),
+      ...field(6, 'windows'),
     ];
-    final packet = [
-      ...varint((22 << 3) | 2), ...varint(peer.length), ...peer,
-    ];
+    final packet = [...varint((22 << 3) | 2), ...varint(peer.length), ...peer];
     final device = RemoteDiscoveryProtocol.decode(packet, '192.168.1.10');
     expect(device, isNotNull);
     expect(device!.id, '123456');

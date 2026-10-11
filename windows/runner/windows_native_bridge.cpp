@@ -144,23 +144,6 @@ bool IsRunningElevated() {
   return ok && elevation.TokenIsElevated != 0;
 }
 
-bool LaunchElevatedSelf(HWND window) {
-  wchar_t path[MAX_PATH];
-  const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
-  if (length == 0 || length >= MAX_PATH) {
-    return false;
-  }
-  const std::wstring arguments = L"--enable-admin --wait-for-pid=" +
-      std::to_wstring(GetCurrentProcessId());
-  HINSTANCE result = ShellExecuteW(window, L"runas", path, arguments.c_str(),
-                                   nullptr, SW_SHOWNORMAL);
-  const bool launched = reinterpret_cast<intptr_t>(result) > 32;
-  // The elevated replacement waits for this process before taking the mutex.
-  // Cancellation of the UAC prompt leaves the current instance untouched.
-  if (launched) PostMessageW(window, kLocalistRestartElevatedMessage, 0, 0);
-  return launched;
-}
-
 bool OpenUri(HWND window, const std::string& uri) {
   const std::wstring wide_uri = Utf8ToWide(uri);
   HINSTANCE result =
@@ -207,14 +190,32 @@ bool SetLaunchAtStartup(bool enabled) {
     return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
   }
   const std::wstring command = QuoteArgument(GetModulePath()) + L" --startup";
-  return RegSetKeyValueW(
+  const bool written = RegSetKeyValueW(
              HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName, REG_SZ,
              command.c_str(),
              static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t))) ==
          ERROR_SUCCESS;
+  if (!written) return false;
+  // A valid Run entry can still be disabled in Startup Apps/Task Manager.
+  // The explicit Enable action must repair that state as well as the path.
+  const BYTE approved[12] = {2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  HKEY startup_approved = nullptr;
+  if (RegCreateKeyExW(HKEY_CURRENT_USER,
+      L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
+      0, nullptr, 0, KEY_SET_VALUE, nullptr, &startup_approved, nullptr) != ERROR_SUCCESS) return false;
+  const bool enabled_approved = RegSetValueExW(startup_approved,
+      kStartupValueName, 0, REG_BINARY, approved, sizeof(approved)) == ERROR_SUCCESS;
+  RegCloseKey(startup_approved);
+  return enabled_approved;
 }
 
 bool GetLaunchAtStartup() {
+  BYTE approved[12] = {};
+  DWORD approved_size = sizeof(approved);
+  if (RegGetValueW(HKEY_CURRENT_USER,
+      L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
+      kStartupValueName, RRF_RT_REG_BINARY, nullptr, approved, &approved_size) == ERROR_SUCCESS &&
+      (approved[0] == 3 || approved[0] == 7)) return false;
   wchar_t value[32768] = {};
   DWORD size = sizeof(value);
   const LSTATUS status =
@@ -719,10 +720,10 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
       result->Success(BoolMap(true, true));
       return;
     }
-    const bool launched = LaunchElevatedSelf(window);
-    result->Success(BoolMap(false, false, launched,
-                            launched ? "Approve the Windows admin prompt."
-                                     : "Windows admin prompt could not open."));
+    // Privileged network operations use their scoped worker. Never replace
+    // the primary Flutter process just to grant a feature permission.
+    result->Success(BoolMap(false, false, false,
+        "Administrator approval is requested by each operation when needed."));
     return;
   }
 

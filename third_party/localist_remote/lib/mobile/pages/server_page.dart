@@ -897,6 +897,14 @@ void androidChannelInit() {
     debugPrint("flutter got android msg,$method,$arguments");
     try {
       switch (method) {
+        case "on_host_activity_resumed":
+          {
+            if (localistOwnsAndroidHosting) {
+              platformFFI.resumeEventListener();
+              gFFI.serverModel.updateClientState();
+            }
+            break;
+          }
         case "start_capture":
           {
             gFFI.dialogManager.dismissAll();
@@ -920,7 +928,11 @@ void androidChannelInit() {
           }
         case "on_media_projection_canceled":
           {
-            gFFI.serverModel.stopService();
+            if (localistOwnsAndroidHosting) {
+              gFFI.serverModel.changeStatue('media', false);
+            } else {
+              gFFI.serverModel.stopService();
+            }
             break;
           }
         case "msgbox":

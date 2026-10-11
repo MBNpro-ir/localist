@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:permission_handler/permission_handler.dart';
+import '../services/feature_permission_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_windows/webview_windows.dart';
 
@@ -497,32 +497,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
     );
   }
 
-  Future<void> _showPermissionPopup({
-    required String title,
-    required String message,
-  }) {
-    return showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(context.l10n.ok),
-          ),
-          FilledButton(
-            onPressed: () {
-              openAppSettings();
-              Navigator.of(context).pop();
-            },
-            child: Text(context.l10n.openSettings),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _runningStatusText({
     required AppLocalizations l10n,
     required bool vpnRunning,
@@ -550,15 +524,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
       await _startWindowsScanner();
       return;
     }
-    final permission = await Permission.camera.request();
-    _logs.debug('Camera permission result $permission');
-    if (!permission.isGranted) {
-      if (mounted) {
-        await _showPermissionPopup(
-          title: context.l10n.cameraRequired,
-          message: context.l10n.cameraRequiredBody,
-        );
-      }
+    if (!await FeaturePermissionService.instance.ensure([
+      FeatureAccess.camera,
+    ])) {
       return;
     }
     if (!mounted) {

@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
-import 'package:permission_handler/permission_handler.dart';
+import 'feature_permission_service.dart';
 
 import 'log_service.dart';
 import 'native_bridge_service.dart';
@@ -334,15 +334,9 @@ class AppleWebTransferService extends ChangeNotifier {
     if (!Platform.isAndroid) {
       return false;
     }
-    final sdk = await _bridge.getAndroidSdkInt() ?? 0;
-    final permission = sdk >= 33
-        ? Permission.nearbyWifiDevices
-        : Permission.locationWhenInUse;
-    var status = await permission.status;
-    if (!status.isGranted) {
-      status = await permission.request();
-    }
-    return status.isGranted;
+    return FeaturePermissionService.instance.ensure([
+      FeatureAccess.nearbyDevices,
+    ]);
   }
 
   Future<void> _refreshAddresses() async {

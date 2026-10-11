@@ -101,6 +101,7 @@ open class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         flutterMethodChannel = activityMethodChannel
+        flutterMethodChannel?.invokeMethod("on_host_activity_resumed", null)
         val inputPer = InputService.isOpen
         activity.runOnUiThread {
             flutterMethodChannel?.invokeMethod(
@@ -269,6 +270,14 @@ open class MainActivity : FlutterActivity() {
         flutterMethodChannel.setMethodCallHandler { call, result ->
             // make sure result will be invoked, otherwise flutter will await forever
             when (call.method) {
+                "start_listening" -> {
+                    // Register the host and receive consent requests without
+                    // starting screen capture or requesting MediaProjection.
+                    Intent(activity, MainService::class.java).also {
+                        bindService(it, serviceConnection, Context.BIND_AUTO_CREATE)
+                    }
+                    result.success(true)
+                }
                 "init_service" -> {
                     Intent(activity, MainService::class.java).also {
                         bindService(it, serviceConnection, Context.BIND_AUTO_CREATE)
@@ -286,6 +295,10 @@ open class MainActivity : FlutterActivity() {
                     } ?: let {
                         result.success(false)
                     }
+                }
+                "release_capture" -> {
+                    mainService?.releaseCapturePermission()
+                    result.success(true)
                 }
                 "stop_service" -> {
                     Log.d(logTag, "Stop service")
@@ -353,9 +366,8 @@ open class MainActivity : FlutterActivity() {
                     if (call.arguments is Int) {
                         val id = call.arguments as Int
                         mainService?.cancelNotification(id)
-                    } else {
-                        result.success(true)
                     }
+                    result.success(true)
                 }
                 "enable_soft_keyboard" -> {
                     // https://blog.csdn.net/hanye2020/article/details/105553780

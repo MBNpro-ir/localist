@@ -14,6 +14,7 @@ import '../services/log_service.dart';
 import '../services/native_bridge_service.dart';
 import 'quick_send_page.dart';
 import 'remote_control_settings_section.dart';
+import 'permissions_settings_page.dart';
 import '../widgets/glass.dart';
 
 const _appName = 'Localist';
@@ -24,6 +25,7 @@ const _windowsAppId = 'PRS.Localist';
 enum SettingsSection {
   quickSend,
   remoteControl,
+  permissions,
   network,
   appearance,
   behavior,
@@ -39,6 +41,7 @@ String _settingsSectionTitle(BuildContext context, SettingsSection section) {
     SettingsSection.quickSend => 'Quick Send',
     SettingsSection.remoteControl =>
       persian ? 'کنترل از راه دور' : 'Remote Control',
+    SettingsSection.permissions => persian ? 'دسترسی‌ها' : 'Permissions',
     SettingsSection.network => persian ? 'شبکه و پراکسی' : 'Network & proxy',
     SettingsSection.appearance =>
       persian ? 'ظاهر و زبان' : 'Appearance & language',
@@ -59,6 +62,10 @@ String _settingsSectionSubtitle(BuildContext context, SettingsSection section) {
       persian
           ? 'عمومی، امنیت، سرور ID/Relay، نمایش و چاپ'
           : 'General, security, ID/Relay server, display, and printer',
+    SettingsSection.permissions =>
+      persian
+          ? 'اشتراک صفحه، کنترل لمس و مجوزهای سیستم'
+          : 'Screen sharing, input control, and system permissions',
     SettingsSection.network =>
       persian
           ? 'پروتکل‌ها، پورت‌ها و اشتراک‌گذاری VPN'
@@ -82,6 +89,7 @@ IconData _settingsSectionIcon(SettingsSection section) {
   return switch (section) {
     SettingsSection.quickSend => Icons.send_rounded,
     SettingsSection.remoteControl => Icons.settings_remote_outlined,
+    SettingsSection.permissions => Icons.verified_user_outlined,
     SettingsSection.network => Icons.lan_rounded,
     SettingsSection.appearance => Icons.palette_outlined,
     SettingsSection.behavior => Icons.tune_rounded,
@@ -172,6 +180,8 @@ class _SettingsRoutePageState extends State<SettingsRoutePage> {
                 ? _SettingsOverview(
                     onOpen: (target) => _openSection(context, target),
                   )
+                : section == SettingsSection.permissions
+                ? const PermissionsSettingsPage()
                 : section == SettingsSection.remoteControl
                 ? remoteControlSettingsAvailable
                       ? const RemoteControlSettingsSection()
@@ -253,8 +263,10 @@ class _SettingsOverview extends StatelessWidget {
                     runSpacing: gap,
                     children: [
                       for (final section in SettingsSection.values)
-                        if (section != SettingsSection.remoteControl ||
-                            remoteControlSettingsAvailable)
+                        if ((section != SettingsSection.remoteControl ||
+                                remoteControlSettingsAvailable) &&
+                            (section != SettingsSection.permissions ||
+                                Platform.isAndroid))
                           SizedBox(
                             width: width,
                             child: _SettingsSectionCard(

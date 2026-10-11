@@ -1033,6 +1033,9 @@ class RemoteControlProfile {
       if (option.scope == RemoteOptionScope.server)
         option.key: values[option.key]!,
     ...server.engineOptions,
+    // Clearing private servers also clears forced relay, allowing the native
+    // engine to select its public rendezvous/relay infrastructure.
+    'force-always-relay': server.usesRelay ? 'Y' : 'N',
   };
 }
 

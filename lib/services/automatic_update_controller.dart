@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'app_update_service.dart';
 import 'native_bridge_service.dart';
+import 'feature_permission_service.dart';
 import '../remote/embedded_remote_app.dart';
 
 enum AutomaticUpdateState {
@@ -119,7 +120,12 @@ class AutomaticUpdateController extends ChangeNotifier {
     if (!windows && !await _bridge.canInstallAndroidPackages()) {
       installPermissionNeeded = true;
       notifyListeners();
-      return false;
+      if (!Platform.isAndroid ||
+          !await FeaturePermissionService.instance.ensure([
+            FeatureAccess.installUpdates,
+          ])) {
+        return false;
+      }
     }
     installPermissionNeeded = false;
     if (automatic) _automaticInstallUrl = _assetUrl;

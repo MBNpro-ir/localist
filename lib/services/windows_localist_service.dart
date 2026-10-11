@@ -11,6 +11,7 @@ import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import 'log_service.dart';
 import 'localist_discovery_protocol.dart';
+import 'windows_vpn_worker.dart';
 
 class WindowsLocalistService {
   WindowsLocalistService._();
@@ -47,24 +48,9 @@ class WindowsLocalistService {
   bool _statsSavePending = false;
 
   Future<bool> ensureVpnPermission() async {
-    _logs.debug('Windows VPN permission check started');
-    final admin = await checkAdminAccess();
-    if (admin.available) {
-      _logs.debug('Windows VPN permission already available');
-      return true;
-    }
-    final requested = await setRootRoutingEnabled(true);
-    if (requested.available) {
-      _logs.debug('Windows VPN permission granted after admin request');
-      return true;
-    }
-    _logs.debug('Windows VPN permission denied: ${requested.lastError}');
-    throw PlatformException(
-      code: 'windows_admin_required',
-      message: requested.lastError.isEmpty
-          ? 'Run Localist as administrator to start Windows VPN mode.'
-          : requested.lastError,
-    );
+    // The pending start operation requests UAC for its VPN worker, leaving
+    // this process and the current page intact. No generic admin restart.
+    return true;
   }
 
   Future<bool> startProxyService({
@@ -256,9 +242,7 @@ class WindowsLocalistService {
     final launched = result?['launched'] == true;
     final message =
         (result?['lastError'] as String?) ??
-        (launched
-            ? 'Approve the Windows admin prompt to reopen Localist.'
-            : '');
+        (launched ? 'Approve administrator access for this operation.' : '');
     return _adminInfo(
       available: available,
       enabled: enabled && available,
@@ -706,6 +690,7 @@ class WindowsLocalistService {
 }
 
 class WindowsWintunController {
+  final _worker = WindowsVpnWorker();
   Process? _process;
   String? _remoteRouteIp;
   String? _remoteRouteInterface;
@@ -746,6 +731,25 @@ class WindowsWintunController {
     }
 
     try {
+      if (!(await WindowsLocalistService.instance.checkAdminAccess())
+          .available) {
+        await _worker.start(
+          executable: tools.tun2socksPath,
+          arguments: args,
+          route: route == null
+              ? null
+              : {
+                  'ip': route.ip,
+                  'interface': route.interfaceAlias,
+                  'gateway': route.nextHop,
+                },
+          onExit: () {
+            _running = false;
+          },
+        );
+        _running = true;
+        return true;
+      }
       final stdoutBuffer = BytesBuilder(copy: false);
       final stderrBuffer = BytesBuilder(copy: false);
       final process = await Process.start(
@@ -835,8 +839,11 @@ class WindowsWintunController {
 
   Future<void> stop() async {
     LogService.instance.debug('Wintun stop requested running=$_running');
-    await _deleteDefaultRoutes();
-    await _deleteRemoteBypassRoute();
+    await _worker.stop();
+    if (_process != null) {
+      await _deleteDefaultRoutes();
+      await _deleteRemoteBypassRoute();
+    }
     _process?.kill();
     _process = null;
     _running = false;

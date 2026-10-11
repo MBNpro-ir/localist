@@ -12,27 +12,27 @@ import 'embedded_remote_app.dart';
 class RemoteNativeApi {
   static Future<RustdeskImpl>? _initializing;
   static RustdeskImpl? _api;
+  static Future<RustdeskImpl>? _constructing;
+  static bool _initialized = false;
 
   static Future<RustdeskImpl> get() async {
     await LocalistRemoteRuntime.ensureStarted();
     if (Platform.isAndroid) return bind;
     final existing = _api;
-    if (existing != null) return existing;
-    // Keep the failed future too. flutter_rust_bridge registers one
-    // RustdeskPlatform per Dart process; retrying after a partial FFI failure
-    // would construct a second platform and throw the misleading singleton
-    // RPC exception shown in the Remote Control page.
-    final initializing = _initializing ??= _initialize();
+    if (_initialized && existing != null) return existing;
+    // Retry IPC stages on the same bridge. Construction (including a failure)
+    // is retained because flutter_rust_bridge allows only one platform object.
+    final initializing = _initializing ??= _initialize().whenComplete(
+      () => _initializing = null,
+    );
     final api = await initializing;
     _api ??= api;
     return api;
   }
 
   static Future<RustdeskImpl> _initialize() async {
-    final library = DynamicLibrary.open(
-      '${File(Platform.resolvedExecutable).parent.path}\\librustdesk.dll',
-    );
-    final api = RustdeskImpl(library);
+    final api = await (_constructing ??= _construct());
+    _api = api;
     await api.mainInit(
       appDir: (await getApplicationDocumentsDirectory()).path,
       customClientConfig: '',
@@ -45,6 +45,14 @@ class RemoteNativeApi {
       }
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
+    _initialized = true;
     return api;
+  }
+
+  static Future<RustdeskImpl> _construct() async {
+    final library = DynamicLibrary.open(
+      '${File(Platform.resolvedExecutable).parent.path}\\librustdesk.dll',
+    );
+    return RustdeskImpl(library);
   }
 }

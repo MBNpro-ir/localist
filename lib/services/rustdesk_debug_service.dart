@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'native_bridge_service.dart';
+import 'feature_permission_service.dart';
 import '../models/remote_control_settings.dart';
 import '../remote/embedded_remote_app.dart';
 import '../remote/remote_native_api.dart';
@@ -133,7 +134,7 @@ class RustDeskDebugService extends ChangeNotifier {
         online = connectionStatus > 0;
         hasPermanentPassword =
             await bind.mainGetCommon(key: 'permanent-password-set') == 'true';
-        hosting = remote.gFFI.serverModel.isStart;
+        hosting = remote.gFFI.serverModel.mediaOk;
         inputEnabled = remote.gFFI.serverModel.inputOk;
         options.addAll(
           Map<String, String>.from(
@@ -330,15 +331,30 @@ class RustDeskDebugService extends ChangeNotifier {
     if (!Platform.isAndroid) return;
     await LocalistRemoteRuntime.ensureStarted();
     if (enabled) {
+      if (!await FeaturePermissionService.instance.ensure([
+        FeatureAccess.notifications,
+        FeatureAccess.screenCapture,
+      ])) {
+        return;
+      }
       await remote.gFFI.serverModel.startService();
     } else {
-      await remote.gFFI.serverModel.stopService();
+      remote.gFFI.serverModel.closeAll();
+      await remote.gFFI.invokeMethod('release_capture');
     }
     await refresh();
   }
 
   Future<void> openInputPermission() async {
-    await _native.invokeMethod<bool>('inputSettings');
+    if (Platform.isAndroid) {
+      await FeaturePermissionService.instance.ensure([
+        FeatureAccess.remoteInput,
+      ]);
+    }
+  }
+
+  Future<void> disableInputPermission() async {
+    if (Platform.isAndroid) await remote.gFFI.invokeMethod('stop_input');
   }
 
   Future<void> setPermanentPassword(String password) async {

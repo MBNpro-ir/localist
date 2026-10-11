@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'feature_permission_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/quick_send_settings.dart';
@@ -517,7 +518,8 @@ class QuickSendService extends ChangeNotifier {
           : Permission.storage;
       var status = await permission.status;
       if (!status.isGranted && request) {
-        status = await permission.request();
+        await FeaturePermissionService.instance.ensure([FeatureAccess.storage]);
+        status = await permission.status;
       }
       _storageAccessGranted = status.isGranted;
     } catch (error) {
@@ -985,7 +987,9 @@ class QuickSendService extends ChangeNotifier {
     }
     _lastError = '';
     if (Platform.isAndroid &&
-        !await NativeBridgeService.instance.hasLocalNetworkPermission()) {
+        !await FeaturePermissionService.instance.ensure([
+          FeatureAccess.localNetwork,
+        ])) {
       _lastError =
           'Local network access is required before Quick Send can start.';
       await NativeBridgeService.instance.setQuickSendBackgroundService(false);
