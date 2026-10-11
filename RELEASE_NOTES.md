@@ -1,5 +1,13 @@
 # Release Notes
 
+## [6.0.2] — Remote Control startup and attribution fix
+
+Remote Control now shows the requested `Powered by RustDesk` attribution above
+its workspace. Its Windows FFI/RPC bridge keeps one RustdeskPlatform instance
+for the lifetime of the process; a failed partial initialization is never
+retried by constructing a second bridge, removing the singleton RPC error that
+left the page stuck at “Starting”.
+
 ## [6.0.1] — automatic updates and remote connection fixes
 
 Updates now download and verify automatically, show real progress, and prepare the Windows bundle before asking to restart. The updater backs up the installed bundle, restores it after a failed copy and preserves unrelated files. Android uses the system installer and its required consent. Update notifications open the Updates page directly.

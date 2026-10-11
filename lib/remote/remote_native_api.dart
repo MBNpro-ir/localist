@@ -11,14 +11,21 @@ import 'embedded_remote_app.dart';
 /// Configuration IPC only. Session rendering stays in the bundled engine.
 class RemoteNativeApi {
   static Future<RustdeskImpl>? _initializing;
+  static RustdeskImpl? _api;
 
   static Future<RustdeskImpl> get() async {
     await LocalistRemoteRuntime.ensureStarted();
     if (Platform.isAndroid) return bind;
-    return _initializing ??= _initialize().catchError((Object error) {
-      _initializing = null;
-      throw error;
-    });
+    final existing = _api;
+    if (existing != null) return existing;
+    // Keep the failed future too. flutter_rust_bridge registers one
+    // RustdeskPlatform per Dart process; retrying after a partial FFI failure
+    // would construct a second platform and throw the misleading singleton
+    // RPC exception shown in the Remote Control page.
+    final initializing = _initializing ??= _initialize();
+    final api = await initializing;
+    _api ??= api;
+    return api;
   }
 
   static Future<RustdeskImpl> _initialize() async {

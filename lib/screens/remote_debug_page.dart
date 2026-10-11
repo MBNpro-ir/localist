@@ -104,6 +104,15 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
               t('کنترل از راه دور', 'Remote Control'),
               style: Theme.of(context).textTheme.headlineMedium,
             ),
+            const SizedBox(height: 4),
+            Text(
+              'Powered by RustDesk',
+              textDirection: TextDirection.ltr,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                letterSpacing: .4,
+              ),
+            ),
             const SizedBox(height: 8),
             Text(
               t(
