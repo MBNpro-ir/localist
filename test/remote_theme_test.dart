@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_hbb/common.dart' as remote;
+import 'package:get/get.dart';
 import 'package:localist/remote/remote_theme.dart';
 
 void main() {
@@ -46,4 +47,42 @@ void main() {
       }
     },
   );
+  testWidgets('an open remote window refreshes both brightness palettes', (
+    tester,
+  ) async {
+    final oldLight = ColorScheme.fromSeed(seedColor: Colors.teal);
+    final oldDark = ColorScheme.fromSeed(
+      seedColor: Colors.teal,
+      brightness: Brightness.dark,
+    );
+    remote.MyTheme.applyLocalistPalette(oldLight, oldDark, ThemeMode.light);
+    ColorScheme? rendered;
+    await tester.pumpWidget(
+      GetMaterialApp(
+        theme: remote.MyTheme.lightTheme,
+        darkTheme: remote.MyTheme.darkTheme,
+        themeMode: ThemeMode.light,
+        home: Builder(
+          builder: (context) {
+            rendered = Theme.of(context).colorScheme;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    final light = ColorScheme.fromSeed(seedColor: Colors.purple);
+    final dark = ColorScheme.fromSeed(
+      seedColor: Colors.purple,
+      brightness: Brightness.dark,
+    );
+    remote.MyTheme.applyLocalistPalette(light, dark, ThemeMode.light);
+    remote.MyTheme.refreshLocalistTheme(ThemeMode.light);
+    await tester.pumpAndSettle();
+    expect(rendered, light);
+    Get.changeThemeMode(ThemeMode.dark);
+    await tester.pumpAndSettle();
+    expect(rendered, dark);
+    await tester.pumpWidget(const SizedBox.shrink());
+    Get.reset();
+  });
 }

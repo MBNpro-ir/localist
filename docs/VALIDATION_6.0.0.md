@@ -34,9 +34,10 @@ source control, native status files or profile settings.
 ## Automated checks
 
 - Flutter analyzer: no issues.
-- Flutter tests: 62 passed, including native FFI version/translation, protocol
+- Flutter tests on Windows: 63 passed, including native FFI version/translation, protocol
   settings, transfer acknowledgement, browser transfer, gallery/filtering,
-  responsive Stream and the shared light/dark remote palette.
+  responsive Stream, the shared light/dark remote palette and live palette
+  updates followed by a brightness switch in an already open remote window.
 - Native IPC regression test passed for matching sibling executables and
   rejection of different names, different directories, changed contents and
   the service channel.

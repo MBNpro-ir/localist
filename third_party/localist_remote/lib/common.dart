@@ -249,7 +249,10 @@ class MyTheme {
   MyTheme._();
   static ColorScheme? _localistLight, _localistDark;
   static void refreshLocalistTheme(ThemeMode mode) {
-    Get.changeTheme(currentThemeMode() == ThemeMode.dark ? darkTheme : lightTheme);
+    // Refresh both slots, so a later OS brightness change uses the new palette.
+    final controller = Get.rootController;
+    controller.theme = lightTheme;
+    controller.darkTheme = darkTheme;
     Get.changeThemeMode(mode);
   }
   static Color get onAccent => _localistScheme?.onPrimary ?? Colors.white;

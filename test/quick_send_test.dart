@@ -342,7 +342,11 @@ void main() {
       final info = jsonDecode(body) as Map<String, dynamic>;
 
       expect(rawResponse, startsWith('HTTP/1.1 200'));
-      expect(info['alias'], 'QA-WINDOWS');
+      // Windows uses the native computer name; CI on Linux uses the hostname.
+      expect(
+        info['alias'],
+        Platform.isWindows ? 'QA-WINDOWS' : Platform.localHostname.trim(),
+      );
       expect(info['version'], '2.1');
       expect(info['alias'], isNot('localhost'));
       expect(info['avatarPreset'], 'person');
