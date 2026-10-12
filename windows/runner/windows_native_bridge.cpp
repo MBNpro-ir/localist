@@ -1,4 +1,5 @@
 #include "windows_native_bridge.h"
+#include "remote_host_process.h"
 
 #include <dwmapi.h>
 #include <commdlg.h>
@@ -97,6 +98,16 @@ std::string GetStringArgument(const EncodableValue* arguments, const char* key) 
   }
   const std::string* value = std::get_if<std::string>(&it->second);
   return value == nullptr ? std::string() : *value;
+}
+
+int64_t GetIntegerArgument(const EncodableValue* arguments, const char* key) {
+  const auto map = GetArgumentsMap(arguments);
+  if (!map) return 0;
+  const auto it = map->find(EncodableValue(std::string(key)));
+  if (it == map->end()) return 0;
+  if (const auto value = std::get_if<int32_t>(&it->second)) return *value;
+  if (const auto value = std::get_if<int64_t>(&it->second)) return *value;
+  return 0;
 }
 
 std::string GetEnvironmentString(const wchar_t* name) {
@@ -697,6 +708,15 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
                       std::unique_ptr<MethodResult<EncodableValue>> result) {
   const std::string& method = call.method_name();
   const EncodableValue* arguments = call.arguments();
+
+  if (method == "retireRemoteHost") {
+    const auto pid = GetIntegerArgument(arguments, "pid");
+    const bool retired = pid > 0 && pid <= MAXDWORD && RetireRemoteHostProcess(
+        static_cast<DWORD>(pid), GetIntegerArgument(arguments, "updatedMs"),
+        Utf8ToWide(GetStringArgument(arguments, "hostExecutable")));
+    result->Success(EncodableValue(retired));
+    return;
+  }
 
   if (method == "checkRootAccess") {
     const bool elevated = IsRunningElevated();

@@ -16,6 +16,7 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "main.cpp"
   "embedded_remote.cpp"
+  "remote_host_process.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "windows_native_bridge.cpp"

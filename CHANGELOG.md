@@ -2,6 +2,14 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [6.0.7] - 2026-10-12
+
+- Fixed settings IPC startup when an old LocalistRemote process remains after a crash or a different build's launch. Retained hosts require bundle identity, a fresh heartbeat and authenticated readiness; guarded cleanup preserves active sessions and unrelated processes.
+- Added multi-file Stream selection and a responsive web gallery with lazy image/video previews, individual players, previous/next navigation and per-item HTTP ranges.
+- Kept shared addresses as IP:port and added a separate item selector for DLNA casting.
+
+See [validation](docs/VALIDATION_6.0.7.md) for local IPC recovery, native guard and browser playback evidence.
+
 ## [6.0.0] - 2026-10-11
 
 - Added Localist light/dark palette synchronization to embedded desktop, mobile, file-transfer, camera, tunnel, terminal and approval windows.

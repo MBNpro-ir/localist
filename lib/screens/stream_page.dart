@@ -49,8 +49,8 @@ class _StreamPageState extends State<StreamPage> {
             const SizedBox(height: 8),
             Text(
               t(
-                'یک فایل را روی شبکهٔ محلی پخش کنید و لینک آن را در تلویزیون، کنسول، گوشی یا نمایشگر بی‌سیم باز کنید.',
-                'Play media on a local DLNA receiver or in a phone, TV or console browser.',
+                'عکس‌ها و فیلم‌ها را روی شبکهٔ محلی به صورت گالری نمایش دهید یا یک رسانه را روی گیرندهٔ DLNA پخش کنید.',
+                'Share photos and videos as a web gallery or play a media item on a local DLNA receiver.',
               ),
             ),
           ],
@@ -67,20 +67,25 @@ class _StreamPageState extends State<StreamPage> {
                   const SizedBox(height: 8),
                   Text(
                     t(
-                      'فایل را انتخاب کنید تا پورت وب باز شود. دستگاه مقابل با آدرس یا QR زیر وارد صفحهٔ پخش می‌شود و کنترل پخش، زمان، صدا و تمام‌صفحه را دارد.',
-                      'Choose a file to open the web port. Other devices can use the URL or QR to play, seek, change volume and enter fullscreen.',
+                      'چند عکس، فیلم یا موسیقی را هم‌زمان انتخاب کنید. دستگاه مقابل با آدرس یا QR زیر وارد گالری می‌شود و هر رسانه را با کنترل کامل باز می‌کند.',
+                      'Select multiple photos, videos or songs. Other devices can open the URL or QR to browse the gallery and play each item with full controls.',
                     ),
                   ),
                   const SizedBox(height: 16),
                   FilledButton.icon(
-                    onPressed: () => unawaited(_pick(context)),
+                    onPressed: _busy ? null : () => unawaited(_pick(context)),
                     icon: const Icon(Icons.video_library_outlined),
-                    label: Text(t('انتخاب فایل رسانه', 'Choose media file')),
+                    label: Text(t('انتخاب رسانه‌ها', 'Choose media files')),
                   ),
                   if (service.active) ...[
                     const SizedBox(height: 16),
                     Text(
-                      service.name,
+                      service.items.length == 1
+                          ? service.name
+                          : t(
+                              '${service.items.length} رسانه در گالری',
+                              '${service.items.length} items in gallery',
+                            ),
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -191,6 +196,36 @@ class _StreamPageState extends State<StreamPage> {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 12),
+                  if (service.items.length > 1) ...[
+                    DropdownButtonFormField<int>(
+                      key: ValueKey('${service.port}:${service.selectedIndex}'),
+                      initialValue: service.selectedIndex,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: t(
+                          'رسانه برای پخش روی DLNA',
+                          'Media to cast on DLNA',
+                        ),
+                      ),
+                      items: [
+                        for (var i = 0; i < service.items.length; i++)
+                          DropdownMenuItem(
+                            value: i,
+                            child: Text(
+                              service.items[i].name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: _busy
+                          ? null
+                          : (index) {
+                              if (index != null) service.selectItem(index);
+                            },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   FilledButton.tonalIcon(
                     onPressed: _cast.scanning
                         ? null
@@ -265,18 +300,24 @@ class _StreamPageState extends State<StreamPage> {
   }
 
   Future<void> _pick(BuildContext context) async {
-    final result = await FilePicker.pickFiles(type: FileType.any);
-    final path = result.isEmpty ? null : result.single.path;
-    if (path == null || !context.mounted) return;
+    setState(() => _busy = true);
     try {
+      final result = await FilePicker.pickFiles(type: FileType.any);
+      final files = [
+        for (final item in result)
+          if (item.path != null) File(item.path!),
+      ];
+      if (files.isEmpty || !context.mounted) return;
       service.persian = Localizations.localeOf(context).languageCode == 'fa';
-      await service.start(File(path));
+      await service.startFiles(files);
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$error')));
       }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

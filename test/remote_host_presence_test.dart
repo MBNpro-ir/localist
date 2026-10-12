@@ -191,6 +191,16 @@ void main() {
     );
 
     test(
+      'authenticated health check confirms the retained host is live',
+      () async {
+        expect(
+          await sendDesktopHostCommand(bridge.endpoint, {'command': 'ping'}),
+          {'ready': true},
+        );
+      },
+    );
+
+    test(
       'presence reports confirmed online/offline and unknown separately',
       () async {
         presence.applyEvent({'onlines': '123', 'offlines': '234'});

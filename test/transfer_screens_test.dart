@@ -102,7 +102,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('انتخاب فایل رسانه'), findsOneWidget);
+    expect(find.text('انتخاب رسانه‌ها'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.scrollUntilVisible(
       find.text('انتقال کل صفحه / Miracast'),

@@ -1,5 +1,19 @@
 # Release Notes
 
+## [6.0.7] — Remote host recovery and multi-media web gallery
+
+Remote Control validates the bundled host's executable path, SHA-256 identity,
+fresh heartbeat and authenticated readiness before reusing it. Stale hosts left
+by a crash or another build are retired with native process, user, session and
+creation-time checks. Existing live sessions are protected and failed startup
+can recover without accepting a different build's settings IPC.
+
+Stream now accepts multiple photos, videos and audio files in one selection.
+The local IP:port page shows a responsive gallery with lazy previews. Each
+item has its own player, gallery return and previous/next navigation, playback
+controls and HTTP seeking. DLNA casting has a separate media selection and
+stable per-item URLs.
+
 ## [6.0.6] — ABI-labelled Android packages and reliable Windows drops
 
 Android release APKs now use their exact ABI in the filename (`armeabi-v7a`

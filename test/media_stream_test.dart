@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/services/http_file_stream.dart';
 import 'package:localist/services/dlna_cast_service.dart';
 import 'package:localist/services/media_stream_service.dart';
+import 'package:localist/services/media_stream_gallery.dart';
 
 void main() {
   test('DLNA metadata includes MIME resource and the correct media class', () {
@@ -167,4 +168,163 @@ void main() {
     expect(html, contains('id="fit"'));
     expect(html, isNot(contains('id="seek"')));
   });
+
+  test('gallery escapes names and defers video preview loading', () {
+    final html = buildMediaGalleryHtml(
+      items: [
+        (
+          name: '<script>alert(1)</script>.mp4',
+          mime: 'video/mp4',
+          playerPath: '/token/items/0',
+          mediaPath: '/token/items/0/media',
+        ),
+        (
+          name: 'photo.jpg',
+          mime: 'image/jpeg',
+          playerPath: '/token/items/1',
+          mediaPath: '/token/items/1/media',
+        ),
+      ],
+      persian: true,
+    );
+    expect(html, contains('lang="fa" dir="rtl"'));
+    expect(html, contains('&lt;script&gt;alert(1)&lt;/script&gt;.mp4'));
+    expect(html, isNot(contains('<script>alert(1)')));
+    expect(html, contains('loading="lazy"'));
+    expect(html, contains('preload="none"'));
+    expect(html, contains('IntersectionObserver'));
+    expect(html, isNot(contains('autoplay')));
+  });
+
+  test(
+    'multiple files have independent players, seek routes and DLNA selection',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('localist-gallery');
+      final photo = await File(
+        '${dir.path}/photo.jpg',
+      ).writeAsBytes([1, 2, 3, 4]);
+      final movie = await File(
+        '${dir.path}/movie.mp4',
+      ).writeAsBytes(List.generate(30, (i) => i + 10));
+      final song = await File(
+        '${dir.path}/song.mp3',
+      ).writeAsBytes([60, 61, 62]);
+      final service = MediaStreamService.instance;
+      final client = HttpClient()..findProxy = (_) => 'DIRECT';
+      // Use the bound loopback port even when the machine has no physical LAN.
+      Future<HttpClientResponse> get(
+        String path, {
+        String method = 'GET',
+        String? range,
+      }) async {
+        final req = await client.openUrl(
+          method,
+          Uri.parse('http://127.0.0.1:${service.port}$path'),
+        );
+        if (range != null) req.headers.set('Range', range);
+        return req.close();
+      }
+
+      try {
+        service.persian = true;
+        await service.startFiles([photo, movie, song, photo]);
+        expect(service.items.length, 3);
+        final root = await get('/');
+        expect(root.statusCode, 200);
+        final html = await utf8.decoder.bind(root).join();
+        expect(html, contains('گالری استریم لوکالیست'));
+        final links = RegExp(
+          r'class="card" href="([^\"]+)"',
+        ).allMatches(html).map((m) => m.group(1)!).toList();
+        expect(links.length, 3);
+        for (var i = 0; i < links.length; i++) {
+          final player = await get(links[i]);
+          expect(player.statusCode, 200);
+          final page = await utf8.decoder.bind(player).join();
+          expect(page, contains('href="/">گالری</a>'));
+          expect(page, contains('${links[i]}/media'));
+          expect(page, contains(i == 0 ? 'id="zoomIn"' : 'id="seek"'));
+          if (i < 2) {
+            expect(page, contains('href="${links[i + 1]}">بعدی</a>'));
+          }
+        }
+        final range = await get('${links[1]}/media', range: 'bytes=5-9');
+        expect(range.statusCode, 206);
+        expect(await range.fold<List<int>>([], (a, b) => a..addAll(b)), [
+          15,
+          16,
+          17,
+          18,
+          19,
+        ]);
+        final head = await get('${links[0]}/media', method: 'HEAD');
+        expect(head.headers.contentType!.mimeType, 'image/jpeg');
+        expect(head.contentLength, 4);
+        await head.drain<void>();
+        service.selectItem(1);
+        expect(service.name, 'movie.mp4');
+        for (final url in service.urls) {
+          expect(Uri.parse(url).path, '${links[1]}/media');
+        }
+        final photoBytes = await get('${links[0]}/media');
+        expect(await photoBytes.fold<List<int>>([], (a, b) => a..addAll(b)), [
+          1,
+          2,
+          3,
+          4,
+        ]);
+        for (final path in [
+          '/wrong-token/items/0/media',
+          '${links[0].replaceFirst('/0', '/99')}/media',
+          '${links[0]}/media/extra',
+          '/${links[0].split('/')[1]}/items/-1',
+        ]) {
+          final invalid = await get(path);
+          expect(invalid.statusCode, 404);
+          await invalid.drain<void>();
+        }
+        final post = await get('/', method: 'POST');
+        expect(post.statusCode, 405);
+        await post.drain<void>();
+        final oldMediaPath = '${links[0]}/media';
+        await service.start(photo);
+        final obsolete = await get(oldMediaPath);
+        expect(obsolete.statusCode, 404);
+        await obsolete.drain<void>();
+      } finally {
+        client.close(force: true);
+        await service.stop();
+        await dir.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'invalid multi-selection does not discard the existing stream',
+    () async {
+      final dir = await Directory.systemTemp.createTemp(
+        'localist-gallery-validation',
+      );
+      final photo = await File('${dir.path}/photo.jpg').writeAsBytes([1]);
+      final text = await File(
+        '${dir.path}/private.txt',
+      ).writeAsString('private');
+      final service = MediaStreamService.instance;
+      try {
+        await service.start(photo);
+        final port = service.port;
+        await expectLater(
+          service.startFiles([photo, text]),
+          throwsFormatException,
+        );
+        await expectLater(service.startFiles([]), throwsFormatException);
+        expect(service.active, true);
+        expect(service.port, port);
+        expect(service.items.single.name, 'photo.jpg');
+      } finally {
+        await service.stop();
+        await dir.delete(recursive: true);
+      }
+    },
+  );
 }

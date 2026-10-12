@@ -70,7 +70,12 @@ class DesktopHostBridge {
         throw const FormatException('Invalid command object.');
       }
       final data = decoded;
-      if (data['command'] == 'openSession') {
+      if (data['command'] == 'ping') {
+        // The primary Localist process uses this lightweight authenticated
+        // round-trip to distinguish a live retained host from an old status
+        // file left behind after a crash or an update.
+        response.write(jsonEncode({'ready': true}));
+      } else if (data['command'] == 'openSession') {
         if (data['session'] is! Map ||
             data['session']['target'] is! String ||
             (data['session']['password'] != null &&
@@ -143,8 +148,9 @@ Future<String> _readBody(Stream<List<int>> stream) async {
 
 Future<Map<String, dynamic>> sendDesktopHostCommand(
   Map<String, dynamic> endpoint,
-  Map<String, dynamic> command,
-) async {
+  Map<String, dynamic> command, {
+  Duration timeout = const Duration(seconds: 20),
+}) async {
   final port = endpoint['commandPort'];
   final token = endpoint['commandToken'];
   if (endpoint['bridgeVersion'] != 1 ||
@@ -159,15 +165,16 @@ Future<Map<String, dynamic>> sendDesktopHostCommand(
   // Loopback traffic must bypass the user's network proxy.
   client.findProxy = (_) => 'DIRECT';
   try {
-    final request = await client.postUrl(
-      Uri.parse('http://127.0.0.1:$port/command'),
-    );
+    final request = await client
+        .postUrl(Uri.parse('http://127.0.0.1:$port/command'))
+        .timeout(timeout);
     request.headers.set('X-Localist-Host-Token', token);
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(command));
-    final response = await request.close().timeout(const Duration(seconds: 20));
+    final response = await request.close().timeout(timeout);
     final result =
-        jsonDecode(await _readBody(response)) as Map<String, dynamic>;
+        jsonDecode(await _readBody(response).timeout(timeout))
+            as Map<String, dynamic>;
     if (response.statusCode != HttpStatus.ok) {
       throw StateError(
         result['error'] as String? ?? 'The remote host is unavailable.',

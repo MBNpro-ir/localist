@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/main.dart' as remote;
@@ -21,11 +22,14 @@ import 'remote_theme.dart';
 import 'remote_session_return.dart';
 import 'android_remote_host.dart';
 import 'desktop_host_bridge.dart';
+import 'desktop_host_runtime.dart';
 import 'remote_peer_presence.dart';
 
 class LocalistRemoteRuntime {
   static Future<void>? _starting;
-  static Process? _hostProcess;
+  static DesktopHostRuntime? _desktop;
+  static Future<void>? _desktopPreparation;
+  static Future<String>? _fingerprint;
   static final _androidPresence = RemotePeerPresenceStore();
   static String? _androidPresenceServer;
 
@@ -52,19 +56,40 @@ class LocalistRemoteRuntime {
     '${Platform.environment['APPDATA']}\\PRS\\Localist\\remote-status.json',
   );
 
-  static Future<Map<String, dynamic>?> desktopStatus() async {
-    try {
-      final data =
-          jsonDecode(await statusFile.readAsString()) as Map<String, dynamic>;
-      if (DateTime.now().millisecondsSinceEpoch - (data['updatedMs'] as int) >
-          5000) {
-        return null;
-      }
-      return data;
-    } catch (_) {
-      return null;
-    }
+  static String get hostExecutablePath {
+    final parent = File(Platform.resolvedExecutable).parent.path;
+    return '$parent\\LocalistRemote.exe';
   }
+
+  static Future<String> hostFingerprint() => _fingerprint ??= sha256
+      .bind(File(hostExecutablePath).openRead())
+      .first
+      .then((digest) => digest.toString());
+
+  static DesktopHostRuntime get _desktopRuntime =>
+      _desktop ??= DesktopHostRuntime(
+        statusFile: statusFile,
+        executablePath: hostExecutablePath,
+        fingerprint: hostFingerprint,
+        retireHost: (status) async =>
+            await const MethodChannel(
+              'com.prs.localist.vpn',
+            ).invokeMethod<bool>('retireRemoteHost', status) ??
+            false,
+        startHost: () async {
+          final executable = File(hostExecutablePath);
+          final process = await Process.start(executable.path, [
+            '--localist-host',
+          ], workingDirectory: executable.parent.path);
+          unawaited(process.stdout.drain<void>());
+          unawaited(process.stderr.drain<void>());
+          LogService.instance.info('Remote host started (PID ${process.pid}).');
+          return DesktopHostProcess(process.pid, process.exitCode);
+        },
+      );
+
+  static Future<Map<String, dynamic>?> desktopStatus() =>
+      _desktopRuntime.status();
 
   static Future<Map<String, dynamic>> desktopCommand(
     Map<String, dynamic> command,
@@ -81,44 +106,27 @@ class LocalistRemoteRuntime {
     return sendDesktopHostCommand(status, command);
   }
 
-  static Future<void> ensureStarted() =>
-      _starting ??= _start().catchError((Object error) {
-        _starting = null;
-        throw error;
-      });
+  static Future<void> ensureStarted() {
+    if (Platform.isWindows) {
+      return (_desktopPreparation ??= _prepareDesktop()).then(
+        (_) => _desktopRuntime.ensureStarted(),
+      );
+    }
+    return _starting ??= _start().catchError((Object error) {
+      _starting = null;
+      throw error;
+    });
+  }
+
+  static Future<void> _prepareDesktop() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('remote.localPassword');
+  }
 
   static Future<void> _start() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('remote.localPassword');
-    if (Platform.isWindows) {
-      if ((await desktopStatus())?['ready'] == true) return;
-      final executable = File(
-        '${File(Platform.resolvedExecutable).parent.path}\\LocalistRemote.exe',
-      );
-      if (!executable.existsSync()) {
-        throw StateError('The bundled remote-control engine is unavailable.');
-      }
-      final process = await Process.start(executable.path, [
-        '--localist-host',
-      ], workingDirectory: executable.parent.path);
-      _hostProcess = process;
-      unawaited(process.stdout.drain<void>());
-      unawaited(process.stderr.drain<void>());
-      unawaited(
-        process.exitCode.then((_) {
-          if (identical(_hostProcess, process)) {
-            _hostProcess = null;
-            _starting = null;
-          }
-        }),
-      );
-      final deadline = DateTime.now().add(const Duration(seconds: 20));
-      while (DateTime.now().isBefore(deadline)) {
-        if ((await desktopStatus())?['ready'] == true) return;
-        await Future<void>.delayed(const Duration(milliseconds: 150));
-      }
-      throw TimeoutException('The remote-control host did not become ready.');
-    } else if (Platform.isAndroid) {
+    if (Platform.isAndroid) {
       remote.localistThemeBootstrap = RemoteThemeSync.start;
       remote.kBootArgs = [];
       engine.localistOwnsAndroidHosting = true;
@@ -156,8 +164,7 @@ class LocalistRemoteRuntime {
   }
 
   static Future<void> stop() async {
-    _hostProcess?.kill();
-    _hostProcess = null;
+    await _desktop?.stop();
     _starting = null;
   }
 }
@@ -284,6 +291,7 @@ void configureEmbeddedDesktop({bool host = false}) {
       },
     );
     await bridge.start();
+    final hostFingerprint = await LocalistRemoteRuntime.hostFingerprint();
     Future<void> sync() async {
       try {
         await synchronize();
@@ -294,8 +302,11 @@ void configureEmbeddedDesktop({bool host = false}) {
         final temporary = File('${file.path}.$pid.tmp');
         await temporary.writeAsString(
           jsonEncode({
+            'statusVersion': desktopHostStatusVersion,
             'ready': true,
             'pid': pid,
+            'hostExecutable': Platform.resolvedExecutable,
+            'hostFingerprint': hostFingerprint,
             'updatedMs': DateTime.now().millisecondsSinceEpoch,
             'id': await bind.mainGetMyId(),
             'statusNum': state['status_num'],

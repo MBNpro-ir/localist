@@ -8,8 +8,18 @@ import 'package:mime/mime.dart';
 import 'http_file_stream.dart';
 import 'feature_activity_service.dart';
 import 'apple_web_transfer_service.dart';
+import 'media_stream_gallery.dart';
 
-/// Serves one local media file with HTTP range support.
+class StreamMediaItem {
+  StreamMediaItem(this.file)
+    : name = file.uri.pathSegments.last,
+      mime = lookupMimeType(file.path) ?? 'application/octet-stream';
+  final File file;
+  final String name;
+  final String mime;
+}
+
+/// Serves selected local media files with HTTP range support and a web gallery.
 ///
 /// This is intentionally protocol-light: phones, consoles, TVs and wireless
 /// display receivers that can open a local URL can play the same stream. The
@@ -20,13 +30,23 @@ class MediaStreamService extends ChangeNotifier {
   static final instance = MediaStreamService._();
 
   HttpServer? _server;
-  File? _file;
-  String _name = '';
+  List<StreamMediaItem> _items = const [];
+  int _selectedIndex = 0;
   String _token = '';
   List<String> _addresses = const [];
 
-  bool get active => _server != null && _file != null;
-  String get name => _name;
+  bool get active => _server != null && _items.isNotEmpty;
+  List<StreamMediaItem> get items => List.unmodifiable(_items);
+  int get selectedIndex => _selectedIndex;
+  String get name => _items.isEmpty ? '' : _items[_selectedIndex].name;
+  void selectItem(int index) {
+    if (index < 0 || index >= _items.length) {
+      throw RangeError.index(index, _items);
+    }
+    _selectedIndex = index;
+    notifyListeners();
+  }
+
   List<String> get addresses => List.unmodifiable(_addresses);
   int get port => _server?.port ?? 0;
   List<String> get urls => [
@@ -35,7 +55,7 @@ class MediaStreamService extends ChangeNotifier {
         scheme: 'http',
         host: address,
         port: port,
-        path: '/$_token/media',
+        path: '/$_token/items/$_selectedIndex/media',
       ).toString(),
   ];
   List<String> get playerUrls => [
@@ -48,7 +68,9 @@ class MediaStreamService extends ChangeNotifier {
   String? get playerUrl => playerUrls.isEmpty ? null : playerUrls.first;
 
   bool persian = false;
-  Future<void> start(File file) async {
+  Future<void> start(File file) => startFiles([file]);
+
+  Future<void> startFiles(List<File> files) async {
     if (!FeatureActivityService.instance.allows(LocalistFeature.stream)) {
       throw StateError(
         persian
@@ -56,20 +78,33 @@ class MediaStreamService extends ChangeNotifier {
             : 'Stop the active service first.',
       );
     }
-    await stop();
-    FeatureActivityService.instance.reserve(this, LocalistFeature.stream);
-    try {
+    // Validate the entire selection before replacing an existing stream.
+    final selected = <StreamMediaItem>[];
+    final paths = <String>{};
+    for (final file in files) {
       if (!await file.exists()) {
         throw const FileSystemException('Media file does not exist.');
       }
-      _file = file;
+      final item = StreamMediaItem(file);
+      if (!['image/', 'video/', 'audio/'].any(item.mime.startsWith)) {
+        throw FormatException(
+          persian
+              ? 'فقط عکس، فیلم یا موسیقی انتخاب کنید: ${item.name}'
+              : 'Choose photos, videos or audio: ${item.name}',
+        );
+      }
+      if (paths.add(file.absolute.path)) selected.add(item);
+    }
+    if (selected.isEmpty) throw const FormatException('No media selected.');
+    await stop();
+    FeatureActivityService.instance.reserve(this, LocalistFeature.stream);
+    try {
+      _items = selected;
+      _selectedIndex = 0;
       _token = List.generate(
         24,
         (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
       ).join();
-      _name = file.uri.pathSegments.isEmpty
-          ? 'Media'
-          : file.uri.pathSegments.last;
       _server = await HttpServer.bind(
         InternetAddress.anyIPv4,
         0,
@@ -90,8 +125,8 @@ class MediaStreamService extends ChangeNotifier {
   Future<void> stop() async {
     await _server?.close(force: true);
     _server = null;
-    _file = null;
-    _name = '';
+    _items = const [];
+    _selectedIndex = 0;
     _addresses = const [];
     FeatureActivityService.instance.setActive(
       this,
@@ -103,15 +138,25 @@ class MediaStreamService extends ChangeNotifier {
 
   Future<void> _handleRequest(HttpRequest request) async {
     final response = request.response;
-    final file = _file;
+    // Capture this server's selection so an in-flight request cannot acquire
+    // a new stream's files while the user replaces their selection.
+    final items = _items;
+    final token = _token;
     try {
       if (request.method != 'GET' && request.method != 'HEAD') {
         response.statusCode = HttpStatus.methodNotAllowed;
         return;
       }
-      if (file != null &&
-          (request.uri.path == '/' || request.uri.path == '/$_token/')) {
-        final mime = lookupMimeType(_name) ?? '';
+      final root = request.uri.path == '/' || request.uri.path == '/$token/';
+      final match = RegExp(
+        '^/$token/items/([0-9]+)(/media)?\$',
+      ).firstMatch(request.uri.path);
+      final index = match == null ? null : int.tryParse(match.group(1)!);
+      final item = index != null && index >= 0 && index < items.length
+          ? items[index]
+          : null;
+      if (items.isNotEmpty &&
+          (root || (item != null && match!.group(2) == null))) {
         response.headers
           ..contentType = ContentType.html
           ..set(HttpHeaders.cacheControlHeader, 'no-store')
@@ -122,21 +167,46 @@ class MediaStreamService extends ChangeNotifier {
           );
         if (request.method == 'GET') {
           response.write(
-            buildMediaPlayerHtml(
-              name: _name,
-              mime: mime,
-              mediaPath: '/$_token/media',
-              persian: persian,
-            ),
+            root && items.length > 1
+                ? buildMediaGalleryHtml(
+                    items: [
+                      for (var i = 0; i < items.length; i++)
+                        (
+                          name: items[i].name,
+                          mime: items[i].mime,
+                          playerPath: '/$token/items/$i',
+                          mediaPath: '/$token/items/$i/media',
+                        ),
+                    ],
+                    persian: persian,
+                  )
+                : buildMediaPlayerHtml(
+                    name: (item ?? items.first).name,
+                    mime: (item ?? items.first).mime,
+                    mediaPath: '/$token/items/${index ?? 0}/media',
+                    persian: persian,
+                    galleryPath: items.length > 1 ? '/' : null,
+                    previousPath: index != null && index > 0
+                        ? '/$token/items/${index - 1}'
+                        : null,
+                    nextPath: index != null && index + 1 < items.length
+                        ? '/$token/items/${index + 1}'
+                        : null,
+                  ),
           );
         }
         return;
       }
-      if (file == null || request.uri.path != '/$_token/media') {
+      final media = request.uri.path == '/$token/media' && items.isNotEmpty
+          ? items[_selectedIndex]
+          : item != null && match!.group(2) == '/media'
+          ? item
+          : null;
+      if (media == null) {
         response.statusCode = HttpStatus.notFound;
         return;
       }
-      await serveMediaFile(request, file, _name);
+      await serveMediaFile(request, media.file, media.name);
     } catch (_) {
       try {
         response.statusCode = HttpStatus.internalServerError;
@@ -182,13 +252,32 @@ String buildMediaPlayerHtml({
   required String mime,
   required String mediaPath,
   bool persian = false,
+  String? galleryPath,
+  String? previousPath,
+  String? nextPath,
 }) {
   final safeName = const HtmlEscape().convert(name);
   final safeMime = const HtmlEscape().convert(mime);
+  final safePath = const HtmlEscape(
+    HtmlEscapeMode.attribute,
+  ).convert(mediaPath);
+  final navigation =
+      [
+            if (galleryPath != null)
+              (galleryPath, persian ? 'گالری' : 'Gallery'),
+            if (previousPath != null)
+              (previousPath, persian ? 'قبلی' : 'Previous'),
+            if (nextPath != null) (nextPath, persian ? 'بعدی' : 'Next'),
+          ]
+          .map(
+            (link) =>
+                '<a href="${const HtmlEscape(HtmlEscapeMode.attribute).convert(link.$1)}">${link.$2}</a>',
+          )
+          .join();
   final isImage = mime.startsWith('image/');
   final tag = isImage
-      ? '<img id="media" alt="$safeName" src="$mediaPath">'
-      : '<${mime.startsWith('audio/') ? 'audio' : 'video'} id="media" preload="metadata" playsinline src="$mediaPath"></${mime.startsWith('audio/') ? 'audio' : 'video'}>';
+      ? '<img id="media" alt="$safeName" src="$safePath">'
+      : '<${mime.startsWith('audio/') ? 'audio' : 'video'} id="media" controls preload="metadata" playsinline src="$safePath"></${mime.startsWith('audio/') ? 'audio' : 'video'}>';
   final controls = isImage
       ? '''<div class="image-tools" aria-label="Image controls">
           <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
@@ -229,6 +318,7 @@ body{margin:0;min-height:100vh;background:radial-gradient(circle at 15% 0,#3a275
 main{box-sizing:border-box;width:min(1050px,100%);padding:clamp(16px,4vw,42px)}
 h1{font-size:clamp(1.35rem,3vw,2.2rem);margin:0 0 4px;overflow-wrap:anywhere}
 .sub{color:#cfc6dc;margin:0 0 20px;overflow-wrap:anywhere}
+nav{display:flex;gap:12px;flex-wrap:wrap;margin:0 0 20px}nav a{color:#e4cbff;padding:8px 12px;background:#37294a;border-radius:9px;text-decoration:none}
 .stage{background:#09080c;border:1px solid #544565;border-radius:18px;min-height:180px;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 18px 50px #0008}
 #media{display:block;max-width:100%;max-height:70vh;width:100%;object-fit:contain}
 img#media{width:auto;max-width:100%;height:auto;transform-origin:center;transition:transform .12s ease}
@@ -240,7 +330,7 @@ button:hover,select:hover{background:#4b3763}button:focus-visible,input:focus-vi
 input[type=range]{accent-color:#bd82f6}label.speed{display:flex;align-items:center;gap:6px}.hint{font-size:.9rem;color:#bdb1cb;margin-top:14px}
 @media(max-width:560px){.controls button,.image-tools button{padding:8px 9px}.timeline{font-size:.82rem}}
 </style></head><body><main>
-<h1>Localist Stream</h1><p class="sub">__NAME__</p>
+<h1>Localist Stream</h1><nav>__NAVIGATION__</nav><p class="sub">__NAME__</p>
 <div class="stage">__TAG__</div><section class="panel">__CONTROLS__</section>
 <p class="hint">Format: __MIME__. Controls run locally in this browser. Seeking uses HTTP byte ranges when supported by the device.</p>
 <noscript>JavaScript is required for the player controls.</noscript>
@@ -275,10 +365,11 @@ input[type=range]{accent-color:#bd82f6}label.speed{display:flex;align-items:cent
   update();
 })();
 </script></main></body></html>'''
-          .replaceAll('__NAME__', safeName)
-          .replaceAll('__MIME__', safeMime)
           .replaceAll('__TAG__', tag)
-          .replaceAll('__CONTROLS__', controls);
+          .replaceAll('__CONTROLS__', controls)
+          .replaceAll('__NAVIGATION__', navigation)
+          .replaceAll('__MIME__', safeMime)
+          .replaceAll('__NAME__', safeName);
   if (persian) {
     const labels = {
       'Image controls': 'کنترل تصویر',
