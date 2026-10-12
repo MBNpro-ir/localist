@@ -1,5 +1,20 @@
 # Release Notes
 
+## [6.0.8] — Remote host liveness and embedded session stability
+
+Remote Control no longer retires a live embedded RustDesk host when its Flutter
+heartbeat is delayed while opening a session or child window. Native identity
+checks verify the executable path, creation time, user and Windows session;
+authenticated active sessions remain protected. Session opening has a longer
+startup window and does not replay commands after a failed dispatch.
+
+Child Flutter windows register the file-drop plugin so Quick Send and the remote
+file manager keep drag and drop support. The Remote Control page now shows one
+`This device` heading and a clear `Connect` heading for the destination card.
+
+See [validation](docs/VALIDATION_6.0.8.md) for Windows, Android emulator and
+official RustDesk relay interoperability evidence.
+
 ## [6.0.7] — Remote host recovery and multi-media web gallery
 
 Remote Control validates the bundled host's executable path, SHA-256 identity,
