@@ -109,8 +109,8 @@ jobs:
       - name: Stage Android assets
         run: |
           mkdir -p release
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release/localist-v${APP_VERSION}-android-32bit.apk"
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release/localist-v${APP_VERSION}-android-64bit.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "release/localist-v${APP_VERSION}-android-armeabi-v7a.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "release/localist-v${APP_VERSION}-android-arm64-v8a.apk"
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v7

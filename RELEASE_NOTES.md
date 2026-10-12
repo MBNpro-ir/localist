@@ -1,5 +1,14 @@
 # Release Notes
 
+## [6.0.6] — ABI-labelled Android packages and reliable Windows drops
+
+Android release APKs now use their exact ABI in the filename (`armeabi-v7a`
+and `arm64-v8a`) so the package architecture is clear. Quick Send now accepts
+Explorer OLE drops through `desktop_drop`, keeps the existing native Windows
+fallback, expands dropped folders safely and prevents duplicate selections.
+The Windows navigation rail uses an opaque dark surface on older Windows 10
+compositors, avoiding a white rail when the app is in dark mode.
+
 ## [6.0.5] — Unified VPN sharing, LAN discovery and faster update flow
 
 Sharing and Receiving now live under one VPN Sharing section. The navigation

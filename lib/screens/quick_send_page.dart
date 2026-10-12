@@ -12,9 +12,11 @@ import '../models/quick_send_settings.dart';
 import '../services/apple_web_transfer_service.dart';
 import '../services/native_bridge_service.dart';
 import '../services/quick_send_service.dart';
+import '../services/quick_send_file_selection.dart';
 import '../services/quick_send_settings_exit_guard.dart';
 import '../widgets/glass.dart';
 import '../widgets/quick_send_profile.dart';
+import '../widgets/quick_send_drop_target.dart';
 import 'transfer_history_page.dart';
 
 class QuickSendPage extends StatefulWidget {
@@ -22,10 +24,12 @@ class QuickSendPage extends StatefulWidget {
     super.key,
     required this.deviceVpnActive,
     required this.onOpenProfileSettings,
+    this.active = true,
   });
 
   final bool deviceVpnActive;
   final VoidCallback onOpenProfileSettings;
+  final bool active;
 
   @override
   State<QuickSendPage> createState() => QuickSendPageState();
@@ -113,66 +117,32 @@ class QuickSendPageState extends State<QuickSendPage> {
     await _addExternallySharedFiles(files);
   }
 
+  Widget _desktopDropTarget(Widget child) {
+    if (!Platform.isWindows) {
+      return child;
+    }
+    return QuickSendDropTarget(
+      enabled: widget.active && ModalRoute.isCurrentOf(context) != false,
+      onFilesDropped: (files) => unawaited(_addExternallySharedFiles(files)),
+      child: child,
+    );
+  }
+
   Future<void> _addExternallySharedFiles(
     List<QuickSendSharedFile> files,
   ) async {
     if (files.isEmpty) {
       return;
     }
-    final expanded = <QuickSendSharedFile>[];
-    for (final shared in files) {
-      final path = shared.path.trim();
-      if (path.isEmpty) {
-        continue;
-      }
-      if (File(path).existsSync()) {
-        expanded.add(
-          QuickSendSharedFile(
-            path: path,
-            name: shared.name.trim().isEmpty
-                ? p.basename(path)
-                : shared.name.trim(),
-          ),
-        );
-        continue;
-      }
-      final directory = Directory(path);
-      if (!directory.existsSync()) {
-        continue;
-      }
-      final rootName = shared.name.trim().isEmpty
-          ? p.basename(path)
-          : shared.name.trim();
-      try {
-        await for (final entity in directory.list(
-          recursive: true,
-          followLinks: false,
-        )) {
-          if (entity is! File) {
-            continue;
-          }
-          final relative = p
-              .relative(entity.path, from: path)
-              .replaceAll('\\', '/');
-          expanded.add(
-            QuickSendSharedFile(
-              path: entity.path,
-              name: p.posix.join(rootName, relative),
-            ),
-          );
-          if (expanded.length >= 5000) {
-            break;
-          }
-        }
-      } catch (_) {
-        // Keep readable drop items even when one folder cannot be enumerated.
-      }
-      if (expanded.length >= 5000) {
-        break;
-      }
+    final expanded = await expandQuickSendSharedFiles(
+      files,
+      existingPaths: _selectedPaths,
+    );
+    if (!mounted) {
+      return;
     }
     _bridge.consumeQuickSendSharedFiles(files);
-    if (expanded.isEmpty || !mounted) {
+    if (expanded.isEmpty) {
       return;
     }
     var added = 0;
@@ -213,27 +183,31 @@ class QuickSendPageState extends State<QuickSendPage> {
       builder: (context, _) {
         final settings = _service.settings;
         if (settings == null) {
-          return PageSurface(
-            key: const PageStorageKey<String>('quick-send-page'),
-            controller: _scrollController,
-            children: const [
-              GlassPanel(child: Center(child: CircularProgressIndicator())),
-            ],
+          return _desktopDropTarget(
+            PageSurface(
+              key: const PageStorageKey<String>('quick-send-page'),
+              controller: _scrollController,
+              children: const [
+                GlassPanel(child: Center(child: CircularProgressIndicator())),
+              ],
+            ),
           );
         }
-        return PageSurface(
-          key: const PageStorageKey<String>('quick-send-page'),
-          controller: _scrollController,
-          children: [
-            if (widget.deviceVpnActive) _vpnWarningPanel(),
-            _identityPanel(settings),
-            _selectionPanel(),
-            _nearbyPanel(settings),
-            _transferHistoryPanel(),
-            if (_service.transfers.isNotEmpty) _transfersPanel(),
-            if (Platform.isAndroid || Platform.isWindows)
-              _appleWebTransferPanel(),
-          ],
+        return _desktopDropTarget(
+          PageSurface(
+            key: const PageStorageKey<String>('quick-send-page'),
+            controller: _scrollController,
+            children: [
+              if (widget.deviceVpnActive) _vpnWarningPanel(),
+              _identityPanel(settings),
+              _selectionPanel(),
+              _nearbyPanel(settings),
+              _transferHistoryPanel(),
+              if (_service.transfers.isNotEmpty) _transfersPanel(),
+              if (Platform.isAndroid || Platform.isWindows)
+                _appleWebTransferPanel(),
+            ],
+          ),
         );
       },
     );

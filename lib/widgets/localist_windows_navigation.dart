@@ -54,6 +54,12 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Keep the Windows rail opaque and tied to the active Material brightness.
+    // On older Windows 10 compositors an inherited canvas color can otherwise
+    // be painted as white while the rest of the app is in dark mode.
+    final navigationSurface = Theme.of(context).brightness == Brightness.dark
+        ? scheme.surfaceContainerLowest
+        : scheme.surface;
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
         : const Duration(milliseconds: 420);
@@ -70,7 +76,7 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
           vertical: 16,
         ),
         decoration: BoxDecoration(
-          color: scheme.surface,
+          color: navigationSurface,
           border: Border(
             right: BorderSide(
               color: scheme.outlineVariant.withValues(alpha: .32),
@@ -80,10 +86,10 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              scheme.surface,
+              navigationSurface,
               Color.alphaBlend(
                 scheme.primaryContainer.withValues(alpha: .16),
-                scheme.surface,
+                navigationSurface,
               ),
             ],
           ),

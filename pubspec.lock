@@ -259,7 +259,7 @@ packages:
     source: hosted
     version: "2.0.0"
   desktop_drop:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: desktop_drop
       sha256: d55a010fe46c8e8fcff4ea4b451a9ff84a162217bdb3b2a0aa1479776205e15d

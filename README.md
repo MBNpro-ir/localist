@@ -17,7 +17,7 @@
   <a href="https://developer.android.com"><img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white"></a>
   <a href="https://learn.microsoft.com/windows/apps/"><img alt="Windows" src="https://img.shields.io/badge/Windows-Desktop-0078D4?logo=windows&logoColor=white"></a>
   <a href="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml"><img alt="Release" src="https://github.com/MBNpro-ir/localist/actions/workflows/release.yml/badge.svg"></a>
-  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-6.0.0-blue"></a>
+  <a href="https://github.com/MBNpro-ir/localist/releases"><img alt="Version" src="https://img.shields.io/badge/version-6.0.6-blue"></a>
 </p>
 
 ## User Guide
@@ -58,7 +58,7 @@ Windows offers **Create fallback local network** using the hosted WLAN API. A Wi
 
 Download the latest package from [GitHub Releases](https://github.com/MBNpro-ir/localist/releases/latest).
 
-- Android: install the **32-bit APK** on `armeabi-v7a` devices or the **64-bit APK** on `arm64-v8a` devices.
+- Android: install the `armeabi-v7a` APK on 32-bit ARM devices or the `arm64-v8a` APK on 64-bit ARM devices. The release filenames use the exact Android ABI so the architecture is unambiguous.
 - Windows: extract the complete 64-bit ZIP before running `Localist.exe`. Keep all DLL, tool, and `LocalistUpdater.exe` files beside the executable. Windows updates download and apply automatically from Settings, then restart Localist.
 - Put both devices on the same Wi-Fi, Ethernet, or hotspot network. Client isolation on guest Wi-Fi can prevent local discovery and connections.
 
@@ -218,8 +218,8 @@ The compiled application is written to `build/windows/x64/runner/Release/`. A di
 
 Published assets include:
 
-- Android 32-bit APK (`armeabi-v7a`).
-- Android 64-bit APK (`arm64-v8a`).
+- Android `armeabi-v7a` APK (32-bit ARM).
+- Android `arm64-v8a` APK (64-bit ARM).
 - Windows 64-bit ZIP.
 
 Start a tag-based release:

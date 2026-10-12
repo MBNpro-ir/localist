@@ -63,4 +63,32 @@ void main() {
     );
     await mouse.removePointer();
   });
+
+  testWidgets('Windows navigation uses the dark surface in dark mode', (
+    tester,
+  ) async {
+    final theme = ThemeData.dark(useMaterial3: true);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: theme,
+        home: Scaffold(
+          body: LocalistWindowsNavigation(
+            currentIndex: 0,
+            onDestinationSelected: (_) {},
+            items: items,
+          ),
+        ),
+      ),
+    );
+
+    final rail = tester.widget<AnimatedContainer>(
+      find.byType(AnimatedContainer).first,
+    );
+    final decoration = rail.decoration! as BoxDecoration;
+    expect(
+      decoration.gradient!.colors.first,
+      theme.colorScheme.surfaceContainerLowest,
+    );
+    expect(decoration.gradient!.colors.first, isNot(Colors.white));
+  });
 }

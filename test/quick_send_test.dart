@@ -7,6 +7,7 @@ import 'package:localist/models/quick_send_settings.dart';
 import 'package:localist/services/apple_web_transfer_service.dart';
 import 'package:localist/services/native_bridge_service.dart';
 import 'package:localist/services/quick_send_service.dart';
+import 'package:localist/services/quick_send_file_selection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -44,6 +45,41 @@ void main() {
       'safe.txt',
     );
   });
+
+  test(
+    'Quick Send expands dropped files and folders without duplicates',
+    () async {
+      final root = await Directory.systemTemp.createTemp('localist-drop-test-');
+      try {
+        final nested = await Directory(
+          '${root.path}${Platform.pathSeparator}photos',
+        ).create();
+        final first = await File(
+          '${root.path}${Platform.pathSeparator}one.txt',
+        ).writeAsString('one');
+        final second = await File(
+          '${nested.path}${Platform.pathSeparator}two.jpg',
+        ).writeAsString('two');
+
+        final expanded = await expandQuickSendSharedFiles(
+          [
+            QuickSendSharedFile(
+              path: first.path,
+              name: first.uri.pathSegments.last,
+            ),
+            QuickSendSharedFile(path: nested.path, name: 'photos'),
+          ],
+          existingPaths: [first.path],
+        );
+
+        expect(expanded, hasLength(1));
+        expect(expanded.single.path, second.path);
+        expect(expanded.single.name, 'photos/two.jpg');
+      } finally {
+        await root.delete(recursive: true);
+      }
+    },
+  );
 
   test('Quick Send categorizes default receive folders by content type', () {
     expect(

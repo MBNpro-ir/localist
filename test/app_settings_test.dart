@@ -174,11 +174,11 @@ void main() {
       version: AppVersion.tryParse('v3.7.1')!,
       assets: const [
         UpdateAsset(
-          name: 'localist-v3.7.1-android-32bit.apk',
+          name: 'localist-v3.7.1-android-armeabi-v7a.apk',
           downloadUrl: 'https://example.com/android-32.apk',
         ),
         UpdateAsset(
-          name: 'localist-v3.7.1-android-64bit.apk',
+          name: 'localist-v3.7.1-android-arm64-v8a.apk',
           downloadUrl: 'https://example.com/android-64.apk',
         ),
         UpdateAsset(
@@ -194,11 +194,11 @@ void main() {
 
     expect(
       release.pickAndroidAsset(['armeabi-v7a'])?.name,
-      contains('android-32bit'),
+      contains('android-armeabi-v7a'),
     );
     expect(
       release.pickAndroidAsset(['arm64-v8a'])?.name,
-      contains('android-64bit'),
+      contains('android-arm64-v8a'),
     );
     expect(release.pickWindowsAsset()?.name, contains('windows-64bit.zip'));
   });
@@ -211,11 +211,11 @@ void main() {
       version: AppVersion.tryParse('v4.1.2')!,
       assets: const [
         UpdateAsset(
-          name: 'localist-v4.1.2-android-32bit.apk',
+          name: 'localist-v4.1.2-android-armeabi-v7a.apk',
           downloadUrl: 'https://example.com/android-32.apk',
         ),
         UpdateAsset(
-          name: 'localist-v4.1.2-android-64bit.apk',
+          name: 'localist-v4.1.2-android-arm64-v8a.apk',
           downloadUrl: 'https://example.com/android-64.apk',
         ),
       ],
@@ -223,15 +223,15 @@ void main() {
 
     expect(
       release.pickAndroidAsset([' ARM64_V8A '])?.name,
-      contains('android-64bit'),
+      contains('android-arm64-v8a'),
     );
     expect(
       release.pickAndroidAsset(['aarch64'])?.name,
-      contains('android-64bit'),
+      contains('android-arm64-v8a'),
     );
     expect(
       release.pickAndroidAsset(['ARMv7'])?.name,
-      contains('android-32bit'),
+      contains('android-armeabi-v7a'),
     );
   });
 
@@ -244,7 +244,7 @@ void main() {
           "html_url": "$localistLatestReleaseUrl",
           "assets": [
             {
-              "name": "localist-v4.1.2-android-64bit.apk",
+              "name": "localist-v4.1.2-android-arm64-v8a.apk",
               "browser_download_url": "https://example.com/android-64.apk"
             },
             {
@@ -260,7 +260,7 @@ void main() {
     expect(release.assets, hasLength(1));
     expect(
       release.pickAndroidAsset(['arm64-v8a'])?.name,
-      'localist-v4.1.2-android-64bit.apk',
+      'localist-v4.1.2-android-arm64-v8a.apk',
     );
   });
 

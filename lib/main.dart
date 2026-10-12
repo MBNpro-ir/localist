@@ -1944,6 +1944,7 @@ class _LocalistShellState extends State<LocalistShell>
         child: QuickSendPage(
           key: _quickSendPageKey,
           deviceVpnActive: quickSendVpnActive,
+          active: _index == _quickSendPageIndex,
           onOpenProfileSettings: () =>
               unawaited(_openSettings(SettingsSection.quickSend)),
         ),
