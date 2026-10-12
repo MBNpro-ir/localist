@@ -299,6 +299,7 @@ void configureEmbeddedDesktop({bool host = false}) {
             'updatedMs': DateTime.now().millisecondsSinceEpoch,
             'id': await bind.mainGetMyId(),
             'statusNum': state['status_num'],
+            'activeSessions': rustDeskWinManager.getActiveWindows().length,
             'profile': _appliedProfile,
             ...bridge.endpoint,
           }),

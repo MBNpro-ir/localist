@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'feature_activity_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -408,9 +409,12 @@ class QuickSendService extends ChangeNotifier {
     await _loadDeviceIdentity();
     await _loadReceivedHistory();
     if (Platform.isAndroid) {
-      NativeBridgeService.instance.remoteFilesReceived.listen((_) {
-        unawaited(_importRemoteReceivedFiles());
-      });
+      _remoteFilesSubscription ??= NativeBridgeService
+          .instance
+          .remoteFilesReceived
+          .listen((_) {
+            unawaited(_importRemoteReceivedFiles());
+          });
       await _importRemoteReceivedFiles();
     }
     final legacyDefaultDestination =
@@ -562,6 +566,8 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> disposeService() async {
+    await _remoteFilesSubscription?.cancel();
+    _remoteFilesSubscription = null;
     await _stopNetwork();
   }
 
@@ -580,7 +586,11 @@ class QuickSendService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refresh() async {
+  Future<void>? _refreshing;
+  Future<void> refresh() => _refreshing ??= _refreshDiscovery().whenComplete(
+    () => _refreshing = null,
+  );
+  Future<void> _refreshDiscovery() async {
     await initialize();
     if (_transferBlocked) {
       _devices.clear();
@@ -786,7 +796,51 @@ class QuickSendService extends ChangeNotifier {
     }
   }
 
+  int _sendingOperations = 0;
+  StreamSubscription<void>? _remoteFilesSubscription;
+  @override
+  void notifyListeners() {
+    final active =
+        _sendingOperations > 0 ||
+        _pendingRequest != null ||
+        _session != null ||
+        _transfers.any(
+          (t) =>
+              t.state == QuickSendTransferState.waiting ||
+              t.state == QuickSendTransferState.transferring,
+        );
+    FeatureActivityService.instance.setActive(
+      this,
+      LocalistFeature.quickSend,
+      active,
+    );
+    super.notifyListeners();
+  }
+
   Future<void> sendFiles(
+    QuickSendDevice device,
+    List<String> paths, {
+    Map<String, String> offeredNames = const {},
+    String? pin,
+  }) async {
+    if (!FeatureActivityService.instance.reserve(
+      this,
+      LocalistFeature.quickSend,
+    )) {
+      throw StateError(
+        'ابتدا سرویس فعال را متوقف کنید. / Stop the active service first.',
+      );
+    }
+    _sendingOperations++;
+    try {
+      await _sendFilesImpl(device, paths, offeredNames: offeredNames, pin: pin);
+    } finally {
+      _sendingOperations--;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _sendFilesImpl(
     QuickSendDevice device,
     List<String> paths, {
     Map<String, String> offeredNames = const {},
@@ -939,6 +993,28 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> sendText(
+    QuickSendDevice device,
+    String text, {
+    String? pin,
+  }) async {
+    if (!FeatureActivityService.instance.reserve(
+      this,
+      LocalistFeature.quickSend,
+    )) {
+      throw StateError(
+        'ابتدا سرویس فعال را متوقف کنید. / Stop the active service first.',
+      );
+    }
+    _sendingOperations++;
+    try {
+      await _sendTextImpl(device, text, pin: pin);
+    } finally {
+      _sendingOperations--;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _sendTextImpl(
     QuickSendDevice device,
     String text, {
     String? pin,
@@ -1369,7 +1445,7 @@ class QuickSendService extends ChangeNotifier {
           return;
         case ('POST', '/api/localsend/v2/cancel'):
         case ('POST', '/api/localsend/v1/cancel'):
-          _session = null;
+          _endReceiveSession('Transfer cancelled.');
           await request.response.close();
           return;
         default:
@@ -1406,6 +1482,14 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> _handlePrepareUpload(HttpRequest request) async {
+    if (!FeatureActivityService.instance.allows(LocalistFeature.quickSend)) {
+      await _writeError(
+        request.response,
+        HttpStatus.conflict,
+        'Another service is active.',
+      );
+      return;
+    }
     final current = _settings!;
     if (_session?.expired == true) {
       _endReceiveSession('Receive session timed out.');
@@ -2112,6 +2196,7 @@ class QuickSendService extends ChangeNotifier {
         );
       }
     }
+    notifyListeners();
   }
 
   void _putTransfer(QuickSendTransfer transfer) {

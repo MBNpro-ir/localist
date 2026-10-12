@@ -79,8 +79,8 @@ class QuickSendForegroundService : Service() {
     private fun backgroundNotification(deviceName: String): Notification =
         NotificationCompat.Builder(this, BACKGROUND_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload_done)
-            .setContentTitle("Localist Quick Send")
-            .setContentText("$deviceName is ready to receive")
+            .setContentTitle(LocalistText.choose(this, "ارسال سریع لوکالیست", "Localist Quick Send"))
+            .setContentText(LocalistText.choose(this, "$deviceName آماده دریافت است", "$deviceName is ready to receive"))
             .setCategory(Notification.CATEGORY_SERVICE)
             .setOngoing(true).setOnlyAlertOnce(true).setShowWhen(false)
             .setContentIntent(openAppPendingIntent(this, BACKGROUND_NOTIFICATION_ID))

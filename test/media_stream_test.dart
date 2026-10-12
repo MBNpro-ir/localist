@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:xml/xml.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/services/http_file_stream.dart';
@@ -113,6 +114,48 @@ void main() {
       }
     },
   );
+  test('stream root URL serves Persian controls and range endpoint', () async {
+    final dir = await Directory.systemTemp.createTemp('localist-player-root');
+    final file = await File(
+      '${dir.path}/movie.mp4',
+    ).writeAsBytes(List.generate(20, (i) => i));
+    final service = MediaStreamService.instance;
+    final client = HttpClient();
+    try {
+      service.persian = true;
+      await service.start(file);
+      for (final url in service.playerUrls) {
+        expect(Uri.parse(url).path, isEmpty);
+        expect(Uri.parse(url).port, service.port);
+      }
+      final response = await (await client.getUrl(
+        Uri.parse('http://127.0.0.1:${service.port}'),
+      )).close();
+      expect(response.statusCode, 200);
+      final html = await utf8.decoder.bind(response).join();
+      expect(html, contains('lang="fa" dir="rtl"'));
+      expect(html, contains('>پخش<'));
+      expect(html, contains("media.paused?'پخش':'توقف'"));
+      final path = RegExp(r'src="([^" ]+/media)"').firstMatch(html)!.group(1)!;
+      final request = await client.getUrl(
+        Uri.parse('http://127.0.0.1:${service.port}$path'),
+      );
+      request.headers.set('Range', 'bytes=5-9');
+      final media = await request.close();
+      expect(media.statusCode, 206);
+      expect(await media.fold<List<int>>([], (a, b) => a..addAll(b)), [
+        5,
+        6,
+        7,
+        8,
+        9,
+      ]);
+    } finally {
+      client.close(force: true);
+      await service.stop();
+      await dir.delete(recursive: true);
+    }
+  });
   test('image web player exposes zoom and fullscreen controls', () {
     final html = buildMediaPlayerHtml(
       name: 'photo.jpg',

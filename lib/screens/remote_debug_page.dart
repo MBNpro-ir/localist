@@ -5,25 +5,29 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/localist/connection_card.dart';
 import 'package:flutter_hbb/localist/connection_info.dart';
 import '../services/rustdesk_debug_service.dart';
+import '../services/feature_activity_service.dart';
 import '../services/remote_device_service.dart';
-import '../remote/embedded_remote_app.dart';
 import '../widgets/glass.dart';
 import '../widgets/feature_page_layout.dart';
 import '../widgets/remote_ready_indicator.dart';
 import 'remote_address_book.dart';
 
 class RemoteDebugPage extends StatefulWidget {
-  const RemoteDebugPage({super.key});
+  const RemoteDebugPage({
+    super.key,
+    required this.service,
+    required this.devices,
+  });
+  final RustDeskDebugService service;
+  final RemoteDeviceService devices;
   @override
   State<RemoteDebugPage> createState() => _RemoteDebugPageState();
 }
 
 class _RemoteDebugPageState extends State<RemoteDebugPage>
     with WidgetsBindingObserver {
-  final _service = RustDeskDebugService();
-  final _devices = RemoteDeviceService(
-    queryPresence: LocalistRemoteRuntime.peerPresence,
-  );
+  RustDeskDebugService get _service => widget.service;
+  RemoteDeviceService get _devices => widget.devices;
   final _target = TextEditingController();
   final _password = TextEditingController();
   String _mode = 'connect';
@@ -45,8 +49,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     _target.dispose();
     _password.dispose();
     _service.removeListener(_refreshSavedPeers);
-    _service.dispose();
-    _devices.dispose();
+
     super.dispose();
   }
 
@@ -343,6 +346,19 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
 
   Future<void> _launch() async {
     if (_connecting) return;
+    if (!FeatureActivityService.instance.reserve(
+      this,
+      LocalistFeature.remoteControl,
+    )) {
+      setState(
+        () => _notice = faText(
+          context,
+          'ابتدا سرویس فعال را متوقف کنید.',
+          'Stop the active service first.',
+        ),
+      );
+      return;
+    }
     setState(() => _connecting = true);
     try {
       await _service.launch(
@@ -366,6 +382,12 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     } catch (error) {
       if (mounted) setState(() => _notice = '$error');
     } finally {
+      await _service.refresh();
+      FeatureActivityService.instance.setActive(
+        this,
+        LocalistFeature.remoteControl,
+        false,
+      );
       if (mounted) setState(() => _connecting = false);
     }
   }

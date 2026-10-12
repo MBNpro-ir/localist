@@ -382,6 +382,41 @@ class ServiceSnapshot {
   final RemoteProxyConfig? remoteProxy;
   final RootRoutingInfo root;
 
+  String get _presentation => jsonEncode([
+    vpnConnected,
+    deviceVpnActive,
+    proxyRunning,
+    receivingRunning,
+    localProxyRunning,
+    localProxyPort,
+    hotspot.active,
+    hotspot.ssid,
+    hotspot.password,
+    hotspot.ipAddress,
+    hotspot.managedByLocalist,
+    hotspot.systemDetected,
+    protocols.map((p) => p.name).toList()..sort(),
+    protocolPorts.map((k, v) => MapEntry(k.name, v)),
+    port,
+    shareAllRoutes,
+    localProxyIps,
+    remoteProxy?.toMap(),
+    usage.sessionRxBytes,
+    usage.sessionTxBytes,
+    usage.totalRxBytes,
+    usage.totalTxBytes,
+    root.available,
+    root.enabled,
+    root.active,
+    root.vpnInterface,
+    root.clientSubnets,
+    root.availableClientSubnets,
+    root.availableLocalIps,
+    root.lastError,
+  ]);
+  bool samePresentationAs(ServiceSnapshot other) =>
+      _presentation == other._presentation;
+
   factory ServiceSnapshot.initial({
     required ProxyProtocol protocol,
     required int port,

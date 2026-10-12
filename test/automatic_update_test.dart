@@ -1,4 +1,7 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:localist/widgets/update_action.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,14 +14,14 @@ class FakeUpdates extends AppUpdateService {
   final File file;
   int checks = 0, downloads = 0, preparations = 0;
   bool fail = false;
-  final version = AppVersion.tryParse('6.0.1')!;
+  AppVersion version = AppVersion.tryParse('6.0.1')!;
   @override
   Future<AppUpdateCheck> checkForUpdate() async {
     checks++;
     await Future<void>.delayed(const Duration(milliseconds: 20));
     final asset = UpdateAsset(
       name: 'localist-windows-x64.zip',
-      downloadUrl: 'https://example.com/6.0.1.zip',
+      downloadUrl: 'https://example.com/$version.zip',
       size: 3,
       digest: 'sha256:${sha256.convert([1, 2, 3])}',
     );
@@ -31,7 +34,7 @@ class FakeUpdates extends AppUpdateService {
         version: version,
         assets: [asset],
       ),
-      androidAsset: null,
+      androidAsset: asset,
       windowsAsset: asset,
       supportedAbis: [],
     );
@@ -50,6 +53,11 @@ class FakeUpdates extends AppUpdateService {
   }
 
   @override
+  Future<File> downloadAndroidUpdate(
+    UpdateAsset asset, {
+    required void Function(int, int) onProgress,
+  }) => downloadWindowsUpdate(asset, onProgress: onProgress);
+  @override
   Future<String> prepareWindowsUpdate(File archive, AppVersion version) async {
     preparations++;
     return '${file.path}.stage';
@@ -62,6 +70,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     directory = await Directory.systemTemp.createTemp('localist-update-test-');
   });
   tearDown(() async {
@@ -112,6 +121,131 @@ void main() {
       backend.fail = false;
       await updates.checkAndPrepare();
       expect(updates.state, AutomaticUpdateState.ready);
+      updates.dispose();
+    },
+  );
+  test(
+    'declined prepared update remains available after restart; newer release supersedes it',
+    () async {
+      final backend = FakeUpdates(File('${directory.path}/update.zip'));
+      final first = AutomaticUpdateController(service: backend, windows: true);
+      await first.checkAndPrepare();
+      await first.defer();
+      expect(first.deferred, isTrue);
+      first.dispose();
+      final reopened = AutomaticUpdateController(
+        service: backend,
+        windows: true,
+      );
+      await reopened.checkAndPrepare();
+      expect(reopened.state, AutomaticUpdateState.ready);
+      expect(reopened.deferred, isTrue);
+      expect(reopened.shouldPrompt, isFalse);
+      backend.version = AppVersion.tryParse('6.0.2')!;
+      await reopened.checkAndPrepare();
+      expect(reopened.state, AutomaticUpdateState.ready);
+      expect(reopened.check!.release.version.toString(), '6.0.2');
+      expect(reopened.deferred, isFalse);
+      expect(reopened.shouldPrompt, isTrue);
+      expect(backend.downloads, 3);
+      reopened.dispose();
+    },
+  );
+  test(
+    'install rechecks latest release and does not launch installer on check failure',
+    () async {
+      final backend = FakeUpdates(File('${directory.path}/update.zip'));
+      final updates = AutomaticUpdateController(
+        service: backend,
+        windows: true,
+      );
+      await updates.checkAndPrepare();
+      backend.version = AppVersion.tryParse('6.0.3')!;
+      backend.fail = true;
+      expect(await updates.installPreparedUpdate(), isFalse);
+      expect(backend.checks, 2);
+      expect(updates.state, AutomaticUpdateState.failed);
+      expect(updates.check!.release.version.toString(), '6.0.3');
+      updates.dispose();
+    },
+  );
+  test(
+    'Android granted install access opens installer once without another permission request',
+    () async {
+      final backend = FakeUpdates(File('${directory.path}/update.apk'));
+      var permissionRequests = 0, installs = 0;
+      final updates = AutomaticUpdateController(
+        service: backend,
+        windows: false,
+        canInstallPackages: () async => true,
+        requestInstallPermission: () async {
+          permissionRequests++;
+          return true;
+        },
+        installAndroidPackage: (path) async {
+          installs++;
+          return true;
+        },
+      );
+      await updates.checkAndPrepare();
+      await updates.accept();
+      expect(await updates.installPreparedUpdate(), isTrue);
+      expect(permissionRequests, 0);
+      expect(installs, 1);
+      expect(updates.installPermissionNeeded, isFalse);
+      expect(updates.installRequested, isFalse);
+      updates.dispose();
+    },
+  );
+  testWidgets(
+    'update prompt requires a Yes or No choice; deferred icon remains actionable',
+    (tester) async {
+      final backend = FakeUpdates(File('${directory.path}/update.zip'));
+      final updates = AutomaticUpdateController(
+        service: backend,
+        windows: true,
+      );
+      await tester.runAsync(() => updates.checkAndPrepare());
+      late BuildContext page;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              page = context;
+              return Scaffold(
+                appBar: AppBar(
+                  title: const Text('Test'),
+                  actions: [
+                    SizedBox(
+                      width: 40,
+                      child: LocalistUpdateAction(
+                        updates: updates,
+                        onPressed: () {},
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      final prompt = confirmLocalistUpdate(page, updates, refresh: false);
+      await tester.pumpAndSettle();
+      expect(find.text('Update ready'), findsOneWidget);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.text('Update ready'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Update ready'), findsOneWidget);
+      await tester.tap(find.text('No, later'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await prompt;
+      expect(updates.deferred, isTrue);
+      expect(find.byIcon(Icons.install_mobile), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
       updates.dispose();
     },
   );
@@ -247,7 +381,7 @@ void main() {
       final zip = File(p.join(directory.path, 'update.zip'));
       await zip.writeAsBytes(ZipEncoder().encode(archive));
       final service = AppUpdateService();
-      final version = AppVersion.tryParse('6.0.1')!;
+      AppVersion version = AppVersion.tryParse('6.0.1')!;
       final first = await service.prepareWindowsUpdate(zip, version);
       expect(await service.prepareWindowsUpdate(zip, version), first);
       await File(p.join(first, 'flutter_windows.dll')).delete();

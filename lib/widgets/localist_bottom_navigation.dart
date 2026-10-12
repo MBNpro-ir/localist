@@ -138,11 +138,21 @@ class _LocalistNavigationPill extends StatelessWidget {
           padding: const EdgeInsets.all(6),
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final selectedWidth =
-                  (constraints.maxWidth - (items.length - 1) * 48).clamp(
-                    48.0,
-                    200.0,
-                  );
+              final label = TextPainter(
+                text: TextSpan(
+                  text: items[selectedIndex].label,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                textDirection: Directionality.of(context),
+                textScaler: MediaQuery.textScalerOf(context),
+                maxLines: 1,
+              )..layout();
+              final available = (constraints.maxWidth - (items.length - 1) * 48)
+                  .clamp(48.0, 220.0);
+              final selectedWidth = (label.width + 48).clamp(48.0, available);
+              label.dispose();
               return SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -204,6 +214,7 @@ class _LocalistNavigationDestination extends StatelessWidget {
         child: selected
             ? Row(
                 key: ValueKey(item.label),
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   AnimatedNavIcon(
                     icon: item.selectedIcon,

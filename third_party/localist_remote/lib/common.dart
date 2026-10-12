@@ -1681,6 +1681,13 @@ String translate(String name) {
   if (name.startsWith('Failed to') && name.contains(': ')) {
     return name.split(': ').map((x) => translate(x)).join(': ');
   }
+  if (localeName.startsWith('fa')) {
+    const extra = {
+      'Allow terminal apps to copy to clipboard': 'اجازه به برنامه‌های ترمینال برای کپی در کلیپ‌بورد',
+      'terminal-clipboard-write-tip': 'برنامه‌های ترمینال می‌توانند متن را در کلیپ‌بورد دستگاه شما کپی کنند.',
+    };
+    if (extra.containsKey(name)) return extra[name]!;
+  }
   return platformFFI.translate(name, localeName).replaceAll('RustDesk', 'Localist');
 }
 

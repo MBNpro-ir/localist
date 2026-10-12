@@ -18,6 +18,7 @@ class DlnaRenderer {
 }
 
 class DlnaCastService extends ChangeNotifier {
+  static final instance = DlnaCastService();
   final List<DlnaRenderer> _devices = [];
   List<DlnaRenderer> get devices => List.unmodifiable(_devices);
   bool scanning = false;

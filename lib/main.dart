@@ -30,6 +30,12 @@ import 'screens/sharing_page.dart';
 import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
 import 'screens/stream_page.dart';
+import 'screens/vpn_sharing_page.dart';
+import 'services/feature_activity_service.dart';
+import 'services/dlna_cast_service.dart';
+import 'services/rustdesk_debug_service.dart';
+import 'services/remote_device_service.dart';
+import 'widgets/update_action.dart';
 import 'services/apple_web_transfer_service.dart';
 import 'services/automatic_update_controller.dart';
 import 'services/crash_reporter_service.dart';
@@ -346,6 +352,15 @@ class _LocalistShellState extends State<LocalistShell>
   final AppleWebTransferService _appleWebTransfer =
       AppleWebTransferService.instance;
   final _updates = AutomaticUpdateController.instance;
+  final _activities = FeatureActivityService.instance;
+  final _remoteService = RustDeskDebugService();
+  final _remoteDevices = RemoteDeviceService(
+    queryPresence: LocalistRemoteRuntime.peerPresence,
+  );
+  Timer? _remoteDiscoveryTimer;
+  Timer? _castDiscoveryTimer;
+  Future<void>? _refreshingState;
+  bool get _navigationLocked => _activities.owner != null;
   final LogService _logs = LogService.instance;
   final GlobalKey<QuickSendPageState> _quickSendPageKey =
       GlobalKey<QuickSendPageState>();
@@ -397,6 +412,10 @@ class _LocalistShellState extends State<LocalistShell>
     _discovery.addListener(_handleDiscoveryChanged);
     _peerService.addListener(_handlePeersChanged);
     _quickSend.addListener(_handleQuickSendChanged);
+    _activities.addListener(_handleActivityChanged);
+    _updates.addListener(_handleUpdateChanged);
+    unawaited(_bridge.setLanDiscoveryLock(true));
+    unawaited(_initializeFeatureDiscovery());
     _sharedQuickSendFilesSubscription = _bridge.sharedQuickSendFiles.listen(
       _handleQuickSendSharedFiles,
     );
@@ -408,10 +427,13 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(_bridge.initializeNotifications());
     unawaited(_quickSend.initialize());
     _refreshState();
-    _refreshTimer = Timer.periodic(
-      const Duration(seconds: 3),
-      (_) => _refreshState(quiet: true),
-    );
+    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (_appLifecycleState == AppLifecycleState.resumed ||
+          _sharingActive ||
+          _receivingActive) {
+        unawaited(_refreshState(quiet: true));
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForStartupUpdate();
       if (Platform.isWindows || Platform.isAndroid) {
@@ -438,6 +460,14 @@ class _LocalistShellState extends State<LocalistShell>
     _discovery.removeListener(_handleDiscoveryChanged);
     _peerService.removeListener(_handlePeersChanged);
     _quickSend.removeListener(_handleQuickSendChanged);
+    _activities.removeListener(_handleActivityChanged);
+    _updates.removeListener(_handleUpdateChanged);
+    _remoteDiscoveryTimer?.cancel();
+    _castDiscoveryTimer?.cancel();
+    unawaited(_bridge.setLanDiscoveryLock(false));
+    _remoteService.dispose();
+    _remoteDevices.dispose();
+    DlnaCastService.instance.dispose();
     _sharedQuickSendFilesSubscription?.cancel();
     _quickSendNotificationSubscription?.cancel();
     _windowActivationSubscription?.cancel();
@@ -463,6 +493,14 @@ class _LocalistShellState extends State<LocalistShell>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appLifecycleState = state;
+    unawaited(_syncDiscoveryLifecycle());
+    if (state == AppLifecycleState.resumed) {
+      _handleUpdateChanged();
+      if (_updates.installRequested && _updates.installPermissionNeeded) {
+        unawaited(_updates.installPreparedUpdate());
+      }
+      unawaited(_scanRemoteDevices());
+    }
     if (state == AppLifecycleState.resumed) {
       final pending = _quickSend.pendingRequest;
       if (pending != null) {
@@ -803,14 +841,25 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(_syncDiscoveryLifecycle());
   }
 
-  Future<void> _refreshState({bool quiet = false}) async {
+  Future<void> _refreshState({bool quiet = false}) =>
+      _refreshingState ??= _refreshNativeState(
+        quiet: quiet,
+      ).whenComplete(() => _refreshingState = null);
+  Future<void> _refreshNativeState({bool quiet = false}) async {
     _logs.debug('Native state refresh started quiet=$quiet');
     try {
       final snapshot = await _loadServiceSnapshot();
       if (!mounted) {
         return;
       }
-      setState(() => _snapshot = snapshot);
+      if (!_snapshot.samePresentationAs(snapshot)) {
+        setState(() => _snapshot = snapshot);
+      }
+      _activities.setActive(
+        'vpn',
+        LocalistFeature.vpnSharing,
+        _sharingActive || _receivingActive || _busy,
+      );
       unawaited(
         _peerService.update(
           sharing:
@@ -872,7 +921,9 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   bool get _shouldRunDiscovery {
-    return !_busy && !_sharingActive && !_receivingActive;
+    return _appLifecycleState == AppLifecycleState.resumed ||
+        _sharingActive ||
+        _receivingActive;
   }
 
   Future<void> _syncDiscoveryLifecycle() async {
@@ -957,9 +1008,7 @@ class _LocalistShellState extends State<LocalistShell>
         actionIcon: Icons.arrow_forward,
         onTap: () => unawaited(_openSettings(SettingsSection.updates)),
       );
-      if (Platform.isAndroid && _appIsActive) {
-        await _updates.installPreparedUpdate(automatic: true);
-      }
+      _handleUpdateChanged();
     } catch (error) {
       _logs.warning('Startup update check failed: $error');
     }
@@ -1307,6 +1356,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _startSharing() async {
+    if (!_activities.allows(LocalistFeature.vpnSharing)) return;
     _logs.debug('Sharing button pressed busy=$_busy');
     if (_busy) {
       _logs.debug('Sharing start ignored: busy');
@@ -1318,6 +1368,7 @@ class _LocalistShellState extends State<LocalistShell>
       _showServiceConflictMessage(l10n.receiving, l10n.sharing);
       return;
     }
+    _activities.reserve('vpn', LocalistFeature.vpnSharing);
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
@@ -1421,6 +1472,11 @@ class _LocalistShellState extends State<LocalistShell>
     } finally {
       if (mounted) {
         setState(() => _busy = false);
+        _activities.setActive(
+          'vpn',
+          LocalistFeature.vpnSharing,
+          _sharingActive || _receivingActive,
+        );
       }
       unawaited(_syncDiscoveryLifecycle());
     }
@@ -1433,6 +1489,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     final l10n = context.l10n;
+    _activities.reserve('vpn', LocalistFeature.vpnSharing);
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
@@ -1448,6 +1505,11 @@ class _LocalistShellState extends State<LocalistShell>
     } finally {
       if (mounted) {
         setState(() => _busy = false);
+        _activities.setActive(
+          'vpn',
+          LocalistFeature.vpnSharing,
+          _sharingActive || _receivingActive,
+        );
       }
       unawaited(_syncDiscoveryLifecycle());
     }
@@ -1460,6 +1522,7 @@ class _LocalistShellState extends State<LocalistShell>
       return;
     }
     final l10n = context.l10n;
+    _activities.reserve('vpn', LocalistFeature.vpnSharing);
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
@@ -1474,12 +1537,18 @@ class _LocalistShellState extends State<LocalistShell>
     } finally {
       if (mounted) {
         setState(() => _busy = false);
+        _activities.setActive(
+          'vpn',
+          LocalistFeature.vpnSharing,
+          _sharingActive || _receivingActive,
+        );
       }
       unawaited(_syncDiscoveryLifecycle());
     }
   }
 
   Future<void> _startReceiving(RemoteProxyConfig config) async {
+    if (!_activities.allows(LocalistFeature.vpnSharing)) return;
     _logs.debug(
       'Start receiving VPN button pressed config=${config.url} busy=$_busy',
     );
@@ -1493,6 +1562,7 @@ class _LocalistShellState extends State<LocalistShell>
       _showServiceConflictMessage(l10n.sharing, l10n.receiving);
       return;
     }
+    _activities.reserve('vpn', LocalistFeature.vpnSharing);
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
@@ -1539,12 +1609,18 @@ class _LocalistShellState extends State<LocalistShell>
     } finally {
       if (mounted) {
         setState(() => _busy = false);
+        _activities.setActive(
+          'vpn',
+          LocalistFeature.vpnSharing,
+          _sharingActive || _receivingActive,
+        );
       }
       unawaited(_syncDiscoveryLifecycle());
     }
   }
 
   Future<void> _startLocalProxy(RemoteProxyConfig config) async {
+    if (!_activities.allows(LocalistFeature.vpnSharing)) return;
     _logs.debug(
       'Start local proxy button pressed config=${config.url} busy=$_busy',
     );
@@ -1558,6 +1634,7 @@ class _LocalistShellState extends State<LocalistShell>
       _showServiceConflictMessage(l10n.sharing, l10n.receiving);
       return;
     }
+    _activities.reserve('vpn', LocalistFeature.vpnSharing);
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
@@ -1587,12 +1664,18 @@ class _LocalistShellState extends State<LocalistShell>
     } finally {
       if (mounted) {
         setState(() => _busy = false);
+        _activities.setActive(
+          'vpn',
+          LocalistFeature.vpnSharing,
+          _sharingActive || _receivingActive,
+        );
       }
       unawaited(_syncDiscoveryLifecycle());
     }
   }
 
   Future<void> _startSystemProxy(RemoteProxyConfig config) async {
+    if (!_activities.allows(LocalistFeature.vpnSharing)) return;
     _logs.debug(
       'Start system proxy button pressed config=${config.url} busy=$_busy',
     );
@@ -1606,6 +1689,7 @@ class _LocalistShellState extends State<LocalistShell>
       _showServiceConflictMessage(l10n.sharing, l10n.receiving);
       return;
     }
+    _activities.reserve('vpn', LocalistFeature.vpnSharing);
     setState(() => _busy = true);
     unawaited(_syncDiscoveryLifecycle());
     try {
@@ -1635,6 +1719,11 @@ class _LocalistShellState extends State<LocalistShell>
     } finally {
       if (mounted) {
         setState(() => _busy = false);
+        _activities.setActive(
+          'vpn',
+          LocalistFeature.vpnSharing,
+          _sharingActive || _receivingActive,
+        );
       }
       unawaited(_syncDiscoveryLifecycle());
     }
@@ -1777,6 +1866,55 @@ class _LocalistShellState extends State<LocalistShell>
     );
   }
 
+  Future<void> _initializeFeatureDiscovery() async {
+    if (Platform.isAndroid || Platform.isWindows) {
+      await _remoteService.initialize();
+      if (!mounted) return;
+      await _remoteDevices.initialize();
+      if (!mounted) return;
+      unawaited(_scanRemoteDevices());
+      _remoteDiscoveryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+        if (_appLifecycleState == AppLifecycleState.resumed) {
+          unawaited(_scanRemoteDevices());
+        }
+      });
+    }
+    unawaited(DlnaCastService.instance.discover());
+    _castDiscoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_appLifecycleState == AppLifecycleState.resumed) {
+        unawaited(DlnaCastService.instance.discover());
+      }
+    });
+  }
+
+  Future<void> _scanRemoteDevices() async {
+    _remoteDevices.setPresenceContext(
+      server: _remoteService.profile.server.encode(),
+      ready: _remoteService.ready && _remoteService.online,
+    );
+    await _remoteDevices.scan(localId: _remoteService.localId);
+  }
+
+  void _handleActivityChanged() {
+    if (!mounted) return;
+    final owner = _activities.owner;
+    setState(() {});
+    if (owner != null) _setPage(owner.index);
+  }
+
+  void _handleUpdateChanged() {
+    if (!mounted || _appLifecycleState != AppLifecycleState.resumed) return;
+    if (_updates.shouldPrompt) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            _updates.shouldPrompt &&
+            ModalRoute.of(context)?.isCurrent == true) {
+          unawaited(confirmLocalistUpdate(context, _updates, refresh: false));
+        }
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -1810,38 +1948,46 @@ class _LocalistShellState extends State<LocalistShell>
               unawaited(_openSettings(SettingsSection.quickSend)),
         ),
       ),
-      KeepAlivePage(
-        child: SharingPage(
-          settings: widget.settings,
-          snapshot: _snapshot,
-          connectedPeers: _connectedPeers,
-          busy: _busy,
-          controlsLocked: _receivingActive,
-          lockMessage: l10n.receivingActiveLock,
-          onStartSharing: _startSharing,
-          onStopSharing: _stopSharing,
-          onOpenHotspotSettings: _openHotspotSettings,
-          onRefresh: _refreshState,
+      if (Platform.isAndroid || Platform.isWindows)
+        KeepAlivePage(
+          child: RemoteDebugPage(
+            service: _remoteService,
+            devices: _remoteDevices,
+          ),
         ),
-      ),
       KeepAlivePage(
-        child: ReceivingPage(
-          snapshot: _snapshot,
-          discoveredDevices: _discoveredDevices,
-          discoveryScanning: _discoveryScanning,
+        child: VpnSharingPage(
+          sharingActive: _sharingActive,
+          receivingActive: _receivingActive,
           busy: _busy,
-          controlsLocked: _sharingActive,
-          lockMessage: l10n.sharingActiveLock,
-          onStartReceiving: _startReceiving,
-          onStartSystemProxy: _startSystemProxy,
-          onStartLocalProxy: _startLocalProxy,
-          onStopReceiving: _stopReceiving,
-          onRefreshDiscovery: _refreshDiscovery,
+          sharing: SharingPage(
+            settings: widget.settings,
+            snapshot: _snapshot,
+            connectedPeers: _connectedPeers,
+            busy: _busy,
+            controlsLocked: _receivingActive,
+            lockMessage: l10n.receivingActiveLock,
+            onStartSharing: _startSharing,
+            onStopSharing: _stopSharing,
+            onOpenHotspotSettings: _openHotspotSettings,
+            onRefresh: _refreshState,
+          ),
+          receiving: ReceivingPage(
+            snapshot: _snapshot,
+            discoveredDevices: _discoveredDevices,
+            discoveryScanning: _discoveryScanning,
+            busy: _busy,
+            controlsLocked: _sharingActive,
+            lockMessage: l10n.sharingActiveLock,
+            onStartReceiving: _startReceiving,
+            onStartSystemProxy: _startSystemProxy,
+            onStartLocalProxy: _startLocalProxy,
+            onStopReceiving: _stopReceiving,
+            onRefreshDiscovery: _refreshDiscovery,
+          ),
         ),
       ),
       KeepAlivePage(child: StreamPage(service: MediaStreamService.instance)),
-      if (Platform.isAndroid || Platform.isWindows)
-        KeepAlivePage(child: const RemoteDebugPage()),
     ];
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -1859,12 +2005,24 @@ class _LocalistShellState extends State<LocalistShell>
               children: [const Text('Localist')],
             ),
             actions: [
-              IconButton(
-                tooltip: l10n.logs,
-                onPressed: _showLogsSheet,
-                icon: const Icon(Icons.subject_outlined),
+              LocalistUpdateAction(
+                updates: _updates,
+                onPressed: () {
+                  if (_updates.state == AutomaticUpdateState.ready) {
+                    unawaited(confirmLocalistUpdate(context, _updates));
+                  } else {
+                    unawaited(_openSettings(SettingsSection.updates));
+                  }
+                },
               ),
-              if (!Platform.isWindows)
+              if (MediaQuery.sizeOf(context).width >= 400)
+                IconButton(
+                  tooltip: l10n.logs,
+                  onPressed: _showLogsSheet,
+                  icon: const Icon(Icons.subject_outlined),
+                ),
+              if (!Platform.isWindows &&
+                  MediaQuery.sizeOf(context).width >= 400)
                 IconButton(
                   tooltip: l10n.shareApk,
                   onPressed: _shareApk,
@@ -1908,7 +2066,7 @@ class _LocalistShellState extends State<LocalistShell>
             ],
           ),
           body: _buildMainContent(context, pages, navItems),
-          bottomNavigationBar: Platform.isWindows
+          bottomNavigationBar: Platform.isWindows || _navigationLocked
               ? null
               : _buildBottomNavigation(context, navItems),
         ),
@@ -1923,7 +2081,9 @@ class _LocalistShellState extends State<LocalistShell>
   ) {
     final pageView = PageView(
       controller: _pageController,
-      physics: const PageScrollPhysics(),
+      physics: _navigationLocked
+          ? const NeverScrollableScrollPhysics()
+          : const PageScrollPhysics(),
       onPageChanged: _handlePageChanged,
       children: pages,
     );
@@ -1937,32 +2097,35 @@ class _LocalistShellState extends State<LocalistShell>
         fit: StackFit.expand,
         children: [
           Padding(
-            padding: const EdgeInsetsDirectional.only(
-              start: LocalistWindowsNavigation.collapsedWidth,
+            padding: EdgeInsetsDirectional.only(
+              start: _navigationLocked
+                  ? 0
+                  : LocalistWindowsNavigation.collapsedWidth,
             ),
             child: pageView,
           ),
-          PositionedDirectional(
-            start: 0,
-            top: 0,
-            bottom: 0,
-            child: LocalistWindowsNavigation(
-              currentIndex: _index,
-              onDestinationSelected: _goToPage,
-              items: [
-                for (final item in navItems)
-                  LocalistBottomNavigationItem(
-                    label: item.label,
-                    icon: item.icon,
-                    selectedIcon: item.selectedIcon,
-                  ),
-              ],
-              showActionButton: _statsAvailable,
-              actionIcon: Icons.query_stats,
-              actionTooltip: context.l10n.stats,
-              onActionPressed: _showStatsSheet,
+          if (!_navigationLocked)
+            PositionedDirectional(
+              start: 0,
+              top: 0,
+              bottom: 0,
+              child: LocalistWindowsNavigation(
+                currentIndex: _index,
+                onDestinationSelected: _goToPage,
+                items: [
+                  for (final item in navItems)
+                    LocalistBottomNavigationItem(
+                      label: item.label,
+                      icon: item.icon,
+                      selectedIcon: item.selectedIcon,
+                    ),
+                ],
+                showActionButton: _statsAvailable,
+                actionIcon: Icons.query_stats,
+                actionTooltip: context.l10n.stats,
+                onActionPressed: _showStatsSheet,
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -2007,6 +2170,11 @@ class _LocalistShellState extends State<LocalistShell>
 
   void _handlePageChanged(int value) {
     _logs.debug('Page changed index=$value');
+    final owner = _activities.owner;
+    if (owner != null && value != owner.index) {
+      _pageController.jumpToPage(owner.index);
+      return;
+    }
     setState(() => _index = value);
     unawaited(_syncDiscoveryLifecycle());
   }
@@ -2015,6 +2183,8 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
+    final owner = _activities.owner;
+    if (owner != null && value != owner.index) return;
     if (_index == value && !force) {
       _logs.debug('Page change skipped index=$value force=$force');
       return;
@@ -2048,20 +2218,28 @@ class _LocalistShellState extends State<LocalistShell>
 
   List<_NavItem> _navItems(AppLocalizations l10n) {
     final items = <_NavItem>[
-      const _NavItem('Quick Send', Icons.send_outlined, Icons.send),
-      _NavItem(l10n.sharing, Icons.share_outlined, Icons.share),
-      _NavItem(l10n.receiving, Icons.qr_code_scanner, Icons.qr_code_2),
-      const _NavItem('Stream', Icons.cast_outlined, Icons.cast),
-    ];
-    if (Platform.isAndroid || Platform.isWindows) {
-      items.add(
+      _NavItem(
+        l10n.isPersian ? 'ارسال سریع' : 'Quick Send',
+        Icons.send_outlined,
+        Icons.send,
+      ),
+      if (Platform.isAndroid || Platform.isWindows)
         _NavItem(
           l10n.isPersian ? 'کنترل از راه دور' : 'Remote Control',
           Icons.desktop_windows_outlined,
           Icons.desktop_windows,
         ),
-      );
-    }
+      _NavItem(
+        l10n.isPersian ? 'اشتراک VPN' : 'VPN Sharing',
+        Icons.share_outlined,
+        Icons.share,
+      ),
+      _NavItem(
+        l10n.isPersian ? 'استریم' : 'Stream',
+        Icons.cast_outlined,
+        Icons.cast,
+      ),
+    ];
     return items;
   }
 
@@ -2100,19 +2278,25 @@ class _LocalistShellState extends State<LocalistShell>
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.power_settings_new_rounded),
-        title: const Text('Start Localist with Windows?'),
-        content: const Text(
-          'Localist can open automatically when you sign in to Windows. '
-          'You can change this later in App behavior.',
+        title: Text(
+          context.l10n.isPersian
+              ? 'لوکالیست همراه ویندوز اجرا شود؟'
+              : 'Start Localist with Windows?',
+        ),
+        content: Text(
+          context.l10n.isPersian
+              ? 'لوکالیست پس از ورود به ویندوز خودکار باز می‌شود. این گزینه بعداً در تنظیمات برنامه قابل تغییر است.'
+              : 'Localist can open automatically when you sign in to Windows. '
+                    'You can change this later in App behavior.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Not now'),
+            child: Text(context.l10n.isPersian ? 'فعلاً خیر' : 'Not now'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Enable'),
+            child: Text(context.l10n.isPersian ? 'فعال کن' : 'Enable'),
           ),
         ],
       ),

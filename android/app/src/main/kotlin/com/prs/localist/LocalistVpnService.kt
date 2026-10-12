@@ -543,9 +543,9 @@ class LocalistVpnService : VpnService() {
             Notification.Builder(this)
         }
         val title = when (State.mode) {
-            MODE_RECEIVING -> "localist receiving VPN is running"
-            MODE_LOCAL_PROXY -> "localist local proxy is running"
-            else -> "localist proxy is running"
+            MODE_RECEIVING -> LocalistText.choose(this, "دریافت VPN لوکالیست فعال است", "Localist receiving VPN is running")
+            MODE_LOCAL_PROXY -> LocalistText.choose(this, "پروکسی محلی لوکالیست فعال است", "Localist local proxy is running")
+            else -> LocalistText.choose(this, "اشتراک VPN لوکالیست فعال است", "Localist proxy is running")
         }
         val endpoint = when (State.mode) {
             MODE_RECEIVING ->
@@ -567,8 +567,8 @@ class LocalistVpnService : VpnService() {
             .setOngoing(true)
             .setColor(Color.rgb(103, 58, 183))
             .setContentIntent(contentIntent)
-            .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
-            .addAction(android.R.drawable.ic_popup_sync, "Restart", restartIntent)
+            .addAction(android.R.drawable.ic_media_pause, LocalistText.choose(this, "توقف", "Stop"), stopIntent)
+            .addAction(android.R.drawable.ic_popup_sync, LocalistText.choose(this, "شروع مجدد", "Restart"), restartIntent)
             .build()
     }
 

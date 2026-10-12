@@ -51,6 +51,8 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     private var pendingSaveFileResult: MethodChannel.Result? = null
     private var pendingSaveFileText: String = ""
     private var methodChannel: MethodChannel? = null
+    private var lanDiscoveryRequested = false
+    private var quickSendMulticastRequested = false
     private var quickSendMulticastLock: WifiManager.MulticastLock? = null
     private var localOnlyHotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
     private var localOnlyHotspotInfo: Map<String, Any?>? = null
@@ -133,6 +135,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                 }
                 "getStats" -> result.success(LocalistVpnService.stats(this))
                 "getServiceState" -> result.success(LocalistVpnService.snapshot(this))
+                "getLanInterfaces" -> result.success(NetworkAddressInspector.lanInterfaces())
                 "shareApk" -> shareApk(result)
                 "shareText" -> shareText(call, result)
                 "shareFileExternally" -> shareFileExternally(call, result)
@@ -167,6 +170,10 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                 "takeQuickSendNotificationTap" ->
                     result.success(takeQuickSendNotificationTap())
                 "getDeviceDetails" -> result.success(deviceDetails())
+                "setLanDiscoveryLock" -> {
+                    lanDiscoveryRequested = call.argument<Boolean>("enabled") == true
+                    result.success(updateMulticastLock(lanDiscoveryRequested || quickSendMulticastRequested))
+                }
                 "setQuickSendMulticastLock" -> {
                     result.success(setQuickSendMulticastLock(call.argument<Boolean>("enabled") == true))
                 }
@@ -196,6 +203,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
 
     override fun onDestroy() {
         thumbnailExecutor.shutdownNow()
+        lanDiscoveryRequested = false
         setQuickSendMulticastLock(false)
         stopLocalOnlyHotspot(notifyFlutter = false)
         unregisterNativeLogReceiver()
@@ -238,6 +246,10 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     }
 
     private fun setQuickSendMulticastLock(enabled: Boolean): Boolean {
+        quickSendMulticastRequested = enabled
+        return updateMulticastLock(lanDiscoveryRequested || quickSendMulticastRequested)
+    }
+    private fun updateMulticastLock(enabled: Boolean): Boolean {
         if (enabled) {
             val lock = quickSendMulticastLock ?: run {
                 val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager

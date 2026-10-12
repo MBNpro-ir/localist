@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'native_bridge_service.dart';
+import 'feature_activity_service.dart';
 import 'feature_permission_service.dart';
 import '../models/remote_control_settings.dart';
 import '../remote/embedded_remote_app.dart';
@@ -31,6 +32,7 @@ class RustDeskDebugService extends ChangeNotifier {
       ? 'Public servers'
       : profile.server.idServer;
   bool hosting = false;
+  bool sessionActive = false;
   bool inputEnabled = false;
   bool twoFactorEnabled = false;
   bool rdpShared = false;
@@ -73,13 +75,25 @@ class RustDeskDebugService extends ChangeNotifier {
   bool enabled(String key) =>
       key.startsWith('enable-') ? options[key] != 'N' : options[key] == 'Y';
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (!_disposed) {
+      FeatureActivityService.instance.setActive(
+        this,
+        LocalistFeature.remoteControl,
+        sessionActive || (Platform.isAndroid && hosting),
+      );
+      notifyListeners();
+    }
   }
 
   @override
   void dispose() {
     _disposed = true;
     _refreshTimer?.cancel();
+    FeatureActivityService.instance.setActive(
+      this,
+      LocalistFeature.remoteControl,
+      false,
+    );
     super.dispose();
   }
 
@@ -159,6 +173,7 @@ class RustDeskDebugService extends ChangeNotifier {
         await LocalistRemoteRuntime.ensureStarted();
         final status = await LocalistRemoteRuntime.desktopStatus();
         ready = status?['ready'] == true;
+        sessionActive = (status?['activeSessions'] as num? ?? 0) > 0;
         connectionStatus = (status?['statusNum'] as num? ?? 0).toInt();
         online = ready && connectionStatus > 0;
         hosting = profile.values['stop-service'] != 'Y';

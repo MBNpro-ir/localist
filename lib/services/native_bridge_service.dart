@@ -47,6 +47,12 @@ class NativeBridgeService {
     await _invoke<bool>('acknowledgeRemoteReceivedFiles', {'ids': ids});
   }
 
+  Future<void> setLanDiscoveryLock(bool enabled) async {
+    if (Platform.isAndroid) {
+      await _invoke<bool>('setLanDiscoveryLock', {'enabled': enabled});
+    }
+  }
+
   WindowsNotification? _windowsNotifier;
   Future<void>? _windowsNotificationsInitialization;
 

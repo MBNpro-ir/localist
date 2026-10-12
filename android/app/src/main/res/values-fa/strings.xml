@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="localist_widget_description">کنترل اشتراک و دریافت VPN لوکالیست</string>
+    <string name="localist_sharing_widget_description">شروع یا توقف اشتراک VPN لوکالیست</string>
+    <string name="localist_receiving_widget_description">شروع یا توقف دریافت VPN لوکالیست</string>
+</resources>

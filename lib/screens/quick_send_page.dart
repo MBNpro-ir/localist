@@ -1971,7 +1971,10 @@ class QuickSendStatusPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Quick Send', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            context.l10n.isPersian ? 'ارسال سریع' : 'Quick Send',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           Text(
             _t(
               context,
@@ -2372,7 +2375,7 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
               const Divider(height: 1),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Quick Save'),
+                title: Text(_t('ذخیره خودکار', 'Quick Save')),
                 subtitle: Text(
                   _t(
                     'تمام درخواست‌ها خودکار پذیرفته شوند.',

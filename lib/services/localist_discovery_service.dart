@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/service_state.dart';
 import 'log_service.dart';
+import 'lan_network_service.dart';
 import 'localist_discovery_protocol.dart';
 
 class LocalistDiscoveryService extends ChangeNotifier {
@@ -40,13 +41,23 @@ class LocalistDiscoveryService extends ChangeNotifier {
     });
   }
 
-  Future<void> start() async {
+  int _generation = 0;
+  Future<void>? _starting;
+  Future<void> start() =>
+      _starting ??= _start().whenComplete(() => _starting = null);
+  Future<void> _start() async {
     if (_scanning) {
       _logs.debug('Local discovery start skipped: already scanning');
       return;
     }
     _logs.debug('Local discovery starting');
+    final generation = _generation;
     await _startSocket();
+    if (generation != _generation) {
+      _socket?.close();
+      _socket = null;
+      return;
+    }
     _scanning = true;
     _notifySoon();
     await refresh();
@@ -68,6 +79,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
   }
 
   Future<void> suspend() async {
+    _generation++;
     _logs.debug('Local discovery suspending');
     _queryTimer?.cancel();
     _queryTimer = null;
@@ -149,6 +161,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
   Future<void> restart() async {
     _logs.debug('Local discovery manual restart requested');
     await stop();
+    await _starting;
     await start();
   }
 
@@ -255,11 +268,10 @@ class LocalistDiscoveryService extends ChangeNotifier {
             continue;
           }
           localAddresses.add(host);
-          hosts
-            ..add(_ipv4WithLastOctet(host, 1))
-            ..add(_ipv4WithLastOctet(host, 254))
-            ..add(_ipv4WithLastOctet(host, 255));
         }
+      }
+      for (final route in await LanNetworkService.instance.routes()) {
+        if (route.broadcast != null) hosts.add(route.broadcast!);
       }
       _localIpv4Addresses = localAddresses;
       _logs.debug('Local discovery local IPv4 addresses: $localAddresses');
@@ -321,11 +333,5 @@ class LocalistDiscoveryService extends ChangeNotifier {
         octets[0] != 127 &&
         octets[0] < 224 &&
         value != '255.255.255.255';
-  }
-
-  String _ipv4WithLastOctet(String value, int octet) {
-    final parts = value.split('.');
-    parts[3] = octet.toString();
-    return parts.join('.');
   }
 }

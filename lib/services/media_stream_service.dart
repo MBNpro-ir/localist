@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:mime/mime.dart';
 import 'http_file_stream.dart';
+import 'feature_activity_service.dart';
 import 'apple_web_transfer_service.dart';
 
 /// Serves one local media file with HTTP range support.
@@ -37,34 +38,53 @@ class MediaStreamService extends ChangeNotifier {
         path: '/$_token/media',
       ).toString(),
   ];
-  List<String> get playerUrls =>
-      urls.map((url) => url.replaceFirst('/media', '/')).toList();
+  List<String> get playerUrls => [
+    for (final address in _addresses) 'http://$address:$port',
+  ];
 
   /// The first local player URL is convenient for opening the page on the
   /// host. Other URLs are kept in [playerUrls] for devices on other network
   /// interfaces.
   String? get playerUrl => playerUrls.isEmpty ? null : playerUrls.first;
 
+  bool persian = false;
   Future<void> start(File file) async {
-    await stop();
-    if (!await file.exists()) {
-      throw const FileSystemException('Media file does not exist.');
+    if (!FeatureActivityService.instance.allows(LocalistFeature.stream)) {
+      throw StateError(
+        persian
+            ? 'ابتدا سرویس فعال را متوقف کنید.'
+            : 'Stop the active service first.',
+      );
     }
-    _file = file;
-    _token = List.generate(
-      24,
-      (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
-    ).join();
-    _name = file.uri.pathSegments.isEmpty
-        ? 'Media'
-        : file.uri.pathSegments.last;
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, 0, shared: false);
-    _server!.listen(
-      (request) => unawaited(_handleRequest(request)),
-      onError: (_) {},
-    );
-    _addresses = await _privateAddresses();
-    notifyListeners();
+    await stop();
+    FeatureActivityService.instance.reserve(this, LocalistFeature.stream);
+    try {
+      if (!await file.exists()) {
+        throw const FileSystemException('Media file does not exist.');
+      }
+      _file = file;
+      _token = List.generate(
+        24,
+        (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
+      _name = file.uri.pathSegments.isEmpty
+          ? 'Media'
+          : file.uri.pathSegments.last;
+      _server = await HttpServer.bind(
+        InternetAddress.anyIPv4,
+        0,
+        shared: false,
+      );
+      _server!.listen(
+        (request) => unawaited(_handleRequest(request)),
+        onError: (_) {},
+      );
+      _addresses = await _privateAddresses();
+      notifyListeners();
+    } catch (_) {
+      await stop();
+      rethrow;
+    }
   }
 
   Future<void> stop() async {
@@ -73,6 +93,11 @@ class MediaStreamService extends ChangeNotifier {
     _file = null;
     _name = '';
     _addresses = const [];
+    FeatureActivityService.instance.setActive(
+      this,
+      LocalistFeature.stream,
+      false,
+    );
     notifyListeners();
   }
 
@@ -84,7 +109,8 @@ class MediaStreamService extends ChangeNotifier {
         response.statusCode = HttpStatus.methodNotAllowed;
         return;
       }
-      if (file != null && request.uri.path == '/$_token/') {
+      if (file != null &&
+          (request.uri.path == '/' || request.uri.path == '/$_token/')) {
         final mime = lookupMimeType(_name) ?? '';
         response.headers
           ..contentType = ContentType.html
@@ -100,6 +126,7 @@ class MediaStreamService extends ChangeNotifier {
               name: _name,
               mime: mime,
               mediaPath: '/$_token/media',
+              persian: persian,
             ),
           );
         }
@@ -154,6 +181,7 @@ String buildMediaPlayerHtml({
   required String name,
   required String mime,
   required String mediaPath,
+  bool persian = false,
 }) {
   final safeName = const HtmlEscape().convert(name);
   final safeMime = const HtmlEscape().convert(mime);
@@ -190,7 +218,8 @@ String buildMediaPlayerHtml({
           <button id="pip" type="button">Picture in picture</button>
           <button id="fullscreen" type="button">Fullscreen</button>
         </div>''';
-  return '''<!doctype html>
+  var html =
+      '''<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#17131e"><title>Localist Stream</title>
@@ -246,8 +275,46 @@ input[type=range]{accent-color:#bd82f6}label.speed{display:flex;align-items:cent
   update();
 })();
 </script></main></body></html>'''
-      .replaceAll('__NAME__', safeName)
-      .replaceAll('__MIME__', safeMime)
-      .replaceAll('__TAG__', tag)
-      .replaceAll('__CONTROLS__', controls);
+          .replaceAll('__NAME__', safeName)
+          .replaceAll('__MIME__', safeMime)
+          .replaceAll('__TAG__', tag)
+          .replaceAll('__CONTROLS__', controls);
+  if (persian) {
+    const labels = {
+      'Image controls': 'کنترل تصویر',
+      'Zoom out': 'کوچک‌نمایی',
+      'Zoom in': 'بزرگ‌نمایی',
+      'Fit': 'اندازه صفحه',
+      'Fullscreen': 'تمام‌صفحه',
+      'Seek': 'زمان پخش',
+      'Media controls': 'کنترل پخش',
+      'Playback speed': 'سرعت پخش',
+      'Back 10 seconds': 'ده ثانیه عقب',
+      'Forward 10 seconds': 'ده ثانیه جلو',
+      'Picture in picture': 'تصویر در تصویر',
+      'Play': 'پخش',
+      'Pause': 'توقف',
+      'Unmute': 'وصل صدا',
+      'Mute': 'قطع صدا',
+      'Volume': 'صدا',
+      'Speed': 'سرعت',
+      'Localist Stream': 'استریم لوکالیست',
+      'JavaScript is required for the player controls.':
+          'برای کنترل پخش، جاوااسکریپت مرورگر را فعال کنید.',
+    };
+    for (final entry in labels.entries) {
+      html = html
+          .replaceAll('>${entry.key}<', '>${entry.value}<')
+          .replaceAll('"${entry.key}"', '"${entry.value}"')
+          .replaceAll("'${entry.key}'", "'${entry.value}'");
+    }
+    html = html
+        .replaceAll('lang="en"', 'lang="fa" dir="rtl"')
+        .replaceAll(
+          'Format: $safeMime. Controls run locally in this browser. Seeking uses HTTP byte ranges when supported by the device.',
+          'فرمت: $safeMime. کنترل رسانه در همین مرورگر انجام می‌شود.',
+        )
+        .replaceAll('Speed\n', 'سرعت\n');
+  }
+  return html;
 }

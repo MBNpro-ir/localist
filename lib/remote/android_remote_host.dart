@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../services/feature_activity_service.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -49,6 +50,11 @@ class _AndroidRemoteHostState extends State<AndroidRemoteHost>
   @override
   void dispose() {
     _timer?.cancel();
+    FeatureActivityService.instance.setActive(
+      this,
+      LocalistFeature.remoteControl,
+      false,
+    );
     if (Platform.isAndroid) {
       localistLoginRequest = null;
       WidgetsBinding.instance.removeObserver(this);
@@ -75,6 +81,11 @@ class _AndroidRemoteHostState extends State<AndroidRemoteHost>
       final clients = (jsonDecode(await bind.cmGetClientsState()) as List)
           .map((value) => Client.fromJson(value))
           .toList();
+      FeatureActivityService.instance.setActive(
+        this,
+        LocalistFeature.remoteControl,
+        clients.any((c) => !c.disconnected),
+      );
       _shown.retainAll(clients.map((c) => c.id));
       final capture = await FeaturePermissionService.instance.granted(
         FeatureAccess.screenCapture,

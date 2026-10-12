@@ -132,6 +132,41 @@ class _RemoteControlSettingsSectionState
     super.dispose();
   }
 
+  String _choiceName(String name) => context.l10n.isPersian
+      ? const {
+              'Default': 'پیش‌فرض',
+              'English': 'انگلیسی',
+              'System sound': 'صدای سیستم',
+              'Custom': 'سفارشی',
+              'Full access': 'دسترسی کامل',
+              'Screen share': 'اشتراک صفحه',
+              'One-time password': 'رمز یک‌بارمصرف',
+              'Permanent password': 'رمز ثابت',
+              'Both passwords': 'هر دو رمز',
+              'Password only': 'فقط رمز',
+              'Click to approve': 'تأیید دستی',
+              'Password or click to approve': 'رمز یا تأیید دستی',
+              'Scale original': 'اندازه اصلی',
+              'Scale adaptive': 'اندازه متناسب',
+              'ScrollAuto': 'پیمایش خودکار',
+              'Scrollbar': 'نوار پیمایش',
+              'ScrollEdge': 'پیمایش در لبه',
+              'Good image quality': 'کیفیت تصویر بالا',
+              'Balanced': 'متعادل',
+              'Optimize reaction time': 'پاسخ سریع‌تر',
+              'Auto': 'خودکار',
+              'Mode 1': 'حالت ۱',
+              'Mode 2': 'حالت ۲',
+              'Dismiss': 'رد کردن',
+              'Use the default printer': 'چاپگر پیش‌فرض',
+              'Use the selected printer': 'چاپگر انتخاب‌شده',
+              'ID server': 'سرور شناسه',
+              'Relay server': 'سرور واسط',
+              'API server': 'سرور API',
+              'Key': 'کلید عمومی',
+            }[name] ??
+            name
+      : name;
   String _t(String fa, String en) => context.l10n.isPersian ? fa : en;
   String _tabName(RemoteSettingsTab tab) => switch (tab) {
     RemoteSettingsTab.general => _t('عمومی', 'General'),
@@ -401,7 +436,10 @@ class _RemoteControlSettingsSectionState
                       _printers.isNotEmpty)
                     DropdownMenuItem(
                       value: entry.key,
-                      child: Text(entry.value, overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        _choiceName(entry.value),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
               ],
               onChanged: disabled
@@ -555,7 +593,7 @@ class _RemoteControlSettingsSectionState
               () => unawaited(_autoSaveServer()),
             );
           },
-          decoration: InputDecoration(labelText: entry.key),
+          decoration: InputDecoration(labelText: _choiceName(entry.key)),
         ),
       ),
     if (_serverEdited)

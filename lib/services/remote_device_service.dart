@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'lan_network_service.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -423,14 +424,9 @@ class RemoteDeviceService extends ChangeNotifier {
     error = '';
     _notify();
     try {
-      final interfaces = await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-      );
-      for (final address
-          in interfaces
-              .expand((i) => i.addresses)
-              .where((a) => !a.isLoopback)
-              .take(8)) {
+      final routes = await LanNetworkService.instance.routes();
+      for (final route in routes) {
+        final address = InternetAddress(route.address);
         if (_disposed) break;
         try {
           final socket = await RawDatagramSocket.bind(address, 0);
@@ -468,11 +464,20 @@ class RemoteDeviceService extends ChangeNotifier {
               _notify();
             }
           }, onError: (_) {});
-          socket.send(
-            RemoteDiscoveryProtocol.ping(localId),
-            InternetAddress('255.255.255.255'),
-            21119,
-          );
+          for (final target in {
+            '255.255.255.255',
+            if (route.broadcast != null) route.broadcast!,
+          }) {
+            try {
+              socket.send(
+                RemoteDiscoveryProtocol.ping(localId),
+                InternetAddress(target),
+                21119,
+              );
+            } on SocketException {
+              /* Continue on other LAN routes. */
+            }
+          }
         } on SocketException {
           /* Other adapters may still support discovery. */
         }

@@ -1,3 +1,4 @@
+import '../widgets/update_action.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -419,8 +420,12 @@ class _SettingsPageState extends State<SettingsPage> {
       await widget.settings.markWindowsLaunchAtStartupPrompted();
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Windows startup setting could not be changed.'),
+        SnackBar(
+          content: Text(
+            context.l10n.isPersian
+                ? 'تنظیم اجرای خودکار ویندوز تغییر نکرد.'
+                : 'Windows startup setting could not be changed.',
+          ),
         ),
       );
     }
@@ -568,9 +573,15 @@ class _SettingsPageState extends State<SettingsPage> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       secondary: const Icon(Icons.power_settings_new_rounded),
-                      title: const Text('Start with Windows'),
-                      subtitle: const Text(
-                        'Open Localist automatically after you sign in.',
+                      title: Text(
+                        l10n.isPersian
+                            ? 'اجرای خودکار همراه ویندوز'
+                            : 'Start with Windows',
+                      ),
+                      subtitle: Text(
+                        l10n.isPersian
+                            ? 'پس از ورود به ویندوز، لوکالیست خودکار باز شود.'
+                            : 'Open Localist automatically after you sign in.',
                       ),
                       value: widget.settings.windowsLaunchAtStartup,
                       onChanged: _startupBusy
@@ -1133,32 +1144,11 @@ class _UpdatePanelState extends State<_UpdatePanel>
     if (_openingInstaller) return;
     _openingInstaller = true;
     try {
-      if (Platform.isWindows) {
-        final restart = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(_t('اعمال به‌روزرسانی', 'Apply update')),
-            content: Text(
-              _t(
-                'نسخه جدید دانلود و آماده شده است. برای نصب و اجرای آن، برنامه و جلسه‌های ریموت بسته می‌شوند. اکنون ری‌استارت شود؟',
-                'The update is downloaded and prepared. Installing and restarting closes Localist and its remote sessions. Restart now?',
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(_t('بعداً', 'Later')),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(_t('نصب و ری‌استارت', 'Install & restart')),
-              ),
-            ],
-          ),
-        );
-        if (restart != true) return;
+      if (_updates.installRequested && _updates.installPermissionNeeded) {
+        await _updates.installPreparedUpdate();
+      } else {
+        await confirmLocalistUpdate(context, _updates);
       }
-      await _updates.installPreparedUpdate();
     } finally {
       _openingInstaller = false;
     }

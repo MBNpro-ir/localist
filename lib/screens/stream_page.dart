@@ -20,14 +20,13 @@ class StreamPage extends StatefulWidget {
 }
 
 class _StreamPageState extends State<StreamPage> {
-  final _cast = DlnaCastService();
+  final _cast = DlnaCastService.instance;
   DlnaRenderer? _playing;
   bool _busy = false;
   String _notice = '';
   MediaStreamService get service => widget.service;
   @override
   void dispose() {
-    _cast.dispose();
     super.dispose();
   }
 
@@ -270,6 +269,7 @@ class _StreamPageState extends State<StreamPage> {
     final path = result.isEmpty ? null : result.single.path;
     if (path == null || !context.mounted) return;
     try {
+      service.persian = Localizations.localeOf(context).languageCode == 'fa';
       await service.start(File(path));
     } catch (error) {
       if (context.mounted) {
@@ -307,7 +307,9 @@ class _StreamPageState extends State<StreamPage> {
       if (mounted) {
         setState(() {
           _playing = device;
-          _notice = 'Playing on ${device.name}';
+          _notice = Localizations.localeOf(context).languageCode == 'fa'
+              ? 'در حال پخش روی ${device.name}'
+              : 'Playing on ${device.name}';
         });
       }
     } catch (error) {
@@ -336,8 +338,9 @@ class _StreamPageState extends State<StreamPage> {
     final opened = await NativeBridgeService.instance.openWirelessDisplay();
     if (!opened && mounted) {
       setState(
-        () => _notice =
-            'Wireless display settings are unavailable on this device.',
+        () => _notice = Localizations.localeOf(context).languageCode == 'fa'
+            ? 'تنظیمات نمایشگر بی‌سیم روی این دستگاه در دسترس نیست.'
+            : 'Wireless display settings are unavailable on this device.',
       );
     }
   }

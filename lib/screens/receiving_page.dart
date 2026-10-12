@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'proxy_qr_scanner.dart';
 import '../services/feature_permission_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_windows/webview_windows.dart';
@@ -57,11 +57,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final LogService _logs = LogService.instance;
   final ProxyEndpointResolver _resolver = ProxyEndpointResolver();
-  final MobileScannerController _scannerController = MobileScannerController(
-    autoStart: false,
-    detectionTimeoutMs: 750,
-    formats: const [BarcodeFormat.qrCode],
-  );
   final TextEditingController _configController = TextEditingController();
   final TextEditingController _hostController = TextEditingController();
   final TextEditingController _portController = TextEditingController(
@@ -70,8 +65,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
 
   ProxyProtocol _protocol = ProxyProtocol.socks5;
   String? _configTip;
-  bool _scanning = false;
-  bool _handledScan = false;
   bool _restoringDraft = false;
   bool _resolvingEndpoint = false;
 
@@ -92,26 +85,13 @@ class _ReceivingPageState extends State<ReceivingPage> {
   void didUpdateWidget(covariant ReceivingPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     final remote = widget.snapshot.remoteProxy;
-    final running =
-        widget.snapshot.receivingRunning || widget.snapshot.localProxyRunning;
-    final wasRunning =
-        oldWidget.snapshot.receivingRunning ||
-        oldWidget.snapshot.localProxyRunning;
     if (remote != null && remote.url != oldWidget.snapshot.remoteProxy?.url) {
       _applyConfig(remote);
-    }
-    if ((widget.controlsLocked && !oldWidget.controlsLocked) ||
-        (running && !wasRunning)) {
-      if (_scanning) {
-        unawaited(_stopScanner());
-      }
     }
   }
 
   @override
   void dispose() {
-    unawaited(_stopScanner());
-    _scannerController.dispose();
     _configController.removeListener(_handleDraftChanged);
     _hostController.removeListener(_handleDraftChanged);
     _portController.removeListener(_handleDraftChanged);
@@ -233,33 +213,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
             ],
           ),
         ),
-        if (_scanning)
-          GlassPanel(
-            padding: const EdgeInsets.all(10),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: Stack(
-                  children: [
-                    MobileScanner(
-                      controller: _scannerController,
-                      onDetect: _handleCapture,
-                    ),
-                    Positioned(
-                      top: 10,
-                      right: 10,
-                      child: IconButton.filled(
-                        tooltip: l10n.closeScanner,
-                        onPressed: _stopScanner,
-                        icon: const Icon(Icons.close),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
         GlassPanel(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -532,12 +485,13 @@ class _ReceivingPageState extends State<ReceivingPage> {
     if (!mounted) {
       return;
     }
-    setState(() {
-      _handledScan = false;
-      _scanning = true;
-    });
-    await _scannerController.start();
-    _logs.debug('Mobile QR scanner started');
+    final value = await showDialog<String>(
+      context: context,
+      builder: (_) => const ProxyQrScanner(),
+    );
+    if (!mounted || value == null) return;
+    setState(() => _configController.text = value);
+    await _handleConfigValue(value);
   }
 
   Future<void> _startWindowsScanner() async {
@@ -614,48 +568,6 @@ class _ReceivingPageState extends State<ReceivingPage> {
         ],
       ),
     );
-  }
-
-  Future<void> _stopScanner() async {
-    _logs.debug('QR scanner stop requested scanning=$_scanning');
-    await _scannerController.stop();
-    if (!mounted) {
-      return;
-    }
-    setState(() => _scanning = false);
-  }
-
-  void _handleCapture(BarcodeCapture capture) {
-    if (_handledScan) {
-      _logs.debug('QR capture ignored: already handled');
-      return;
-    }
-    _logs.debug('QR capture detected barcodes=${capture.barcodes.length}');
-    for (final barcode in capture.barcodes) {
-      final value = barcode.rawValue;
-      if (value == null) {
-        continue;
-      }
-      if (SmartProxyPayload.tryParse(value) == null &&
-          RemoteProxyConfig.tryParse(value) == null) {
-        _logs.debug(
-          'QR capture ignored invalid payload length=${value.length}',
-        );
-        continue;
-      }
-      _handledScan = true;
-      _scannerController.stop();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _scanning = false;
-        _configController.text = value;
-      });
-      _logs.debug('QR capture accepted payload length=${value.length}');
-      _handleConfigValue(value);
-      return;
-    }
   }
 
   Future<void> _handleConfigValue(String value) async {

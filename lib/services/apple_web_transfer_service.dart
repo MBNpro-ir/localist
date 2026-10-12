@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'feature_activity_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -147,11 +148,26 @@ class AppleWebTransferService extends ChangeNotifier {
     }
   }
 
+  @override
+  void notifyListeners() {
+    FeatureActivityService.instance.setActive(
+      this,
+      LocalistFeature.quickSend,
+      _active || _starting,
+    );
+    super.notifyListeners();
+  }
+
   Future<bool> start({
     required List<String> paths,
     required Map<String, String> offeredNames,
     String selectedText = '',
   }) async {
+    if (!FeatureActivityService.instance.allows(LocalistFeature.quickSend)) {
+      throw StateError(
+        'ابتدا سرویس فعال را متوقف کنید. / Stop the active service first.',
+      );
+    }
     setSharedContent(
       paths: paths,
       offeredNames: offeredNames,

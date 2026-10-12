@@ -7,7 +7,31 @@ import java.net.ServerSocket
 import java.util.Locale
 
 object NetworkAddressInspector {
+    private var cachedIps: List<String> = emptyList()
+    private var cachedAt = 0L
+
+    fun lanInterfaces(): List<Map<String, Any>> = runCatching {
+        NetworkInterface.getNetworkInterfaces().asSequence()
+            .filter { it.isUp && !it.isLoopback && !isIgnoredInterface(it.name) &&
+                !Regex("^(rmnet|ccmni|pdp|tap)|vpn|wireguard", RegexOption.IGNORE_CASE).containsMatchIn(it.name) }
+            .flatMap { network -> network.interfaceAddresses.asSequence().mapNotNull { address ->
+                val inet = address.address as? Inet4Address ?: return@mapNotNull null
+                val host = inet.hostAddress ?: return@mapNotNull null
+                if (!isUsableIpv4(inet, host)) return@mapNotNull null
+                mapOf<String, Any>("address" to host, "prefixLength" to address.networkPrefixLength.toInt(), "name" to network.name)
+            }}.take(8).toList()
+    }.getOrDefault(emptyList())
+
+    @Synchronized
     fun localProxyIps(): List<String> {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - cachedAt < 3000 && cachedAt > 0) return cachedIps
+        cachedAt = now
+        cachedIps = inspectProxyIps()
+        return cachedIps
+    }
+
+    private fun inspectProxyIps(): List<String> {
         return runCatching {
             NetworkInterface.getNetworkInterfaces().asSequence()
                 .filter { network ->
