@@ -294,12 +294,15 @@ class RustDeskDebugService extends ChangeNotifier {
         );
       }
       await LocalistRemoteRuntime.ensureStarted();
-      await Process.start(enginePath, [
-        '--$mode',
-        targetId,
-        if (relay) '--relay',
-        if (password.isNotEmpty) ...['--password', password],
-      ], mode: ProcessStartMode.detached);
+      await LocalistRemoteRuntime.desktopCommand({
+        'command': 'openSession',
+        'session': {
+          'mode': mode,
+          'target': targetId,
+          'relay': relay || profile.server.usesRelay,
+          'password': password,
+        },
+      });
     } else if (Platform.isAndroid) {
       if (mode == 'rdp' || mode == 'port-forward') {
         throw UnsupportedError('This mode requires the desktop client.');

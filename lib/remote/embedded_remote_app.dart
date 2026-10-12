@@ -10,6 +10,8 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:flutter_hbb/common/widgets/overlay.dart';
+import 'package:flutter_hbb/utils/multi_window_manager.dart';
+import 'package:flutter_hbb/localist/desktop_host.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/remote_control_settings.dart';
@@ -18,10 +20,33 @@ import '../services/feature_permission_service.dart';
 import 'remote_theme.dart';
 import 'remote_session_return.dart';
 import 'android_remote_host.dart';
+import 'desktop_host_bridge.dart';
+import 'remote_peer_presence.dart';
 
 class LocalistRemoteRuntime {
   static Future<void>? _starting;
   static Process? _hostProcess;
+  static final _androidPresence = RemotePeerPresenceStore();
+  static String? _androidPresenceServer;
+
+  static Future<Map<String, String>> peerPresence(List<String> ids) async {
+    if (Platform.isWindows) {
+      final result = await desktopCommand({'command': 'presence', 'ids': ids});
+      return Map<String, String>.from(result['states'] as Map);
+    }
+    if (Platform.isAndroid) {
+      await ensureStarted();
+      await applyNativeRemoteProfile();
+      final server = (await RemoteControlProfile.load()).server.encode();
+      if (server != _androidPresenceServer) {
+        _androidPresenceServer = server;
+        _androidPresence.clear();
+      }
+      await bind.queryOnlines(ids: ids);
+      return _androidPresence.snapshot(ids);
+    }
+    return {};
+  }
 
   static File get statusFile => File(
     '${Platform.environment['APPDATA']}\\PRS\\Localist\\remote-status.json',
@@ -39,6 +64,21 @@ class LocalistRemoteRuntime {
     } catch (_) {
       return null;
     }
+  }
+
+  static Future<Map<String, dynamic>> desktopCommand(
+    Map<String, dynamic> command,
+  ) async {
+    await ensureStarted();
+    var status = await desktopStatus();
+    if (status == null) {
+      // An adopted host may have exited since initialization.
+      _starting = null;
+      await ensureStarted();
+      status = await desktopStatus();
+    }
+    if (status == null) throw StateError('The remote host is unavailable.');
+    return sendDesktopHostCommand(status, command);
   }
 
   static Future<void> ensureStarted() =>
@@ -98,6 +138,11 @@ class LocalistRemoteRuntime {
             : FeaturePermissionService.instance.ensure([access]);
       };
       await remote.initEnv(kAppTypeMain);
+      platformFFI.registerEventHandler(
+        'callback_query_onlines',
+        'localist-device-presence',
+        (event) async => _androidPresence.applyEvent(event),
+      );
       androidChannelInit();
       platformFFI.syncAndroidServiceAppDirConfigPath();
       await applyNativeRemoteProfile();
@@ -170,13 +215,84 @@ void configureEmbeddedDesktop({bool host = false}) {
   };
   remote.localistOnReady = () async {
     if (!host) return;
+    registerLocalistDesktopHost();
+    final presence = RemotePeerPresenceStore();
+    String? presenceServer;
+    Future<void> synchronize() async {
+      await applyNativeRemoteProfile();
+      final server = (await RemoteControlProfile.load()).server.encode();
+      if (presenceServer != server) {
+        presenceServer = server;
+        presence.clear();
+      }
+    }
+
+    platformFFI.registerEventHandler(
+      'callback_query_onlines',
+      'localist-device-presence',
+      (event) async => presence.applyEvent(event),
+    );
+    final bridge = DesktopHostBridge(
+      presence: presence,
+      synchronize: synchronize,
+      queryPresence: (ids) async {
+        try {
+          await bind.queryOnlines(ids: ids);
+        } catch (_) {
+          // The bounded native query queue can be busy. Keep its latest
+          // response until expiry; the next UI refresh retries.
+        }
+      },
+      openSession: (request) async {
+        final id = request['target'] as String;
+        final password = request['password'] as String? ?? '';
+        final relay = request['relay'] == true;
+        switch (request['mode']) {
+          case 'connect':
+            await rustDeskWinManager.newRemoteDesktop(
+              id,
+              password: password,
+              forceRelay: relay,
+            );
+          case 'file-transfer':
+            await rustDeskWinManager.newFileTransfer(
+              id,
+              password: password,
+              forceRelay: relay,
+            );
+          case 'view-camera':
+            await rustDeskWinManager.newViewCamera(
+              id,
+              password: password,
+              forceRelay: relay,
+            );
+          case 'terminal':
+            await rustDeskWinManager.newTerminal(
+              id,
+              password: password,
+              forceRelay: relay,
+            );
+          case 'port-forward':
+          case 'rdp':
+            await rustDeskWinManager.newPortForward(
+              id,
+              request['mode'] == 'rdp',
+              password: password,
+              forceRelay: relay,
+            );
+        }
+      },
+    );
+    await bridge.start();
     Future<void> sync() async {
       try {
-        await applyNativeRemoteProfile();
+        await synchronize();
         final state = jsonDecode(await bind.mainGetConnectStatus()) as Map;
+        if ((state['status_num'] as num? ?? 0) <= 0) presence.clear();
         final file = LocalistRemoteRuntime.statusFile;
         await file.parent.create(recursive: true);
-        await file.writeAsString(
+        final temporary = File('${file.path}.$pid.tmp');
+        await temporary.writeAsString(
           jsonEncode({
             'ready': true,
             'pid': pid,
@@ -184,8 +300,10 @@ void configureEmbeddedDesktop({bool host = false}) {
             'id': await bind.mainGetMyId(),
             'statusNum': state['status_num'],
             'profile': _appliedProfile,
+            ...bridge.endpoint,
           }),
         );
+        await temporary.rename(file.path);
       } catch (error) {
         LogService.instance.warning(
           'Remote host synchronization failed: $error',

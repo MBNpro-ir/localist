@@ -6,6 +6,7 @@ import 'package:localist/models/remote_control_settings.dart';
 import 'package:localist/services/remote_device_service.dart';
 import 'package:localist/screens/remote_address_book.dart';
 import 'package:localist/widgets/remote_ready_indicator.dart';
+import 'package:localist/widgets/feature_page_layout.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -206,4 +207,162 @@ void main() {
     await show(true, true, false);
     expect(find.text('Hosting stopped'), findsOneWidget);
   });
+
+  testWidgets(
+    'desktop book uses full width, multiple columns and bounded pages',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final service = RemoteDeviceService();
+      await service.initialize();
+      for (var i = 0; i < 25; i++) {
+        await service.saveAddress(id: '${100 + i}', name: 'Device $i');
+      }
+      tester.view.physicalSize = const Size(1360, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FeaturePageLayout(
+              heading: const [],
+              sections: const [SizedBox(height: 20), SizedBox(height: 20)],
+              fullWidthSections: [
+                RemoteAddressBook(
+                  key: key,
+                  service: service,
+                  localId: '',
+                  canConnect: true,
+                  onConnect: (_) {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byKey(key)).width, 1180);
+      expect(find.byType(Card), findsNWidgets(12));
+      expect(
+        tester.getTopLeft(find.byType(Card).at(0)).dy,
+        tester.getTopLeft(find.byType(Card).at(1)).dy,
+      );
+      expect(find.text('Page 1 of 3'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('devices-next')));
+      await tester.pumpAndSettle();
+      expect(find.text('Page 2 of 3'), findsOneWidget);
+      expect(find.byKey(const ValueKey('device-124')), findsNothing);
+      await tester.enterText(find.byType(TextField).first, 'Device 0');
+      await tester.pumpAndSettle();
+      expect(find.byType(Card), findsOneWidget);
+      expect(find.text('Page 2 of 3'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      service.dispose();
+    },
+  );
+
+  testWidgets(
+    'view persists and live badges refresh independently of saved names',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final service = RemoteDeviceService(
+        queryPresence: (_) async => {'123': 'online', '234': 'offline'},
+      );
+      await service.initialize();
+      await service.saveAddress(id: '123', name: 'Home');
+      await service.saveAddress(id: '234', name: 'Office');
+      service.setPresenceContext(server: 'private', ready: true);
+      await service.refreshPresence();
+      Future<void> show() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RemoteAddressBook(
+                  service: service,
+                  localId: '',
+                  canConnect: true,
+                  onConnect: (_) {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await show();
+      expect(find.text('Online'), findsOneWidget);
+      expect(find.text('Offline'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('device-view-list')));
+      await tester.pumpAndSettle();
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          'remote.devices.view.v1',
+        ),
+        'list',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await show();
+      expect(
+        tester
+            .widget<ChoiceChip>(find.byKey(const ValueKey('device-view-list')))
+            .selected,
+        true,
+      );
+      service.setPresenceContext(server: 'public', ready: false);
+      await tester.pumpAndSettle();
+      expect(find.text('Online'), findsNothing);
+      expect(find.text('Status unknown'), findsNWidgets(2));
+      await tester.pumpWidget(const SizedBox.shrink());
+      service.dispose();
+    },
+  );
+
+  for (final view in RemoteDeviceView.values) {
+    testWidgets('${view.name} fits 360px with large text in both themes', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'remote.devices.view.v1': view.name,
+      });
+      final service = RemoteDeviceService();
+      await service.initialize();
+      await service.saveAddress(
+        id: '183976',
+        name: 'A long device name with model',
+        model: 'Android phone',
+        tags: ['Family', 'Home'],
+      );
+      tester.view.physicalSize = const Size(360, 2200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      for (final brightness in Brightness.values) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(brightness: brightness),
+            home: Scaffold(
+              body: MediaQuery(
+                data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+                child: SingleChildScrollView(
+                  child: RemoteAddressBook(
+                    service: service,
+                    localId: '',
+                    canConnect: true,
+                    onConnect: (_) {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+      service.dispose();
+    });
+  }
 }

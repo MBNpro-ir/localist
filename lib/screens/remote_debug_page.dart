@@ -6,6 +6,7 @@ import 'package:flutter_hbb/localist/connection_card.dart';
 import 'package:flutter_hbb/localist/connection_info.dart';
 import '../services/rustdesk_debug_service.dart';
 import '../services/remote_device_service.dart';
+import '../remote/embedded_remote_app.dart';
 import '../widgets/glass.dart';
 import '../widgets/feature_page_layout.dart';
 import '../widgets/remote_ready_indicator.dart';
@@ -20,7 +21,9 @@ class RemoteDebugPage extends StatefulWidget {
 class _RemoteDebugPageState extends State<RemoteDebugPage>
     with WidgetsBindingObserver {
   final _service = RustDeskDebugService();
-  final _devices = RemoteDeviceService();
+  final _devices = RemoteDeviceService(
+    queryPresence: LocalistRemoteRuntime.peerPresence,
+  );
   final _target = TextEditingController();
   final _password = TextEditingController();
   String _mode = 'connect';
@@ -67,6 +70,10 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
       _relayConfig = config;
       _relay = _service.profile.server.usesRelay;
     }
+    _devices.setPresenceContext(
+      server: config,
+      ready: _service.ready && _service.online,
+    );
     if (_loadingPeers || !_service.ready) return;
     _loadingPeers = true;
     try {
@@ -316,6 +323,8 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                 ],
               ),
             ),
+          ],
+          fullWidthSections: [
             RemoteAddressBook(
               service: _devices,
               localId: _service.localId,

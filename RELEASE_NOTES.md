@@ -1,5 +1,24 @@
 # Release Notes
 
+## [6.0.4] — Stable desktop session dispatch and compact device views
+
+Windows opens remote sessions through the retained hidden engine host instead of
+starting another native command process per connection. Session close/show,
+reused tabs, detached tabs and additional monitors retain the upstream window
+callbacks without displaying the standalone home page. Connection requests are
+serialized and are never automatically replayed after a failed dispatch.
+
+The address book now uses the full desktop width. Choose Compact, Cards or List;
+the preference is saved, columns respond to available width and text size, and
+pages contain at most 12 devices. Search and filters reset pagination. Names,
+tags, favorites and direct click-to-connect remain available.
+
+Saved and recent devices display native online/offline responses, refreshed
+while connected to the selected server. Missing, expired or failed responses are
+shown as unknown. Fresh LAN discovery is shown separately. Old spaced IDs are
+normalized without merging different device IDs. See
+[validation and device acceptance limits](docs/VALIDATION_6.0.4.md).
+
 ## [6.0.3] — Android permissions and remote hosting fixes
 
 Android Settings now has a Permissions page with separate screen capture, input,

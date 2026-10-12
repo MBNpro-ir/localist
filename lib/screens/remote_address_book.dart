@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../remote/remote_peer_presence.dart';
 import '../services/remote_device_service.dart';
 import '../widgets/glass.dart';
+
+enum RemoteDeviceView { compact, cards, list }
 
 class RemoteAddressBook extends StatefulWidget {
   const RemoteAddressBook({
@@ -24,6 +28,42 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
   RemoteDeviceGroup _group = RemoteDeviceGroup.all;
   RemoteDeviceSort _sort = RemoteDeviceSort.recent;
   final Set<String> _tags = {};
+  RemoteDeviceView _view = RemoteDeviceView.compact;
+  int _page = 0;
+  static const _pageSize = 12;
+  Future<void> _viewWrite = Future<void>.value();
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadView());
+  }
+
+  Future<void> _loadView() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('remote.devices.view.v1');
+    if (!mounted) return;
+    setState(
+      () => _view = RemoteDeviceView.values.firstWhere(
+        (view) => view.name == saved,
+        orElse: () => RemoteDeviceView.compact,
+      ),
+    );
+  }
+
+  void _changeView(RemoteDeviceView view) {
+    setState(() => _view = view);
+    _viewWrite = _viewWrite.catchError((Object _) {}).then((_) async {
+      await (await SharedPreferences.getInstance()).setString(
+        'remote.devices.view.v1',
+        view.name,
+      );
+    });
+  }
+
+  void _filter(VoidCallback update) => setState(() {
+    update();
+    _page = 0;
+  });
   String _t(String fa, String en) =>
       Localizations.localeOf(context).languageCode == 'fa' ? fa : en;
   @override
@@ -38,12 +78,17 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
     builder: (context, _) {
       final service = widget.service;
       final visible = filterRemoteDevices(
-        service.devices.where((d) => d.id != widget.localId),
+        service.devices.where(
+          (d) => d.id != widget.localId.replaceAll(RegExp(r'\s'), ''),
+        ),
         query: _search.text,
         tags: _tags,
         group: _group,
         sort: _sort,
       );
+      final pages = (visible.length / _pageSize).ceil().clamp(1, 1000);
+      final page = _page.clamp(0, pages - 1);
+      final items = visible.skip(page * _pageSize).take(_pageSize);
       return GlassPanel(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -85,7 +130,7 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
             const SizedBox(height: 14),
             TextField(
               controller: _search,
-              onChanged: (_) => setState(() {}),
+              onChanged: (_) => _filter(() {}),
               decoration: InputDecoration(
                 labelText: _t(
                   'جست‌وجوی نام، آیدی، مدل یا تگ',
@@ -93,10 +138,7 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
                 ),
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: IconButton(
-                  onPressed: () {
-                    _search.clear();
-                    setState(() {});
-                  },
+                  onPressed: () => _filter(_search.clear),
                   icon: const Icon(Icons.clear),
                 ),
               ),
@@ -109,7 +151,7 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
                 for (final group in RemoteDeviceGroup.values)
                   ChoiceChip(
                     selected: _group == group,
-                    onSelected: (_) => setState(() => _group = group),
+                    onSelected: (_) => _filter(() => _group = group),
                     label: Text(switch (group) {
                       RemoteDeviceGroup.all => _t('همه', 'All'),
                       RemoteDeviceGroup.recent => _t('اخیر', 'Recent'),
@@ -127,31 +169,71 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
               ],
             ),
             const SizedBox(height: 10),
-            DropdownButtonFormField<RemoteDeviceSort>(
-              initialValue: _sort,
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: _t('مرتب‌سازی', 'Sort by'),
-              ),
-              items: [
-                for (final sort in RemoteDeviceSort.values)
-                  DropdownMenuItem(
-                    value: sort,
-                    child: Text(switch (sort) {
-                      RemoteDeviceSort.recent => _t(
-                        'آخرین اتصال',
-                        'Last connection',
-                      ),
-                      RemoteDeviceSort.name => _t('نام', 'Name'),
-                      RemoteDeviceSort.id => _t('شناسه', 'ID'),
-                      RemoteDeviceSort.oldest => _t(
-                        'قدیمی‌ترین',
-                        'Oldest saved',
-                      ),
-                    }),
+            LayoutBuilder(
+              builder: (context, box) {
+                final wide = box.maxWidth >= 600;
+                final sort = DropdownButtonFormField<RemoteDeviceSort>(
+                  initialValue: _sort,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: _t('مرتب‌سازی', 'Sort by'),
                   ),
-              ],
-              onChanged: (s) => setState(() => _sort = s!),
+                  items: [
+                    for (final sort in RemoteDeviceSort.values)
+                      DropdownMenuItem(
+                        value: sort,
+                        child: Text(switch (sort) {
+                          RemoteDeviceSort.recent => _t(
+                            'آخرین اتصال',
+                            'Last connection',
+                          ),
+                          RemoteDeviceSort.name => _t('نام', 'Name'),
+                          RemoteDeviceSort.id => _t('شناسه', 'ID'),
+                          RemoteDeviceSort.oldest => _t(
+                            'قدیمی‌ترین',
+                            'Oldest saved',
+                          ),
+                        }),
+                      ),
+                  ],
+                  onChanged: (s) => _filter(() => _sort = s!),
+                );
+                final views = Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final view in RemoteDeviceView.values)
+                      ChoiceChip(
+                        key: ValueKey('device-view-${view.name}'),
+                        selected: _view == view,
+                        onSelected: (_) => _changeView(view),
+                        avatar: Icon(switch (view) {
+                          RemoteDeviceView.compact =>
+                            Icons.view_comfy_alt_outlined,
+                          RemoteDeviceView.cards => Icons.grid_view,
+                          RemoteDeviceView.list => Icons.view_list_outlined,
+                        }, size: 18),
+                        label: Text(switch (view) {
+                          RemoteDeviceView.compact => _t('فشرده', 'Compact'),
+                          RemoteDeviceView.cards => _t('کارت', 'Cards'),
+                          RemoteDeviceView.list => _t('فهرست', 'List'),
+                        }),
+                      ),
+                  ],
+                );
+                return wide
+                    ? Row(
+                        children: [
+                          Expanded(child: sort),
+                          const SizedBox(width: 18),
+                          Flexible(child: views),
+                        ],
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [sort, const SizedBox(height: 10), views],
+                      );
+              },
             ),
             if (service.tags.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -163,7 +245,7 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
                     FilterChip(
                       label: Text(tag),
                       selected: _tags.contains(tag),
-                      onSelected: (selected) => setState(() {
+                      onSelected: (selected) => _filter(() {
                         selected ? _tags.add(tag) : _tags.remove(tag);
                       }),
                     ),
@@ -189,130 +271,245 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
               ),
             LayoutBuilder(
               builder: (context, box) {
-                final width = box.maxWidth >= 660
-                    ? (box.maxWidth - 12) / 2
-                    : box.maxWidth;
+                final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+                final minimum =
+                    (_view == RemoteDeviceView.cards ? 310.0 : 270.0) *
+                    scale.clamp(1.0, 2.0);
+                final columns = _view == RemoteDeviceView.list
+                    ? 1
+                    : ((box.maxWidth + 12) / (minimum + 12)).floor().clamp(
+                        1,
+                        4,
+                      );
+                final width = (box.maxWidth - 12 * (columns - 1)) / columns;
                 return Wrap(
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    for (final device in visible)
-                      SizedBox(
-                        width: width,
-                        child: Card(
-                          margin: EdgeInsets.zero,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: widget.canConnect
-                                ? () => widget.onConnect(device.id)
-                                : null,
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        device.platform.toLowerCase().contains(
-                                              'android',
-                                            )
-                                            ? Icons.phone_android
-                                            : Icons.computer,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          device.name.isEmpty
-                                              ? device.id
-                                              : device.name,
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.titleMedium,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      IconButton(
-                                        tooltip: _t('علاقه‌مندی', 'Favorite'),
-                                        onPressed: () => unawaited(
-                                          service.setFavorite(
-                                            device.id,
-                                            !device.favorite,
-                                          ),
-                                        ),
-                                        icon: Icon(
-                                          device.favorite
-                                              ? Icons.star
-                                              : Icons.star_border,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  SelectableText(
-                                    'ID: ${device.id}',
-                                    textDirection: TextDirection.ltr,
-                                  ),
-                                  Text(
-                                    [
-                                      if (device.model.isNotEmpty) device.model,
-                                      if (device.platform.isNotEmpty)
-                                        device.platform,
-                                      if (device.onLan)
-                                        _t('در شبکه محلی', 'On LAN'),
-                                    ].join(' • '),
-                                  ),
-                                  if (device.tags.isNotEmpty)
-                                    Wrap(
-                                      spacing: 6,
-                                      children: [
-                                        for (final tag in device.tags)
-                                          Chip(
-                                            label: Text(tag),
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                          ),
-                                      ],
-                                    ),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 4,
-                                    children: [
-                                      FilledButton.tonalIcon(
-                                        onPressed: widget.canConnect
-                                            ? () => widget.onConnect(device.id)
-                                            : null,
-                                        icon: const Icon(Icons.link),
-                                        label: Text(_t('اتصال', 'Connect')),
-                                      ),
-                                      IconButton(
-                                        tooltip: _t('ویرایش', 'Edit'),
-                                        onPressed: () =>
-                                            unawaited(_edit(device)),
-                                        icon: const Icon(Icons.edit_outlined),
-                                      ),
-                                      IconButton(
-                                        tooltip: _t('حذف', 'Delete'),
-                                        onPressed: () =>
-                                            unawaited(_forget(device)),
-                                        icon: const Icon(Icons.delete_outline),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                    for (final device in items)
+                      SizedBox(width: width, child: _tile(device)),
                   ],
                 );
               },
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  _t('${visible.length} دستگاه', '${visible.length} devices'),
+                ),
+                if (pages > 1) ...[
+                  IconButton(
+                    key: const ValueKey('devices-previous'),
+                    tooltip: _t('صفحه قبل', 'Previous page'),
+                    onPressed: page == 0
+                        ? null
+                        : () => setState(() => _page = page - 1),
+                    icon: const Icon(Icons.chevron_left),
+                  ),
+                  Text(
+                    _t(
+                      'صفحه ${page + 1} از $pages',
+                      'Page ${page + 1} of $pages',
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('devices-next'),
+                    tooltip: _t('صفحه بعد', 'Next page'),
+                    onPressed: page + 1 >= pages
+                        ? null
+                        : () => setState(() => _page = page + 1),
+                    icon: const Icon(Icons.chevron_right),
+                  ),
+                ],
+              ],
             ),
           ],
         ),
       );
     },
   );
+
+  Widget _status(RemoteDevice device) {
+    final state = widget.service.presenceOf(device);
+    final colors = Theme.of(context).colorScheme;
+    final color = switch (state) {
+      RemotePeerPresence.online => colors.primary,
+      RemotePeerPresence.offline => colors.error,
+      RemotePeerPresence.unknown => colors.onSurfaceVariant,
+    };
+    final label = switch (state) {
+      RemotePeerPresence.online =>
+        device.onLan
+            ? _t('آنلاین • شبکه محلی', 'Online • LAN')
+            : _t('آنلاین', 'Online'),
+      RemotePeerPresence.offline => _t('آفلاین', 'Offline'),
+      RemotePeerPresence.unknown => _t('وضعیت نامشخص', 'Status unknown'),
+    };
+    return Tooltip(
+      message: state == RemotePeerPresence.unknown
+          ? _t(
+              'هنوز پاسخ تازه‌ای از سرور دریافت نشده است.',
+              'No recent server response is available.',
+            )
+          : label,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 8, color: color),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: color),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tile(RemoteDevice device) {
+    final colors = Theme.of(context).colorScheme;
+    final details = [
+      if (device.model.isNotEmpty) device.model,
+      if (device.platform.isNotEmpty) device.platform,
+      ...device.tags,
+    ].join(' • ');
+    final icon = device.platform.toLowerCase().contains('android')
+        ? Icons.phone_android
+        : device.platform.toLowerCase().contains('ios')
+        ? Icons.phone_iphone
+        : Icons.computer;
+    final menu = PopupMenuButton<String>(
+      tooltip: _t('گزینه‌های دستگاه', 'Device options'),
+      onSelected: (action) {
+        switch (action) {
+          case 'edit':
+            unawaited(_edit(device));
+          case 'favorite':
+            unawaited(widget.service.setFavorite(device.id, !device.favorite));
+          case 'delete':
+            unawaited(_forget(device));
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'favorite',
+          child: ListTile(
+            dense: true,
+            leading: Icon(device.favorite ? Icons.star : Icons.star_border),
+            title: Text(
+              device.favorite
+                  ? _t('حذف از علاقه‌مندی', 'Unfavorite')
+                  : _t('علاقه‌مندی', 'Favorite'),
+            ),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'edit',
+          child: ListTile(
+            dense: true,
+            leading: const Icon(Icons.edit_outlined),
+            title: Text(_t('ویرایش', 'Edit')),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: ListTile(
+            dense: true,
+            leading: const Icon(Icons.delete_outline),
+            title: Text(_t('حذف', 'Delete')),
+          ),
+        ),
+      ],
+    );
+    final info = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          device.name.isEmpty ? device.id : device.name,
+          style: Theme.of(context).textTheme.titleSmall,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (device.name.isNotEmpty)
+          Text(
+            'ID: ${device.id}',
+            textDirection: TextDirection.ltr,
+            style: Theme.of(context).textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        const SizedBox(height: 5),
+        _status(device),
+        if (details.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Tooltip(
+              message: details,
+              child: Text(
+                details,
+                style: Theme.of(context).textTheme.bodySmall,
+                maxLines: _view == RemoteDeviceView.cards ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+      ],
+    );
+    return Card(
+      key: ValueKey('device-${device.id}'),
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: widget.canConnect ? () => widget.onConnect(device.id) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: _view == RemoteDeviceView.cards
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(icon, size: 42, color: colors.primary),
+                        if (device.favorite)
+                          const Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(Icons.star, size: 16),
+                          ),
+                        const Spacer(),
+                        menu,
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    info,
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Column(
+                      children: [
+                        Icon(icon, color: colors.primary),
+                        if (device.favorite) const Icon(Icons.star, size: 14),
+                      ],
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(child: info),
+                    menu,
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _forget(RemoteDevice device) async {
     final ok = await showDialog<bool>(

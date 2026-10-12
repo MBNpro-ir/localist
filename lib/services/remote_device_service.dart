@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import '../remote/remote_peer_presence.dart';
 
 class RemoteDevice {
   const RemoteDevice({
@@ -64,7 +65,7 @@ class RemoteDevice {
     'inAddressBook': inAddressBook,
   };
   factory RemoteDevice.fromJson(Map<String, dynamic> json) => RemoteDevice(
-    id: json['id'] as String,
+    id: (json['id'] as String).trim().replaceAll(RegExp(r'\s'), ''),
     name: json['name'] as String? ?? '',
     model: json['model'] as String? ?? '',
     platform: json['platform'] as String? ?? '',
@@ -181,6 +182,56 @@ class RemoteDiscoveryProtocol {
 }
 
 class RemoteDeviceService extends ChangeNotifier {
+  RemoteDeviceService({this.queryPresence, DateTime Function()? now})
+    : _presence = RemotePeerPresenceStore(now: now);
+
+  final Future<Map<String, String>> Function(List<String>)? queryPresence;
+  final RemotePeerPresenceStore _presence;
+  Timer? _presenceTimer;
+  Future<void>? _polling;
+  String _presenceServer = '';
+  bool _presenceReady = false;
+  int _presenceGeneration = 0;
+  RemotePeerPresence presenceOf(RemoteDevice device) =>
+      device.onLan ? RemotePeerPresence.online : _presence.get(device.id);
+
+  void setPresenceContext({required String server, required bool ready}) {
+    if (_disposed || (server == _presenceServer && ready == _presenceReady)) {
+      return;
+    }
+    _presenceServer = server;
+    _presenceReady = ready;
+    _presenceGeneration++;
+    _presence.clear();
+    _notify();
+    if (ready) unawaited(refreshPresence());
+  }
+
+  Future<void> refreshPresence() =>
+      _polling ??= _refreshPresence().whenComplete(() => _polling = null);
+
+  Future<void> _refreshPresence() async {
+    if (_disposed || !_presenceReady || queryPresence == null) return;
+    final generation = _presenceGeneration;
+    final ids = _devices.keys
+        .where((id) => RegExp(r'^\d+$').hasMatch(id))
+        .toList();
+    if (ids.isEmpty) return;
+    try {
+      final states = await queryPresence!(
+        ids,
+      ).timeout(const Duration(seconds: 12));
+      if (_disposed || generation != _presenceGeneration) return;
+      _presence.applySnapshot({
+        for (final id in ids) id: states[id] ?? 'unknown',
+      });
+    } catch (_) {
+      if (_disposed || generation != _presenceGeneration) return;
+      _presence.clear();
+    }
+    _notify();
+  }
+
   final Map<String, RemoteDevice> _devices = {};
   final List<RawDatagramSocket> _sockets = [];
   Timer? _expiry;
@@ -208,7 +259,26 @@ class RemoteDeviceService extends ChangeNotifier {
             final device = RemoteDevice.fromJson(
               Map<String, dynamic>.from(item as Map),
             );
-            if (device.id.isNotEmpty) _devices[device.id] = device;
+            if (device.id.isNotEmpty) {
+              final old = _devices[device.id];
+              _devices[device.id] = old == null
+                  ? device
+                  : device.copyWith(
+                      name: old.inAddressBook && old.name.isNotEmpty
+                          ? old.name
+                          : device.name,
+                      model: device.model.isEmpty ? old.model : device.model,
+                      tags: {...old.tags, ...device.tags}.toList()..sort(),
+                      favorite: old.favorite || device.favorite,
+                      inAddressBook: old.inAddressBook || device.inAddressBook,
+                      lastOpened:
+                          (old.lastOpened ?? DateTime(1970)).isAfter(
+                            device.lastOpened ?? DateTime(1970),
+                          )
+                          ? old.lastOpened
+                          : device.lastOpened,
+                    );
+            }
           } catch (_) {
             /* Skip malformed records individually. */
           }
@@ -218,6 +288,12 @@ class RemoteDeviceService extends ChangeNotifier {
       }
     }
     _expiry = Timer.periodic(const Duration(seconds: 10), (_) => _notify());
+    if (queryPresence != null) {
+      _presenceTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+        unawaited(refreshPresence());
+      });
+      unawaited(refreshPresence());
+    }
     _notify();
   }
 
@@ -235,6 +311,8 @@ class RemoteDeviceService extends ChangeNotifier {
       });
   Future<void> rememberOpened(String id) async {
     if (_disposed) return;
+    id = id.trim().replaceAll(RegExp(r'\s'), '');
+    if (id.isEmpty) return;
     final previous = _devices[id] ?? RemoteDevice(id: id);
     _devices[id] = previous.copyWith(
       lastOpened: DateTime.now(),
@@ -420,6 +498,8 @@ class RemoteDeviceService extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _expiry?.cancel();
+    _presenceTimer?.cancel();
+    _presenceGeneration++;
     for (final socket in _sockets) {
       socket.close();
     }

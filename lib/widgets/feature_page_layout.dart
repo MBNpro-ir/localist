@@ -6,9 +6,11 @@ class FeaturePageLayout extends StatelessWidget {
     super.key,
     required this.heading,
     required this.sections,
+    this.fullWidthSections = const [],
   });
   final List<Widget> heading;
   final List<Widget> sections;
+  final List<Widget> fullWidthSections;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -34,6 +36,10 @@ class FeaturePageLayout extends StatelessWidget {
                       SizedBox(width: cardWidth, child: section),
                   ],
                 ),
+                for (final section in fullWidthSections) ...[
+                  const SizedBox(height: 18),
+                  section,
+                ],
               ],
             ),
           ),
