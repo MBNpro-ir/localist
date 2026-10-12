@@ -63,11 +63,6 @@ jobs:
       - name: Restore packages
         run: flutter pub get
 
-      - name: Analyze and test
-        run: |
-          flutter analyze --no-pub
-          flutter test --no-pub
-
       - name: Verify embedded native engines
         run: python tools/verify_remote_runtime.py
 

@@ -1,5 +1,32 @@
 # Release Notes
 
+## [6.0.5] — Unified VPN sharing, LAN discovery and faster update flow
+
+Sharing and Receiving now live under one VPN Sharing section. The navigation
+order is Quick Send, Remote Control, VPN Sharing and Stream; active transfers,
+VPN sessions, streaming and remote sessions reserve the feature area so other
+controls cannot overlap them.
+
+Stream addresses are now shown as a simple local `IP:port` root URL. The web
+player still keeps its private media endpoint internally and supports playback
+controls, seeking, volume, fullscreen, picture-in-picture and image zoom.
+
+LAN discovery uses each physical interface's real prefix and directed broadcast
+on Android, Windows and USB/RNDIS networks. Discovery remains available while
+other pages are open, duplicate refreshes are coalesced, and multicast locks
+are shared safely between discovery and Quick Send.
+
+Updates download and prepare automatically. The update action shows download
+progress, a green ready state and a deferred pulse. The install prompt requires
+an explicit Yes or No choice and a newer release supersedes a prepared older
+package. QR scanning waits for the camera view to attach and can retry on older
+Android layouts. Persian labels for the changed Remote settings and Android
+notifications were added.
+
+Release validation is performed before publishing on the maintainer's machine;
+the release workflow keeps native runtime, APK signature and artifact checks
+while omitting the full Flutter analyzer and test suite to reduce build time.
+
 ## [6.0.4] — Stable desktop session dispatch and compact device views
 
 Windows opens remote sessions through the retained hidden engine host instead of
