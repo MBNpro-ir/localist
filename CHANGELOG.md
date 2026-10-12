@@ -2,6 +2,24 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [6.0.8] - 2026-10-12
+
+- Fixed Remote Control host recovery: a live RustDesk engine is no longer
+  terminated when its Flutter heartbeat is briefly delayed while a session or
+  child window is busy. Native checks now verify the executable path, creation
+  time, user and session before adopting or retiring a host.
+- Kept the embedded Remote Control session alive through slow window startup,
+  extended session-open timeouts, and removed automatic replay of session
+  commands that could create duplicate connections.
+- Registered the file-drop plugin in child Flutter windows so Quick Send and
+  remote file-manager drag and drop continue to work in the embedded engine.
+- Removed the duplicate This device heading from Remote Control and added the
+  Connect heading for the destination card.
+- Increased the version to 6.0.8+70.
+
+See [validation](docs/VALIDATION_6.0.8.md) for live localist, Android emulator
+and official RustDesk interoperability evidence.
+
 ## [6.0.7] - 2026-10-12
 
 - Fixed settings IPC startup when an old LocalistRemote process remains after a crash or a different build's launch. Retained hosts require bundle identity, a fresh heartbeat and authenticated readiness; guarded cleanup preserves active sessions and unrelated processes.

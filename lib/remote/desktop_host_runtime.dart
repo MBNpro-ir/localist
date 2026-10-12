@@ -13,9 +13,10 @@ class DesktopHostProcess {
 }
 
 /// A status file advertises a host; it does not establish its identity or
-/// liveness. Keep startup serialized and only adopt the current bundled host
-/// after an authenticated round trip. The native retirement callback verifies
-/// the actual image and creation time before terminating a stale PID.
+/// liveness. Keep startup serialized; a busy host can be verified through its
+/// native process identity when its event loop cannot answer a ping. The native
+/// callbacks check the actual image and creation time, independently of whether
+/// a Flutter window is temporarily blocking status updates.
 class DesktopHostRuntime {
   DesktopHostRuntime({
     required this.statusFile,
@@ -23,6 +24,7 @@ class DesktopHostRuntime {
     required this.fingerprint,
     required this.startHost,
     required this.retireHost,
+    required this.isHostRunning,
     this.startupTimeout = const Duration(seconds: 20),
     this.pollInterval = const Duration(milliseconds: 150),
     DateTime Function()? now,
@@ -33,6 +35,7 @@ class DesktopHostRuntime {
   final Future<String> Function() fingerprint;
   final Future<DesktopHostProcess> Function() startHost;
   final Future<bool> Function(Map<String, dynamic>) retireHost;
+  final Future<bool> Function(Map<String, dynamic>) isHostRunning;
   final Duration startupTimeout;
   final Duration pollInterval;
   final DateTime Function() _now;
@@ -63,7 +66,7 @@ class DesktopHostRuntime {
   Future<Map<String, dynamic>?> status() async {
     final data = await _read();
     if (data == null || !_matches(data, await fingerprint())) return null;
-    return _fresh(data) ? data : null;
+    return _fresh(data) || await isHostRunning(data) ? data : null;
   }
 
   bool _fresh(Map<String, dynamic> data) {
@@ -106,8 +109,7 @@ class DesktopHostRuntime {
     final previous = await _read();
     if (previous != null) {
       if (_matches(previous, digest) &&
-          _fresh(previous) &&
-          await _ping(previous)) {
+          (await _ping(previous) || await isHostRunning(previous))) {
         _hostPid = previous['pid'] as int;
         _ownedStatus = previous;
         return;
@@ -115,7 +117,9 @@ class DesktopHostRuntime {
       final sessions = previous['activeSessions'];
       if (sessions is num &&
           sessions > 0 &&
-          (_fresh(previous) || await _ping(previous))) {
+          (_fresh(previous) ||
+              await _ping(previous) ||
+              await isHostRunning(previous))) {
         throw StateError(
           'Close the existing remote sessions before updating the remote host.',
         );
@@ -140,7 +144,9 @@ class DesktopHostRuntime {
     try {
       while (_now().isBefore(deadline)) {
         final data = await status();
-        if (data != null && data['pid'] == process.pid && await _ping(data)) {
+        if (data != null &&
+            data['pid'] == process.pid &&
+            (await _ping(data) || await isHostRunning(data))) {
           _ownedStatus = data;
           return;
         }

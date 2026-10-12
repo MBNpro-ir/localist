@@ -709,6 +709,15 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
   const std::string& method = call.method_name();
   const EncodableValue* arguments = call.arguments();
 
+  if (method == "isRemoteHostRunning") {
+    const auto pid = GetIntegerArgument(arguments, "pid");
+    const bool running = pid > 0 && pid <= MAXDWORD && IsRemoteHostProcessRunning(
+        static_cast<DWORD>(pid), GetIntegerArgument(arguments, "updatedMs"),
+        Utf8ToWide(GetStringArgument(arguments, "hostExecutable")));
+    result->Success(EncodableValue(running));
+    return;
+  }
+
   if (method == "retireRemoteHost") {
     const auto pid = GetIntegerArgument(arguments, "pid");
     const bool retired = pid > 0 && pid <= MAXDWORD && RetireRemoteHostProcess(

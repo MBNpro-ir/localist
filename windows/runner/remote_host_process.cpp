@@ -34,16 +34,10 @@ std::wstring NormalizePath(std::wstring path) {
   }
   return path;
 }
-}  // namespace
+enum class HostIdentity { match, obsolete, unknown };
 
-bool RetireRemoteHostProcess(DWORD process_id, int64_t heartbeat_ms,
-                            const std::wstring& expected_path) {
-  if (process_id == 0 || process_id == GetCurrentProcessId() ||
-      heartbeat_ms <= 0) return false;
-  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION |
-                                   PROCESS_TERMINATE | SYNCHRONIZE,
-                               FALSE, process_id);
-  if (!process) return GetLastError() == ERROR_INVALID_PARAMETER;
+HostIdentity CheckIdentity(HANDLE process, DWORD process_id, int64_t heartbeat_ms,
+                           const std::wstring& expected_path) {
   wchar_t image[32768] = {};
   DWORD size = 32768;
   bool safe = QueryFullProcessImageNameW(process, 0, image, &size) != FALSE;
@@ -53,8 +47,7 @@ bool RetireRemoteHostProcess(DWORD process_id, int64_t heartbeat_ms,
     if (_wcsicmp(name.c_str(), L"LocalistRemote.exe") != 0 ||
         (!expected_path.empty() &&
          _wcsicmp(path.c_str(), NormalizePath(expected_path).c_str()) != 0)) {
-      CloseHandle(process);
-      return true;  // stale PID/path; do not kill the replacement process
+      return HostIdentity::obsolete;
     }
   }
   FILETIME created{}, exited{}, kernel{}, user{};
@@ -66,16 +59,44 @@ bool RetireRemoteHostProcess(DWORD process_id, int64_t heartbeat_ms,
     const auto started_ms = static_cast<int64_t>(
         (ticks.QuadPart - 116444736000000000ULL) / 10000ULL);
     if (started_ms > heartbeat_ms) {
-      CloseHandle(process);
-      return true;
+      return HostIdentity::obsolete;
     }
   }
   DWORD peer_session = 0, own_session = 0;
   safe = safe && ProcessIdToSessionId(process_id, &peer_session) &&
       ProcessIdToSessionId(GetCurrentProcessId(), &own_session) &&
       peer_session == own_session && SameUser(process);
+  return safe ? HostIdentity::match : HostIdentity::unknown;
+}
+}  // namespace
+
+bool IsRemoteHostProcessRunning(DWORD process_id, int64_t heartbeat_ms,
+                                const std::wstring& expected_path) {
+  if (process_id == 0 || heartbeat_ms <= 0 || expected_path.empty()) return false;
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+                               FALSE, process_id);
+  if (!process) return false;
+  const bool running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT &&
+      CheckIdentity(process, process_id, heartbeat_ms, expected_path) == HostIdentity::match;
+  CloseHandle(process);
+  return running;
+}
+
+bool RetireRemoteHostProcess(DWORD process_id, int64_t heartbeat_ms,
+                            const std::wstring& expected_path) {
+  if (process_id == 0 || process_id == GetCurrentProcessId() ||
+      heartbeat_ms <= 0) return false;
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION |
+                                   PROCESS_TERMINATE | SYNCHRONIZE,
+                               FALSE, process_id);
+  if (!process) return GetLastError() == ERROR_INVALID_PARAMETER;
+  const auto identity = CheckIdentity(process, process_id, heartbeat_ms, expected_path);
+  if (identity == HostIdentity::obsolete) {
+    CloseHandle(process);
+    return true;  // stale PID/path; do not kill the replacement process
+  }
   bool retired = WaitForSingleObject(process, 0) == WAIT_OBJECT_0;
-  if (!retired && safe && TerminateProcess(process, 0)) {
+  if (!retired && identity == HostIdentity::match && TerminateProcess(process, 0)) {
     retired = WaitForSingleObject(process, 3000) == WAIT_OBJECT_0;
   }
   CloseHandle(process);

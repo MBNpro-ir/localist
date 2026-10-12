@@ -9,13 +9,15 @@ class LocalistConnectionCard extends StatefulWidget {
       required this.password,
       required this.onCopyId,
       required this.onCopyPassword,
-      required this.onCopyConnection});
+      required this.onCopyConnection,
+      this.showDeviceHeader = true});
 
   final String id;
   final String password;
   final VoidCallback? onCopyId;
   final VoidCallback? onCopyPassword;
   final VoidCallback? onCopyConnection;
+  final bool showDeviceHeader;
 
   @override
   State<LocalistConnectionCard> createState() => _LocalistConnectionCardState();
@@ -30,14 +32,15 @@ class _LocalistConnectionCardState extends State<LocalistConnectionCard> {
     String t(String f, String e) => fa ? f : e;
     final colors = Theme.of(context).colorScheme;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Row(children: [
-        Icon(Icons.devices_rounded, color: colors.primary),
-        const SizedBox(width: 10),
-        Expanded(
-            child: Text(t('این دستگاه', 'This device'),
-                style: Theme.of(context).textTheme.titleMedium)),
-      ]),
-      const SizedBox(height: 16),
+      if (widget.showDeviceHeader)
+        Row(children: [
+          Icon(Icons.devices_rounded, color: colors.primary),
+          const SizedBox(width: 10),
+          Expanded(
+              child: Text(t('این دستگاه', 'This device'),
+                  style: Theme.of(context).textTheme.titleMedium)),
+        ]),
+      if (widget.showDeviceHeader) const SizedBox(height: 16),
       Text(t('شناسهٔ شما', 'Your ID')),
       const SizedBox(height: 6),
       Container(

@@ -61,6 +61,20 @@ void main() {
     expect(find.byIcon(Icons.send_outlined), findsOneWidget);
   });
 
+  testWidgets('changing tabs fits every frame on a narrow display', (
+    tester,
+  ) async {
+    await tester.pumpWidget(harness(width: 320));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(harness(width: 320, selectedIndex: 1));
+    for (var frame = 0; frame < 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(tester.takeException(), isNull);
+    }
+    expect(find.text('Sharing'), findsOneWidget);
+    expect(find.text('Quick Send'), findsNothing);
+  });
+
   testWidgets('gradient overlay does not block page gestures', (tester) async {
     var taps = 0;
     final bodyKey = GlobalKey();

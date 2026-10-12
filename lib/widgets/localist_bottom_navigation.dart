@@ -204,6 +204,10 @@ class _LocalistNavigationDestination extends StatelessWidget {
         duration: duration,
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeInCubic,
+        // A disappearing label must not be laid out at the new icon-only
+        // width while its destination contracts during a tab change.
+        layoutBuilder: (currentChild, previousChildren) =>
+            currentChild ?? const SizedBox.shrink(),
         transitionBuilder: (child, animation) => FadeTransition(
           opacity: animation,
           child: ScaleTransition(

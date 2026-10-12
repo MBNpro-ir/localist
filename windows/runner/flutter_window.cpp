@@ -7,7 +7,10 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "windows_native_bridge.h"
+#include <desktop_drop/desktop_drop_plugin.h>
 #include <desktop_multi_window/desktop_multi_window_plugin.h>
+#include <texture_rgba_renderer/texture_rgba_renderer_plugin_c_api.h>
+#include <flutter_gpu_texture_renderer/flutter_gpu_texture_renderer_plugin_c_api.h>
 
 namespace {
 
@@ -54,7 +57,16 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   DesktopMultiWindowSetWindowCreatedCallback([](void* controller) {
     auto* view = reinterpret_cast<flutter::FlutterViewController*>(controller);
-    RegisterPlugins(view->engine());
+    // Match the upstream runner's renderer callback. The multi-window plugin
+    // already registers the window channel, URL and window-size support.
+    auto* registry = view->engine();
+    TextureRgbaRendererPluginCApiRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("TextureRgbaRendererPlugin"));
+    FlutterGpuTextureRendererPluginCApiRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("FlutterGpuTextureRendererPluginCApi"));
+    // File-transfer child windows own a separate Flutter surface/drop target.
+    DesktopDropPluginRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("DesktopDropPlugin"));
   });
   method_channel_ = CreateLocalistMethodChannel(
       flutter_controller_->engine()->messenger(), GetHandle());

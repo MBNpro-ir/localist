@@ -9,3 +9,5 @@
 // An unrelated/reused PID is ignored, never terminated.
 bool RetireRemoteHostProcess(DWORD process_id, int64_t heartbeat_ms,
                             const std::wstring& expected_path);
+bool IsRemoteHostProcessRunning(DWORD process_id, int64_t heartbeat_ms,
+                                const std::wstring& expected_path);

@@ -71,6 +71,11 @@ class LocalistRemoteRuntime {
         statusFile: statusFile,
         executablePath: hostExecutablePath,
         fingerprint: hostFingerprint,
+        isHostRunning: (status) async =>
+            await const MethodChannel(
+              'com.prs.localist.vpn',
+            ).invokeMethod<bool>('isRemoteHostRunning', status) ??
+            false,
         retireHost: (status) async =>
             await const MethodChannel(
               'com.prs.localist.vpn',
@@ -103,7 +108,13 @@ class LocalistRemoteRuntime {
       status = await desktopStatus();
     }
     if (status == null) throw StateError('The remote host is unavailable.');
-    return sendDesktopHostCommand(status, command);
+    return sendDesktopHostCommand(
+      status,
+      command,
+      timeout: command['command'] == 'openSession'
+          ? const Duration(seconds: 90)
+          : const Duration(seconds: 20),
+    );
   }
 
   static Future<void> ensureStarted() {

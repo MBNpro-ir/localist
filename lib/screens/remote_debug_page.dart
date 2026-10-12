@@ -150,6 +150,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                   const SizedBox(height: 10),
                   if (_service.localId.isNotEmpty)
                     LocalistConnectionCard(
+                      showDeviceHeader: false,
                       id: _service.localId,
                       password: _service.localPassword,
                       onCopyId: () => _copy(
@@ -235,6 +236,11 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    t('اتصال', 'Connect'),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
                   TextField(
                     controller: _target,
                     decoration: InputDecoration(

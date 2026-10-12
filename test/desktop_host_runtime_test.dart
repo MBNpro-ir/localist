@@ -15,6 +15,7 @@ void main() {
   var starts = 0;
   var readyOnStart = true;
   var retireAllowed = true;
+  var running = false;
   final retired = <int>[];
   const path = r'C:\Localist\LocalistRemote.exe';
 
@@ -36,6 +37,7 @@ void main() {
     starts = 0;
     readyOnStart = true;
     retireAllowed = true;
+    running = false;
     retired.clear();
     directory = await Directory.systemTemp.createTemp('localist-host-runtime');
     statusFile = File('${directory.path}/status.json');
@@ -50,6 +52,7 @@ void main() {
       statusFile: statusFile,
       executablePath: path,
       fingerprint: () async => 'bundled-digest',
+      isHostRunning: (_) async => running,
       retireHost: (value) async {
         retired.add(value['pid'] as int);
         return retireAllowed;
@@ -191,6 +194,52 @@ void main() {
     expect(retired, [201]);
     expect(jsonDecode(await statusFile.readAsString())['pid'], 999);
   });
+
+  test(
+    'a busy live host keeps its PID and sessions despite a stale heartbeat',
+    () async {
+      running = true;
+      await write(
+        status(
+          100,
+          overrides: {
+            'commandToken': 'unresponsive-during-window-creation',
+            'updatedMs': DateTime.now()
+                .subtract(const Duration(minutes: 1))
+                .millisecondsSinceEpoch,
+            'activeSessions': 0,
+          },
+        ),
+      );
+      await runtime.ensureStarted();
+      expect((await runtime.status())!['pid'], 100);
+      expect(starts, 0);
+      expect(retired, isEmpty);
+    },
+  );
+
+  test(
+    'a busy foreign host with active sessions cannot be terminated',
+    () async {
+      running = true;
+      await write(
+        status(
+          100,
+          overrides: {
+            'hostFingerprint': 'other-bundle',
+            'commandToken': 'unresponsive',
+            'updatedMs': DateTime.now()
+                .subtract(const Duration(minutes: 1))
+                .millisecondsSinceEpoch,
+            'activeSessions': 2,
+          },
+        ),
+      );
+      await expectLater(runtime.ensureStarted(), throwsStateError);
+      expect(starts, 0);
+      expect(retired, isEmpty);
+    },
+  );
 
   test(
     'slow heartbeat with a responsive active session is protected',
