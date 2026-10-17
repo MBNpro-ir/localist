@@ -22,13 +22,18 @@ class DesktopHostBridge {
     required this.queryPresence,
     required this.synchronize,
     required this.presence,
+    this.regeneratePassword,
+    this.credentials,
   });
   final Future<void> Function(Map<String, dynamic>) openSession;
   final Future<void> Function(List<String>) queryPresence;
   final Future<void> Function() synchronize;
   final RemotePeerPresenceStore presence;
+  final Future<void> Function()? regeneratePassword;
+  final Future<Map<String, String>> Function()? credentials;
   HttpServer? _server;
   Future<void> _opening = Future<void>.value();
+  Future<void> _synchronizing = Future<void>.value();
   final token = base64UrlEncode(
     List<int>.generate(32, (_) => Random.secure().nextInt(256)),
   );
@@ -37,6 +42,14 @@ class DesktopHostBridge {
     'commandPort': _server!.port,
     'commandToken': token,
   };
+
+  Future<void> _synchronize() {
+    final next = _synchronizing.catchError((Object _) {}).then((_) {
+      return synchronize();
+    });
+    _synchronizing = next;
+    return next;
+  }
 
   Future<void> start() async {
     if (_server != null) {
@@ -75,6 +88,27 @@ class DesktopHostBridge {
         // round-trip to distinguish a live retained host from an old status
         // file left behind after a crash or an update.
         response.write(jsonEncode({'ready': true}));
+      } else if (data['command'] == 'syncProfile') {
+        // Profile changes are persisted by the primary Localist process. Ask
+        // the retained host to apply them immediately instead of waiting for
+        // its periodic status heartbeat. This is especially important for
+        // authentication options: a password can be written successfully
+        // while the host still accepts the previous verification method.
+        await _synchronize();
+        response.write(jsonEncode({'applied': true}));
+      } else if (data['command'] == 'regeneratePassword') {
+        await _synchronize();
+        final regenerate = regeneratePassword;
+        if (regenerate == null) {
+          throw StateError('Password regeneration is unavailable.');
+        }
+        await regenerate();
+        response.write(jsonEncode({'regenerated': true}));
+      } else if (data['command'] == 'credentials') {
+        await _synchronize();
+        final read = credentials;
+        if (read == null) throw StateError('Credentials are unavailable.');
+        response.write(jsonEncode(await read()));
       } else if (data['command'] == 'openSession') {
         if (data['session'] is! Map ||
             data['session']['target'] is! String ||
@@ -95,7 +129,7 @@ class DesktopHostBridge {
           throw const FormatException('Invalid session request.');
         }
         final task = _opening.catchError((Object _) {}).then((_) async {
-          await synchronize();
+          await _synchronize();
           await openSession(session);
         });
         _opening = task;
@@ -112,7 +146,7 @@ class DesktopHostBridge {
             ids.any((id) => !RegExp(r'^\d{1,200}$').hasMatch(id))) {
           throw const FormatException('Invalid presence IDs.');
         }
-        await synchronize();
+        await _synchronize();
         if (ids.isNotEmpty) await queryPresence(ids);
         response.write(jsonEncode({'states': presence.snapshot(ids)}));
       } else {

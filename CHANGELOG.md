@@ -2,6 +2,24 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [6.0.9] - 2026-10-17
+
+- Fixed permanent-password login by synchronizing the password verification
+  policy with the retained Windows host immediately after saving settings.
+- Fixed stale cross-process preferences and serialized concurrent profile
+  updates so newly saved settings reach the running remote engine.
+- Synchronized one-time-password regeneration, numeric format and length with
+  the actual native password before displaying or copying it.
+- Applied Android settings through native callbacks for active permissions,
+  network reconnection and audio input changes.
+- Fixed password and two-factor forms, native audio selection, preservation of
+  offline printer choices and RDP state reporting. Hid unsupported platform
+  controls and independent engine updates.
+- Increased the version to 6.0.9+71.
+
+See [validation](docs/VALIDATION_REMOTE_SETTINGS.md) for the 85-setting audit,
+automated checks and real Windows/Android authentication results.
+
 ## [6.0.8] - 2026-10-12
 
 - Fixed Remote Control host recovery: a live RustDesk engine is no longer

@@ -138,11 +138,13 @@ void main() {
     late List<Map<String, dynamic>> opened;
     late List<List<String>> queried;
     late int synced;
+    late int regenerated;
     setUp(() async {
       presence = RemotePeerPresenceStore();
       opened = [];
       queried = [];
       synced = 0;
+      regenerated = 0;
       bridge = DesktopHostBridge(
         presence: presence,
         synchronize: () async {
@@ -153,6 +155,13 @@ void main() {
         },
         queryPresence: (ids) async {
           queried.add(ids);
+        },
+        regeneratePassword: () async {
+          regenerated++;
+        },
+        credentials: () async => {
+          'id': '123456',
+          'password': 'current-password',
         },
       );
       await bridge.start();
@@ -197,6 +206,76 @@ void main() {
           await sendDesktopHostCommand(bridge.endpoint, {'command': 'ping'}),
           {'ready': true},
         );
+      },
+    );
+
+    test(
+      'profile synchronization applies immediately and is authenticated',
+      () async {
+        expect(
+          await sendDesktopHostCommand(bridge.endpoint, {
+            'command': 'syncProfile',
+          }),
+          {'applied': true},
+        );
+        expect(synced, 1);
+        expect(opened, isEmpty);
+      },
+    );
+
+    test(
+      'password regeneration runs inside the retained native host',
+      () async {
+        expect(
+          await sendDesktopHostCommand(bridge.endpoint, {
+            'command': 'regeneratePassword',
+          }),
+          {'regenerated': true},
+        );
+        expect(synced, 1);
+        expect(regenerated, 1);
+      },
+    );
+
+    test(
+      'current password is read from the synchronized host without opening a window',
+      () async {
+        expect(
+          await sendDesktopHostCommand(bridge.endpoint, {
+            'command': 'credentials',
+          }),
+          {'id': '123456', 'password': 'current-password'},
+        );
+        expect(synced, 1);
+        expect(opened, isEmpty);
+      },
+    );
+
+    test(
+      'failed profile apply is reported and the next apply can recover',
+      () async {
+        await bridge.close();
+        var attempts = 0;
+        bridge = DesktopHostBridge(
+          presence: presence,
+          synchronize: () async {
+            if (++attempts == 1) throw StateError('Native apply failed');
+          },
+          openSession: (_) async {},
+          queryPresence: (_) async {},
+        );
+        await bridge.start();
+        await expectLater(
+          sendDesktopHostCommand(bridge.endpoint, {'command': 'syncProfile'}),
+          throwsStateError,
+        );
+        expect(
+          await sendDesktopHostCommand(bridge.endpoint, {
+            'command': 'syncProfile',
+          }),
+          {'applied': true},
+        );
+        expect(attempts, 2);
       },
     );
 

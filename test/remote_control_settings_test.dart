@@ -1,11 +1,76 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/models/remote_control_settings.dart';
 import 'package:localist/services/remote_device_service.dart';
+import 'package:localist/services/rustdesk_debug_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test(
+    'retained Windows host reads new password policy despite stale preferences cache',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'localist-profile-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      String encoded(String method) => jsonEncode({
+        'schema': 2,
+        'server': const RemoteServerConfig().encode(),
+        'values': {'verification-method': method},
+      });
+      SharedPreferences.setMockInitialValues({
+        'remote.control.profile.v1': encoded('use-temporary-password'),
+      });
+      final file = File('${directory.path}/shared_preferences.json');
+      await file.writeAsString(
+        jsonEncode({
+          'flutter.remote.control.profile.v1': encoded('use-both-passwords'),
+        }),
+      );
+      final fresh = await RemoteControlProfile.load(
+        refreshSharedStore: true,
+        sharedStore: file,
+      );
+      expect(fresh.values['verification-method'], 'use-both-passwords');
+      expect(
+        (await RemoteControlProfile.load()).values['verification-method'],
+        'use-temporary-password',
+      );
+      await file.writeAsString(
+        jsonEncode({
+          'flutter.remote.control.profile.v1': encoded(
+            'use-permanent-password',
+          ),
+        }),
+      );
+      expect(
+        (await RemoteControlProfile.load(
+          refreshSharedStore: true,
+          sharedStore: file,
+        )).values['verification-method'],
+        'use-permanent-password',
+      );
+    },
+  );
+
+  test(
+    'partial shared preference writes never silently reset the host profile',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'localist-profile-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      SharedPreferences.setMockInitialValues({});
+      final file = File('${directory.path}/shared_preferences.json');
+      await file.writeAsString('{');
+      await expectLater(
+        RemoteControlProfile.load(refreshSharedStore: true, sharedStore: file),
+        throwsFormatException,
+      );
+    },
+  );
   test(
     'private relay is automatic and clearing servers restores public routing',
     () {
@@ -23,6 +88,61 @@ void main() {
       expect(public.serverOptions['force-always-relay'], 'N');
     },
   );
+  test('password policy is part of the native server profile', () {
+    final profile = RemoteControlProfile(
+      values: {
+        'verification-method': 'use-both-passwords',
+        'approve-mode': 'password',
+        'temporary-password-length': '8',
+      },
+    );
+    expect(profile.serverOptions['verification-method'], 'use-both-passwords');
+    expect(profile.serverOptions['approve-mode'], 'password');
+    expect(profile.serverOptions['temporary-password-length'], '8');
+  });
+  test('permanent password validation matches the RustDesk desktop rules', () {
+    expect(permanentPasswordValidationError(''), isNull);
+    expect(permanentPasswordValidationError('short1A'), isNotNull);
+    expect(permanentPasswordValidationError('lowercase1'), isNotNull);
+    expect(permanentPasswordValidationError('UPPERCASE1'), isNotNull);
+    expect(permanentPasswordValidationError('NoDigitAa'), isNotNull);
+    expect(permanentPasswordValidationError('ValidPass1'), isNull);
+    expect(permanentPasswordValidationError('A1a' * 43), isNotNull);
+    expect(permanentPasswordValidationError('Valid\nPass1'), isNotNull);
+  });
+  test('setting a password enables it even after manual-only approval', () {
+    expect(
+      remotePasswordPolicy({
+        'verification-method': 'use-temporary-password',
+        'approve-mode': 'click',
+      }, 'ValidPass1'),
+      {
+        'verification-method': 'use-both-passwords',
+        'approve-mode': 'password-click',
+      },
+    );
+  });
+  test(
+    'changing a permanent-only password preserves permanent-only policy',
+    () {
+      expect(
+        remotePasswordPolicy({
+          'verification-method': 'use-permanent-password',
+          'approve-mode': 'password',
+        }, 'NewPass12'),
+        {'verification-method': 'use-permanent-password'},
+      );
+    },
+  );
+  test('removing permanent password enables OTP and keeps approval policy', () {
+    expect(
+      remotePasswordPolicy({
+        'verification-method': 'use-permanent-password',
+        'approve-mode': 'click',
+      }, ''),
+      {'verification-method': 'use-temporary-password'},
+    );
+  });
   test('decodes the supplied server code and round trips it', () {
     final config = RemoteServerConfig.decode(RemoteServerConfig.suppliedCode);
     expect(config.idServer, '81.30.108.248');

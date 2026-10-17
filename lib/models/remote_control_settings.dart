@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Server export format used by the upstream client: reversed base64url JSON.
@@ -194,7 +196,6 @@ const remoteSettings = <RemoteSetting>[
     _server,
     '',
     boolean: false,
-    choices: {'': 'System sound'},
   ),
   RemoteSetting(
     'enable-confirm-closing-tabs',
@@ -999,10 +1000,37 @@ class RemoteControlProfile {
   final Map<String, String> values;
   static const _key = 'remote.control.profile.v1';
 
-  static Future<RemoteControlProfile> load() async {
+  static Future<RemoteControlProfile> load({
+    bool refreshSharedStore = false,
+    File? sharedStore,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
-    final raw = prefs.getString(_key);
+    var raw = prefs.getString(_key);
+    if (refreshSharedStore && (Platform.isWindows || sharedStore != null)) {
+      // shared_preferences_windows 2.4.1 caches getAll() inside each process.
+      // SharedPreferences.reload() therefore does not see another process's
+      // writes. The hidden engine must read the primary app's persisted store.
+      final file =
+          sharedStore ??
+          File(
+            '${(await getApplicationSupportDirectory()).path}/shared_preferences.json',
+          );
+      if (await file.exists()) {
+        for (var attempt = 0; ; attempt++) {
+          try {
+            final data = jsonDecode(await file.readAsString()) as Map;
+            raw = data['flutter.$_key'] as String?;
+            break;
+          } on Object {
+            // A preference write can briefly expose a partial JSON document.
+            // Never replace a saved server/password policy with defaults then.
+            if (attempt >= 3) rethrow;
+            await Future<void>.delayed(const Duration(milliseconds: 30));
+          }
+        }
+      }
+    }
     if (raw == null) return RemoteControlProfile();
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;

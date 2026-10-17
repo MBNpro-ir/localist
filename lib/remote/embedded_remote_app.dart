@@ -238,7 +238,9 @@ void configureEmbeddedDesktop({bool host = false}) {
     String? presenceServer;
     Future<void> synchronize() async {
       await applyNativeRemoteProfile();
-      final server = (await RemoteControlProfile.load()).server.encode();
+      final server = (await RemoteControlProfile.load(
+        refreshSharedStore: true,
+      )).server.encode();
       if (presenceServer != server) {
         presenceServer = server;
         presence.clear();
@@ -260,6 +262,13 @@ void configureEmbeddedDesktop({bool host = false}) {
           // The bounded native query queue can be busy. Keep its latest
           // response until expiry; the next UI refresh retries.
         }
+      },
+      regeneratePassword: () async {
+        await regenerateNativeTemporaryPassword();
+      },
+      credentials: () async => {
+        'id': await bind.mainGetMyId(),
+        'password': await bind.mainGetTemporaryPassword(),
       },
       openSession: (request) async {
         final id = request['target'] as String;
@@ -349,12 +358,20 @@ void configureEmbeddedDesktop({bool host = false}) {
 }
 
 String? _appliedProfile;
-Future<void>? _applyingProfile;
-Future<void> applyNativeRemoteProfile() => _applyingProfile ??= _applyProfile()
-    .whenComplete(() => _applyingProfile = null);
+Future<void> _applyingProfile = Future<void>.value();
+Future<void> applyNativeRemoteProfile() {
+  // Each caller must read the latest persisted profile after the previous
+  // apply completes. Joining an older in-flight apply can acknowledge a new
+  // setting without ever applying it.
+  final next = _applyingProfile
+      .catchError((Object _) {})
+      .then((_) => _applyProfile());
+  _applyingProfile = next;
+  return next;
+}
 
 Future<void> _applyProfile() async {
-  final profile = await RemoteControlProfile.load();
+  final profile = await RemoteControlProfile.load(refreshSharedStore: true);
   final signature = jsonEncode({
     'server': profile.server.encode(),
     'values': profile.values,
@@ -363,13 +380,57 @@ Future<void> _applyProfile() async {
   final existing = Map<String, String>.from(
     jsonDecode(bind.mainGetOptionsSync()) as Map,
   );
-  await bind.mainSetOptions(
-    json: jsonEncode({
-      ...existing,
-      ...profile.serverOptions,
-      'allow-auto-update': 'N',
-    }),
-  );
+  final temporaryPasswordSettingsChanged =
+      existing['temporary-password-length'] !=
+          profile.values['temporary-password-length'] ||
+      existing['allow-numeric-one-time-password'] !=
+          profile.values['allow-numeric-one-time-password'];
+  final serverOptions = {...profile.serverOptions, 'allow-auto-update': 'N'};
+  if (Platform.isAndroid) {
+    // Android's bulk setter only replaces Config. The individual setter also
+    // updates active-session permissions and restarts network/audio services.
+    // It also preserves permission values if native policy blocks an edit
+    // during an active session; the bulk setter would remove those keys.
+    for (final entry in serverOptions.entries) {
+      if (entry.key == 'stop-service') continue;
+      if ((existing[entry.key] ?? '') != entry.value) {
+        await bind.mainSetOption(key: entry.key, value: entry.value);
+        if (bind.mainGetOptionSync(key: entry.key) != entry.value) {
+          throw StateError('The engine could not apply ${entry.key}.');
+        }
+      }
+    }
+    if ((existing['stop-service'] == 'Y') !=
+        (profile.values['stop-service'] == 'Y')) {
+      if (profile.values['stop-service'] == 'Y') {
+        await bind.mainStopService();
+      } else {
+        await bind.mainStartService();
+      }
+    }
+    // Reconnect after the complete ID/relay/key configuration is written,
+    // including changes to the key or relay with an unchanged ID server.
+    if (const {
+      'custom-rendezvous-server',
+      'relay-server',
+      'api-server',
+      'key',
+    }.any((key) => (existing[key] ?? '') != serverOptions[key])) {
+      await bind.mainSetOption(
+        key: 'custom-rendezvous-server',
+        value: profile.server.idServer,
+      );
+    }
+  } else {
+    await bind.mainSetOptions(
+      json: jsonEncode({...existing, ...serverOptions}),
+    );
+  }
+  if (existing['enable-hwcodec'] != profile.values['enable-hwcodec'] &&
+      profile.values['enable-hwcodec'] == 'Y' &&
+      (bind.mainHasHwcodec() || bind.mainHasVram())) {
+    await bind.mainCheckHwcodec();
+  }
   for (final setting in remoteSettings) {
     final value = profile.values[setting.key] ?? setting.defaultValue;
     switch (setting.scope) {
@@ -380,6 +441,10 @@ Future<void> _applyProfile() async {
         final effective = setting.key == 'enable-check-update' ? 'N' : value;
         if (bind.mainGetLocalOption(key: setting.key) != effective) {
           await bind.mainSetLocalOption(key: setting.key, value: effective);
+          if (setting.key == 'lang') {
+            await bind.mainChangeLanguage(lang: effective);
+            await engine.reloadAllWindows();
+          }
         }
       case RemoteOptionScope.display:
         if (setting.key == 'allow-terminal-clipboard-write') {
@@ -396,5 +461,26 @@ Future<void> _applyProfile() async {
         break;
     }
   }
+  if (temporaryPasswordSettingsChanged) {
+    // The RustDesk daemon caches the one-time password in memory. Updating
+    // its length or alphabet in Config is not enough; rotate it in the same
+    // native process so the displayed value and accepted value stay equal.
+    await regenerateNativeTemporaryPassword();
+  }
   _appliedProfile = signature;
+}
+
+Future<void> regenerateNativeTemporaryPassword() async {
+  final before = await bind.mainGetTemporaryPassword();
+  await bind.mainUpdateTemporaryPassword();
+  if (!Platform.isWindows) return;
+  // Desktop IPC accepts the rotation before its password-status cache catches
+  // up. Do not report success or copy the revoked password during that gap.
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (await bind.mainGetTemporaryPassword() == before) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('The new one-time password did not become ready.');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
 }

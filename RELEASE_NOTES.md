@@ -1,5 +1,25 @@
 # Release Notes
 
+## [6.0.9] — Reliable remote passwords and immediate settings synchronization
+
+Permanent passwords now enable the correct authentication policy and apply
+immediately to the retained Windows host. The host reads fresh settings across
+processes instead of keeping an outdated preferences cache. Changing or removing
+a permanent password updates the accepted credentials, and one-time password
+changes wait for the new native value before it is displayed or copied.
+
+Android settings now run the native permission, network and audio callbacks;
+server configuration changes reconnect with the complete ID/relay/key settings.
+Password forms retain native errors and no longer erase an existing password
+when submitted empty. Audio inputs use actual device names, unavailable saved
+printers remain selected, and RDP controls show the actual system state.
+
+Validation includes 148 passing tests, clean analysis, Windows and Android Debug
+builds, 83 matching setting readbacks, real bidirectional password authentication,
+two-factor login and permanent-password login after restarting the Windows host.
+See the [setting-by-setting validation report](docs/VALIDATION_REMOTE_SETTINGS.md)
+for details and device/peripheral testing limits.
+
 ## [6.0.8] — Remote host liveness and embedded session stability
 
 Remote Control no longer retires a live embedded RustDesk host when its Flutter

@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'native_bridge_service.dart';
 import 'feature_activity_service.dart';
 import 'feature_permission_service.dart';
 import '../models/remote_control_settings.dart';
@@ -36,6 +35,8 @@ class RustDeskDebugService extends ChangeNotifier {
   bool inputEnabled = false;
   bool twoFactorEnabled = false;
   bool rdpShared = false;
+  bool hardwareCodecSupported = false;
+  bool installedService = false;
   Timer? _refreshTimer;
   RemoteControlProfile profile = RemoteControlProfile();
   String applyStatus = '';
@@ -100,8 +101,7 @@ class RustDeskDebugService extends ChangeNotifier {
   Future<void> initialize() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
-    profile = await RemoteControlProfile.load();
-    await profile.save();
+    await _updateProfile((_) {});
     final storedEnginePath = prefs.getString('remote.enginePath') ?? '';
     recent = prefs.getStringList('remote.recent') ?? [];
     if (Platform.isAndroid) localId = prefs.getString('remote.localId') ?? '';
@@ -156,6 +156,7 @@ class RustDeskDebugService extends ChangeNotifier {
           ),
         );
         twoFactorEnabled = bind.mainHasValid2FaSync();
+        hardwareCodecSupported = bind.mainHasHwcodec() || bind.mainHasVram();
         if (options['approve-mode'] == 'click' ||
             options['verification-method'] == 'use-permanent-password') {
           localPassword = '';
@@ -180,10 +181,15 @@ class RustDeskDebugService extends ChangeNotifier {
         final api = await RemoteNativeApi.get();
         hasPermanentPassword =
             await api.mainGetCommon(key: 'permanent-password-set') == 'true';
-        localId = await api.mainGetMyId();
-        localPassword = await api.mainGetTemporaryPassword();
+        final credentials = await LocalistRemoteRuntime.desktopCommand({
+          'command': 'credentials',
+        });
+        localId = credentials['id'] as String? ?? '';
+        localPassword = credentials['password'] as String? ?? '';
         twoFactorEnabled = api.mainHasValid2FaSync();
         rdpShared = api.mainIsShareRdp();
+        hardwareCodecSupported = api.mainHasHwcodec() || api.mainHasVram();
+        installedService = api.mainIsInstalled();
         options.addAll(
           Map<String, String>.from(jsonDecode(api.mainGetOptionsSync()) as Map),
         );
@@ -237,11 +243,17 @@ class RustDeskDebugService extends ChangeNotifier {
       );
     }
     await _updateProfile((latest) => latest.values[key] = value);
-    if (Platform.isAndroid) await applyNativeRemoteProfile();
+    await _applyProfileNow();
     if (key == 'share-rdp' && Platform.isWindows) {
       final api = await RemoteNativeApi.get();
       if (api.mainIsShareRdp() != (value == 'Y')) {
         await api.mainSetShareRdp(enable: value == 'Y');
+      }
+      rdpShared = api.mainIsShareRdp();
+      if (rdpShared != (value == 'Y')) {
+        throw StateError(
+          'Windows could not apply RDP sharing. Administrator approval may be required.',
+        );
       }
     }
     applyStatus = 'Profile saved in Localist.';
@@ -251,9 +263,25 @@ class RustDeskDebugService extends ChangeNotifier {
   Future<void> saveServerConfig(RemoteServerConfig config) async {
     config.validate();
     await _updateProfile((latest) => latest.server = config);
-    if (Platform.isAndroid) await applyNativeRemoteProfile();
+    await _applyProfileNow();
     applyStatus = 'Server configuration saved in Localist.';
     _notify();
+  }
+
+  /// Apply a persisted profile to the engine before reporting the setting as
+  /// saved. Android can update the embedded engine directly. Windows keeps a
+  /// single hidden host process, so send it an authenticated sync command; the
+  /// periodic heartbeat remains only as a recovery path for edits made while
+  /// the primary window is closed.
+  Future<void> _applyProfileNow() async {
+    if (Platform.isAndroid) {
+      await applyNativeRemoteProfile();
+      return;
+    }
+    if (Platform.isWindows && File(enginePath).existsSync()) {
+      await LocalistRemoteRuntime.ensureStarted();
+      await LocalistRemoteRuntime.desktopCommand({'command': 'syncProfile'});
+    }
   }
 
   static Future<void> _writes = Future<void>.value();
@@ -376,15 +404,24 @@ class RustDeskDebugService extends ChangeNotifier {
   }
 
   Future<void> setPermanentPassword(String password) async {
+    password = password.trim();
+    final passwordError = permanentPasswordValidationError(password);
+    if (passwordError != null) {
+      throw FormatException(passwordError);
+    }
     final api = await RemoteNativeApi.get();
     if (!await api.mainSetPermanentPasswordWithResult(password: password)) {
       throw StateError('The engine could not save the permanent password.');
     }
+    // Keep the password and the verification policy as one transaction from
+    // the user's point of view. Saving the password alone is insufficient:
+    // the remote engine will continue to ask for a one-time password until
+    // verification-method is applied to the same native host.
+    await _updateProfile((latest) {
+      latest.values.addAll(remotePasswordPolicy(latest.values, password));
+    });
+    await _applyProfileNow();
     await refresh();
-    await saveProfileValue(
-      'verification-method',
-      password.isEmpty ? 'use-temporary-password' : 'use-both-passwords',
-    );
   }
 
   Future<List<String>> printerNames() async {
@@ -400,8 +437,22 @@ class RustDeskDebugService extends ChangeNotifier {
     return names;
   }
 
+  Future<List<String>> audioInputNames() async =>
+      (await (await RemoteNativeApi.get()).mainGetSoundInputs())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
   Future<void> regeneratePassword() async {
-    await (await RemoteNativeApi.get()).mainUpdateTemporaryPassword();
+    await _applyProfileNow();
+    if (Platform.isWindows && File(enginePath).existsSync()) {
+      await LocalistRemoteRuntime.desktopCommand({
+        'command': 'regeneratePassword',
+      });
+    } else {
+      await (await RemoteNativeApi.get()).mainUpdateTemporaryPassword();
+    }
     await refresh();
   }
 
@@ -429,35 +480,70 @@ class RustDeskDebugService extends ChangeNotifier {
   }
 
   Future<void> setOption(String key, bool value) async {
-    if (!permissions.containsKey(key) || !Platform.isWindows || busy) {
+    if (!permissions.containsKey(key) || busy) {
       return;
     }
     busy = true;
     error = '';
     _notify();
     try {
-      final option = value ? 'Y' : 'N';
-      if (!await NativeBridgeService.instance.applyRustDeskOption(
-        enginePath,
-        key,
-        option,
-      )) {
-        throw const FileSystemException(
-          'Windows could not launch the remote settings command.',
-        );
-      }
-      for (var attempt = 0; attempt < 10 && !_disposed; attempt++) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        await refresh();
-        if (options[key] == option) return;
-      }
-      error =
-          'Setting not confirmed. The installed service and administrator approval are required.';
+      await saveProfileValue(key, value ? 'Y' : 'N');
+      await refresh();
     } finally {
       busy = false;
       _notify();
     }
   }
+}
+
+/// Setting a password must also enable password authentication. In manual-only
+/// approval mode even the correct password is intentionally ignored upstream.
+Map<String, String> remotePasswordPolicy(
+  Map<String, String> current,
+  String password,
+) => {
+  'verification-method': password.isEmpty
+      ? 'use-temporary-password'
+      : current['verification-method'] == 'use-permanent-password'
+      ? 'use-permanent-password'
+      : 'use-both-passwords',
+  if (password.isNotEmpty && current['approve-mode'] == 'click')
+    'approve-mode': 'password-click',
+};
+
+/// Keep Localist validation aligned with RustDesk's desktop password dialog.
+/// The native engine accepts an empty value to remove the password, otherwise
+/// it limits the encrypted storage to 128 characters. RustDesk's UI also
+/// requires a digit, upper-case letter and lower-case letter before sending
+/// the request to the daemon.
+String? permanentPasswordValidationError(String password) {
+  if (password.isEmpty) return null;
+  if (password.length > 128 || password.contains(RegExp(r'[\x00-\x1f\x7f]'))) {
+    return 'Permanent password must be 128 characters or fewer and contain no control characters.';
+  }
+  if (password.length < 8) {
+    return 'Permanent password must contain at least 8 characters.';
+  }
+  if (!RegExp(r'[0-9]').hasMatch(password)) {
+    return 'Permanent password must contain a digit.';
+  }
+  final hasUppercase = password.runes.any((rune) {
+    final character = String.fromCharCode(rune);
+    return character.toUpperCase() == character &&
+        character.toLowerCase() != character;
+  });
+  if (!hasUppercase) {
+    return 'Permanent password must contain an uppercase letter.';
+  }
+  final hasLowercase = password.runes.any((rune) {
+    final character = String.fromCharCode(rune);
+    return character.toLowerCase() == character &&
+        character.toUpperCase() != character;
+  });
+  if (!hasLowercase) {
+    return 'Permanent password must contain a lowercase letter.';
+  }
+  return null;
 }
 
 String normalizeRemoteTarget(String target) {

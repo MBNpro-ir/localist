@@ -10,7 +10,8 @@ import '../models/remote_control_settings.dart';
 import '../services/rustdesk_debug_service.dart';
 
 class RemoteControlSettingsSection extends StatefulWidget {
-  const RemoteControlSettingsSection({super.key});
+  const RemoteControlSettingsSection({super.key, this.service});
+  final RustDeskDebugService? service;
   @override
   State<RemoteControlSettingsSection> createState() =>
       _RemoteControlSettingsSectionState();
@@ -19,7 +20,7 @@ class RemoteControlSettingsSection extends StatefulWidget {
 class _RemoteControlSettingsSectionState
     extends State<RemoteControlSettingsSection>
     with WidgetsBindingObserver {
-  final _engine = RustDeskDebugService();
+  late final _engine = widget.service ?? RustDeskDebugService();
   RemoteSettingsTab _tab = RemoteSettingsTab.general;
   final _code = TextEditingController();
   final _idServer = TextEditingController();
@@ -36,6 +37,9 @@ class _RemoteControlSettingsSectionState
   List<String> _printers = [];
   bool _loadingPrinters = false;
   String? _printerError;
+  List<String> _audioInputs = [];
+  String? _audioError;
+  bool _loadingAudio = false;
 
   @override
   void initState() {
@@ -74,6 +78,23 @@ class _RemoteControlSettingsSectionState
     }
     setState(() => _ready = true);
     unawaited(_loadPrinters());
+    unawaited(_loadAudioInputs());
+  }
+
+  Future<void> _loadAudioInputs() async {
+    if (_loadingAudio) return;
+    setState(() {
+      _loadingAudio = true;
+      _audioError = null;
+    });
+    try {
+      final names = await _engine.audioInputNames();
+      if (mounted) setState(() => _audioInputs = names);
+    } catch (e) {
+      if (mounted) setState(() => _audioError = '$e');
+    } finally {
+      if (mounted) setState(() => _loadingAudio = false);
+    }
   }
 
   Future<void> _loadPrinters() async {
@@ -86,12 +107,6 @@ class _RemoteControlSettingsSectionState
       final names = await _engine.printerNames();
       if (!mounted) return;
       setState(() => _printers = names);
-      if (_engine.profile.values['printer-incomming-job-action'] ==
-              'selected' &&
-          !names.contains(_engine.profile.values['printer-selected-name'])) {
-        await _save('printer-incomming-job-action', '');
-        await _save('printer-selected-name', names.firstOrNull ?? '');
-      }
     } catch (e) {
       if (mounted) setState(() => _printerError = '$e');
     } finally {
@@ -118,7 +133,7 @@ class _RemoteControlSettingsSectionState
     }
     _serverSaveTimer?.cancel();
     if (_serverEdited) unawaited(_autoSaveServer());
-    _engine.dispose();
+    if (widget.service == null) _engine.dispose();
     for (final controller in [
       _code,
       _idServer,
@@ -205,6 +220,33 @@ class _RemoteControlSettingsSectionState
         }
       : name;
 
+  bool _settingAvailable(RemoteSetting setting) {
+    if (setting.key == 'enable-check-update' ||
+        setting.key == 'allow-auto-update') {
+      return false; // Localist's updater owns the bundled engine.
+    }
+    if (setting.key == 'enable-hwcodec') return _engine.hardwareCodecSupported;
+    if (setting.key == 'allow-only-conn-window-open') {
+      return _engine.installedService;
+    }
+    if (!Platform.isWindows &&
+        const {
+          'allow-d3d-render',
+          'enable-directx-capture',
+          'share-rdp',
+          'enable-block-input',
+          'enable-remote-printer',
+          'enable-privacy-mode',
+          'privacy-mode-impl-key',
+          'allow-remove-wallpaper',
+          'displays_as_individual_windows',
+          'use_all_my_displays_for_the_remote_session',
+        }.contains(setting.key)) {
+      return false;
+    }
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_ready) return const Center(child: CircularProgressIndicator());
@@ -256,7 +298,7 @@ class _RemoteControlSettingsSectionState
             if (_tab == RemoteSettingsTab.network) _serverCard(),
             for (final card
                 in remoteSettings
-                    .where((s) => s.tab == _tab)
+                    .where((s) => s.tab == _tab && _settingAvailable(s))
                     .map((s) => s.card)
                     .toSet())
               _card(_cardName(card), [
@@ -264,6 +306,7 @@ class _RemoteControlSettingsSectionState
                   (s) =>
                       s.tab == _tab &&
                       s.card == card &&
+                      _settingAvailable(s) &&
                       (s.key != 'verification-method' ||
                           _engine.hasPermanentPassword),
                 ))
@@ -362,17 +405,33 @@ class _RemoteControlSettingsSectionState
 
   Widget _setting(RemoteSetting setting) {
     final label = context.l10n.isPersian ? setting.fa : setting.en;
-    final value = setting.key == 'force-always-relay'
+    final value = setting.key == 'share-rdp'
+        ? (_engine.rdpShared ? 'Y' : 'N')
+        : setting.key == 'force-always-relay'
         ? (_engine.profile.server.usesRelay ? 'Y' : 'N')
         : _engine.profile.values[setting.key] ?? setting.defaultValue;
     final scope = _scopeNotice(setting);
-    final disabled = _engine.busy || setting.key == 'force-always-relay';
+    final passwordDisabled = _engine.profile.values['approve-mode'] == 'click';
+    final temporaryDisabled =
+        passwordDisabled ||
+        _engine.profile.values['verification-method'] ==
+            'use-permanent-password';
+    final disabled =
+        _engine.busy ||
+        setting.key == 'force-always-relay' ||
+        (setting.key == 'verification-method' && passwordDisabled) ||
+        (const {
+              'temporary-password-length',
+              'allow-numeric-one-time-password',
+            }.contains(setting.key) &&
+            temporaryDisabled);
     final accessMode = _engine.profile.values['access-mode'] ?? '';
     final permissionPreset =
         setting.card == 'Permissions' &&
         setting.boolean &&
         accessMode.isNotEmpty;
     if (setting.key == 'printer-selected-name') return _printerPicker();
+    if (setting.key == 'audio-input') return _audioInputPicker();
     if (setting.tab == RemoteSettingsTab.printer && !Platform.isWindows) {
       return setting.key == 'printer-incomming-job-action'
           ? Text(
@@ -420,12 +479,7 @@ class _RemoteControlSettingsSectionState
             const SizedBox(height: 6),
             DropdownButtonFormField<String>(
               key: ValueKey('${setting.key}:$value'),
-              initialValue:
-                  setting.key == 'printer-incomming-job-action' &&
-                      value == 'selected' &&
-                      _printers.isEmpty
-                  ? ''
-                  : setting.choices!.containsKey(value)
+              initialValue: setting.choices!.containsKey(value)
                   ? value
                   : setting.defaultValue,
               isExpanded: true,
@@ -433,6 +487,7 @@ class _RemoteControlSettingsSectionState
                 for (final entry in setting.choices!.entries)
                   if (setting.key != 'printer-incomming-job-action' ||
                       entry.key != 'selected' ||
+                      value == 'selected' ||
                       _printers.isNotEmpty)
                     DropdownMenuItem(
                       value: entry.key,
@@ -477,6 +532,10 @@ class _RemoteControlSettingsSectionState
   Widget _printerPicker() {
     if (!Platform.isWindows) return const SizedBox.shrink();
     final selected = _engine.profile.values['printer-selected-name'];
+    final unavailable =
+        selected != null &&
+        selected.isNotEmpty &&
+        !_printers.contains(selected);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -501,13 +560,28 @@ class _RemoteControlSettingsSectionState
               'No Windows printers found. Add a printer, then refresh.',
             ),
           ),
-        if (_printers.isNotEmpty)
+        if (unavailable)
+          Text(
+            _t(
+              'چاپگر ذخیره‌شده در دسترس نیست: $selected. انتخاب شما حفظ شده است.',
+              'Saved printer unavailable: $selected. Your selection is preserved.',
+            ),
+          ),
+        if (_printers.isNotEmpty || unavailable)
           DropdownButtonFormField<String>(
             key: ValueKey('printer:$selected:${_printers.join('|')}'),
-            initialValue: _printers.contains(selected) ? selected : null,
+            initialValue: selected != null && selected.isNotEmpty
+                ? selected
+                : null,
             isExpanded: true,
             hint: Text(_t('انتخاب چاپگر', 'Select printer')),
             items: [
+              if (unavailable)
+                DropdownMenuItem(
+                  value: selected,
+                  enabled: false,
+                  child: Text(selected, overflow: TextOverflow.ellipsis),
+                ),
               for (final name in _printers)
                 DropdownMenuItem(
                   value: name,
@@ -521,6 +595,50 @@ class _RemoteControlSettingsSectionState
             },
           ),
         const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _audioInputPicker() {
+    final selected = _engine.profile.values['audio-input'] ?? '';
+    final names = {'', ..._audioInputs, if (selected.isNotEmpty) selected};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text(_t('ورودی صدا', 'Audio input device'))),
+            IconButton(
+              onPressed: _loadingAudio ? null : _loadAudioInputs,
+              tooltip: _t('تازه‌سازی ورودی‌های صدا', 'Refresh audio inputs'),
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        if (_loadingAudio) const LinearProgressIndicator(),
+        if (_audioError != null) Text(_audioError!),
+        DropdownButtonFormField<String>(
+          key: ValueKey('audio:$selected:${names.join('|')}'),
+          initialValue: selected,
+          isExpanded: true,
+          items: [
+            for (final name in names)
+              DropdownMenuItem(
+                value: name,
+                child: Text(
+                  name.isEmpty
+                      ? _t('صدای پیش‌فرض دستگاه', 'Default device audio')
+                      : name,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: _engine.busy
+              ? null
+              : (name) {
+                  if (name != null) unawaited(_save('audio-input', name));
+                },
+        ),
       ],
     );
   }
@@ -699,7 +817,17 @@ class _RemoteControlSettingsSectionState
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (!_engine.hasPermanentPassword) ...[
+        if (_engine.profile.values['approve-mode'] == 'click') ...[
+          Text(
+            _t(
+              'در حالت تأیید دستی، ورود با رمز غیرفعال است. تنظیم رمز دائمی، ورود با رمز یا تأیید دستی را فعال می‌کند.',
+              'Manual approval disables password login. Setting a permanent password enables password or manual approval.',
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (!_engine.hasPermanentPassword &&
+            _engine.profile.values['approve-mode'] != 'click') ...[
           Text(
             _t(
               'رمز دائمی تنظیم نشده؛ اتصال با رمز یک‌بارمصرف انجین انجام می‌شود.',
@@ -718,29 +846,45 @@ class _RemoteControlSettingsSectionState
               label: Text(_t('تنظیم رمز دائمی', 'Set permanent password')),
             ),
             OutlinedButton.icon(
-              onPressed: () async {
-                try {
-                  await _engine.regeneratePassword();
-                  if (mounted) {
-                    setState(
-                      () => _notice = _t(
-                        'رمز موقت جدید ساخته شد',
-                        'Temporary password regenerated',
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  _showError(e);
-                }
-              },
+              onPressed:
+                  _engine.profile.values['approve-mode'] == 'click' ||
+                      _engine.profile.values['verification-method'] ==
+                          'use-permanent-password'
+                  ? null
+                  : () async {
+                      try {
+                        await _engine.regeneratePassword();
+                        if (mounted) {
+                          setState(
+                            () => _notice = _t(
+                              'رمز موقت جدید ساخته شد',
+                              'Temporary password regenerated',
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        _showError(e);
+                      }
+                    },
               icon: const Icon(Icons.refresh),
               label: Text(_t('رمز موقت جدید', 'Regenerate temporary password')),
             ),
             if (_engine.hasPermanentPassword)
               TextButton.icon(
                 onPressed: () async {
-                  await _engine.setPermanentPassword('');
-                  await _save('verification-method', 'use-temporary-password');
+                  try {
+                    await _engine.setPermanentPassword('');
+                    if (mounted) {
+                      setState(
+                        () => _notice = _t(
+                          'رمز دائمی حذف شد؛ نوع رمز به یک‌بارمصرف برگشت',
+                          'Permanent password removed; password type reset to one-time',
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    _showError(e);
+                  }
                 },
                 icon: const Icon(Icons.delete_outline),
                 label: Text(_t('حذف رمز دائمی', 'Remove permanent password')),
@@ -756,83 +900,117 @@ class _RemoteControlSettingsSectionState
     final confirmation = TextEditingController();
     String? error;
     bool saving = false;
-    await showDialog<void>(
+    final route = DialogRoute<void>(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, update) => AlertDialog(
-          title: Text(
-            _t('رمز دائمی ریموت کنترل', 'Remote control permanent password'),
-          ),
-          content: SizedBox(
-            width: 380,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: password,
-                  obscureText: true,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: _t(
-                      'رمز جدید (حداقل ۶ کاراکتر)',
-                      'New password (at least 6 characters)',
+        builder: (context, update) => PopScope(
+          canPop: !saving,
+          child: AlertDialog(
+            scrollable: true,
+            title: Text(
+              _t('رمز دائمی ریموت کنترل', 'Remote control permanent password'),
+            ),
+            content: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: password,
+                    obscureText: true,
+                    autocorrect: false,
+                    maxLength: 128,
+                    decoration: InputDecoration(
+                      labelText: _t('رمز جدید', 'New password'),
+                      helperMaxLines: 3,
+                      helperText: _t(
+                        '۸ تا ۱۲۸ کاراکتر؛ شامل رقم، حرف بزرگ و کوچک انگلیسی',
+                        '8–128 characters with a digit, upper and lower case letter',
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: confirmation,
-                  obscureText: true,
-                  autocorrect: false,
-                  decoration: InputDecoration(
-                    labelText: _t('تکرار رمز', 'Confirm password'),
-                    errorText: error,
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmation,
+                    obscureText: true,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      labelText: _t('تکرار رمز', 'Confirm password'),
+                      errorText: error,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: saving ? null : () => Navigator.pop(dialogContext),
-              child: Text(_t('لغو', 'Cancel')),
-            ),
-            FilledButton(
-              onPressed: saving
-                  ? null
-                  : () async {
-                      if (password.text.length < 6 ||
-                          password.text != confirmation.text) {
-                        update(
-                          () => error = _t(
-                            'رمز باید حداقل ۶ کاراکتر و با تکرار برابر باشد',
-                            'Use at least 6 characters and matching passwords',
-                          ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                child: Text(_t('لغو', 'Cancel')),
+              ),
+              FilledButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        final newPassword = password.text.trim();
+                        final validation = permanentPasswordValidationError(
+                          newPassword,
                         );
-                        return;
-                      }
-                      update(() {
-                        saving = true;
-                        error = null;
-                      });
-                      try {
-                        await _engine.setPermanentPassword(password.text);
-                        if (dialogContext.mounted) Navigator.pop(dialogContext);
-                      } catch (e) {
-                        if (dialogContext.mounted) {
-                          update(() {
-                            saving = false;
-                            error = '$e';
-                          });
+                        if (newPassword.isEmpty ||
+                            validation != null ||
+                            newPassword != confirmation.text.trim()) {
+                          update(
+                            () => error = _t(
+                              newPassword.isEmpty
+                                  ? 'رمز جدید را وارد کنید؛ برای حذف از دکمه حذف رمز استفاده کنید'
+                                  : validation == null
+                                  ? 'تکرار رمز با رمز جدید یکسان نیست'
+                                  : 'رمز باید حداقل ۸ کاراکتر، شامل رقم، حرف بزرگ و حرف کوچک باشد',
+                              newPassword.isEmpty
+                                  ? 'Enter a new password; use Remove password to clear it'
+                                  : validation == null
+                                  ? 'The confirmation does not match'
+                                  : 'Use at least 8 characters with a digit, upper and lower case letter',
+                            ),
+                          );
+                          return;
                         }
-                      }
-                    },
-              child: Text(_t('تنظیم رمز', 'Set password')),
-            ),
-          ],
+                        update(() {
+                          saving = true;
+                          error = null;
+                        });
+                        try {
+                          await _engine.setPermanentPassword(newPassword);
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                          if (mounted) {
+                            setState(
+                              () => _notice = _t(
+                                'رمز دائمی ذخیره و برای اتصال فعال شد',
+                                'Permanent password saved and enabled for connections',
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (dialogContext.mounted) {
+                            update(() {
+                              saving = false;
+                              error = '$e';
+                            });
+                          }
+                        }
+                      },
+                child: Text(_t('تنظیم رمز', 'Set password')),
+              ),
+            ],
+          ),
         ),
       ),
     );
+    await Navigator.of(context).push(route);
+    // A popped dialog remains mounted during its exit animation.
+    await route.completed;
     password.dispose();
     confirmation.dispose();
   }
@@ -855,8 +1033,9 @@ class _RemoteControlSettingsSectionState
         code.dispose();
         return;
       }
-      await showDialog<void>(
+      final route = DialogRoute<void>(
         context: context,
+        barrierDismissible: false,
         builder: (dialogContext) => StatefulBuilder(
           builder: (context, update) => AlertDialog(
             title: Text(
@@ -943,6 +1122,12 @@ class _RemoteControlSettingsSectionState
           ),
         ),
       );
+      if (!mounted) {
+        code.dispose();
+        return;
+      }
+      await Navigator.of(context).push(route);
+      await route.completed;
       code.dispose();
     } catch (e) {
       _showError(e);
