@@ -1,6 +1,9 @@
 # Pinned engine dependencies and corresponding source must retain exact bytes.
 third_party/localist_remote/LICENSE -text
 third_party/localist_remote/native-source.tar.gz -text
+# The generated bridge is hashed together with the native runtime manifest.
+third_party/localist_remote/lib/generated_bridge.dart text eol=lf
+third_party/localist_remote/lib/generated_bridge.freezed.dart text eol=lf
 # Unified diff context markers include significant single-space blank lines.
 third_party/localist_remote/patches/** -text -whitespace
 third_party/localist_remote/windows/runtime/** -text
