@@ -14,11 +14,13 @@ class RemoteAddressBook extends StatefulWidget {
     required this.localId,
     required this.onConnect,
     required this.canConnect,
+    this.onForgetPassword,
   });
   final RemoteDeviceService service;
   final String localId;
   final ValueChanged<String> onConnect;
   final bool canConnect;
+  final Future<void> Function(String)? onForgetPassword;
   @override
   State<RemoteAddressBook> createState() => _RemoteAddressBookState();
 }
@@ -529,16 +531,37 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
         ],
       ),
     );
-    if (ok == true) await widget.service.forget(device.id);
+    if (ok == true) {
+      try {
+        await widget.onForgetPassword?.call(device.id);
+        await widget.service.forget(device.id);
+      } catch (error) {
+        if (mounted) showLocalistNotice(context, message: '$error');
+      }
+    }
   }
 
   Future<void> _edit([RemoteDevice? device]) async {
+    String savedPassword;
+    try {
+      savedPassword = device == null
+          ? ''
+          : await widget.service.passwordFor(device.id);
+    } catch (error) {
+      if (mounted) showLocalistNotice(context, message: '$error');
+      return;
+    }
+    if (!mounted) return;
+    final password = TextEditingController(text: savedPassword);
+    bool clearRememberedPassword = false;
+    bool reveal = false;
+    bool saving = false;
     final id = TextEditingController(text: device?.id);
     final name = TextEditingController(text: device?.name);
     final model = TextEditingController(text: device?.model);
     final tags = TextEditingController(text: device?.tags.join(', '));
     String? error;
-    await showDialog<void>(
+    final route = DialogRoute<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, update) => AlertDialog(
@@ -579,6 +602,48 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: password,
+                    obscureText: !reveal,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    maxLength: 128,
+                    decoration: InputDecoration(
+                      labelText: _t(
+                        'رمز دستگاه مقصد (اختیاری)',
+                        'Remote password (optional)',
+                      ),
+                      helperMaxLines: 3,
+                      helperText: _t(
+                        'رمز ثابت را برای اتصال مستقیم ذخیره کنید. رمز خالی، رمز ذخیره‌شده را حذف می‌کند.',
+                        'Save a permanent password for direct connection. Clear to remove the saved password.',
+                      ),
+                      suffixIcon: IconButton(
+                        tooltip: _t(
+                          'نمایش یا پنهان کردن رمز',
+                          'Show or hide password',
+                        ),
+                        icon: Icon(
+                          reveal ? Icons.visibility_off : Icons.visibility,
+                        ),
+                        onPressed: () => update(() => reveal = !reveal),
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => update(() {
+                      password.clear();
+                      clearRememberedPassword = true;
+                    }),
+                    icon: const Icon(Icons.key_off_outlined),
+                    label: Text(
+                      _t(
+                        'پاک کردن رمز اتصال (با ذخیره)',
+                        'Clear saved/remembered password on Save',
+                      ),
+                    ),
+                  ),
                   Wrap(
                     spacing: 6,
                     children: [
@@ -604,30 +669,52 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx),
+              onPressed: saving ? null : () => Navigator.pop(ctx),
               child: Text(_t('لغو', 'Cancel')),
             ),
             FilledButton(
-              onPressed: () async {
-                try {
-                  await widget.service.saveAddress(
-                    id: id.text,
-                    name: name.text,
-                    model: model.text,
-                    tags: tags.text.split(RegExp('[,،]')),
-                  );
-                  if (ctx.mounted) Navigator.pop(ctx);
-                } catch (e) {
-                  if (ctx.mounted) update(() => error = '$e');
-                }
-              },
+              onPressed: saving
+                  ? null
+                  : () async {
+                      update(() => saving = true);
+                      try {
+                        await widget.service.saveAddress(
+                          id: id.text,
+                          name: name.text,
+                          model: model.text,
+                          tags: tags.text.split(RegExp('[,،]')),
+                        );
+                        final peerId = id.text.trim().replaceAll(
+                          RegExp(r'\s'),
+                          '',
+                        );
+                        if (password.text != savedPassword ||
+                            clearRememberedPassword) {
+                          await widget.onForgetPassword?.call(peerId);
+                          await widget.service.savePassword(
+                            peerId,
+                            password.text,
+                          );
+                        }
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      } catch (e) {
+                        if (ctx.mounted) {
+                          update(() {
+                            saving = false;
+                            error = '$e';
+                          });
+                        }
+                      }
+                    },
               child: Text(_t('ذخیره', 'Save')),
             ),
           ],
         ),
       ),
     );
-    for (final c in [id, name, model, tags]) {
+    await Navigator.of(context).push(route);
+    await route.completed;
+    for (final c in [id, name, model, tags, password]) {
       c.dispose();
     }
   }

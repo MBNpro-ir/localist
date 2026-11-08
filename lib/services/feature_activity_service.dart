@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-enum LocalistFeature { quickSend, remoteControl, vpnSharing, stream }
+enum LocalistFeature { quickSend, remoteControl, vpnSharing, capture, stream }
 
 /// Discovery and idle listeners never reserve a feature. Only user operations
 /// and live sessions do, so a background listener cannot strand navigation.

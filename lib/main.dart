@@ -30,6 +30,7 @@ import 'screens/sharing_page.dart';
 import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
 import 'screens/stream_page.dart';
+import 'screens/live_capture_page.dart';
 import 'screens/vpn_sharing_page.dart';
 import 'services/feature_activity_service.dart';
 import 'services/dlna_cast_service.dart';
@@ -1062,6 +1063,8 @@ class _LocalistShellState extends State<LocalistShell>
     _showQuickSendRequestNotice(pending);
   }
 
+  int _knownSendBatchCompletions = 0;
+  int _knownFailedBatchCompletions = 0;
   void _handleQuickSendTransferSounds() {
     final transfers = _quickSend.transfers;
     if (!_transferSoundsPrimed) {
@@ -1070,21 +1073,18 @@ class _LocalistShellState extends State<LocalistShell>
         ..addEntries(transfers.map((item) => MapEntry(item.id, item.state)));
       _transferSoundsPrimed = true;
       _knownReceiveBatchCompletions = _quickSend.receiveBatchCompletions;
+      _knownSendBatchCompletions = _quickSend.sendBatchCompletions;
+      _knownFailedBatchCompletions = _quickSend.failedBatchCompletions;
       return;
     }
     AppSoundEvent? event;
-    for (final transfer in transfers) {
-      final previous = _knownTransferStates[transfer.id];
-      if (previous != transfer.state) {
-        if (transfer.state == QuickSendTransferState.failed) {
-          event = AppSoundEvent.failed;
-        } else if (transfer.state == QuickSendTransferState.completed &&
-            transfer.direction != QuickSendDirection.receiving &&
-            event != AppSoundEvent.failed) {
-          event = AppSoundEvent.completed;
-        }
-      }
-      _knownTransferStates[transfer.id] = transfer.state;
+    if (_quickSend.failedBatchCompletions != _knownFailedBatchCompletions) {
+      _knownFailedBatchCompletions = _quickSend.failedBatchCompletions;
+      event = AppSoundEvent.failed;
+    }
+    if (_quickSend.sendBatchCompletions != _knownSendBatchCompletions) {
+      _knownSendBatchCompletions = _quickSend.sendBatchCompletions;
+      event ??= AppSoundEvent.completed;
     }
     if (_quickSend.receiveBatchCompletions != _knownReceiveBatchCompletions) {
       _knownReceiveBatchCompletions = _quickSend.receiveBatchCompletions;
@@ -1578,12 +1578,15 @@ class _LocalistShellState extends State<LocalistShell>
         }
         return;
       }
-      final vpnReady = Platform.isAndroid
-          ? await FeaturePermissionService.instance.ensure([
-              FeatureAccess.vpn,
-              FeatureAccess.notifications,
-            ])
-          : await _bridge.ensureVpnPermission();
+      // Preparing a VPN can revoke the currently selected VPN. Only do this
+      // after the user explicitly starts receiving, never while reading state.
+      final notificationsReady =
+          !Platform.isAndroid ||
+          await FeaturePermissionService.instance.ensure([
+            FeatureAccess.notifications,
+          ]);
+      final vpnReady =
+          notificationsReady && await _bridge.ensureVpnPermission();
       _logs.debug('VPN permission result ready=$vpnReady');
       if (!vpnReady) {
         _logs.warning('VPN permission was not granted');
@@ -1888,6 +1891,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _scanRemoteDevices() async {
+    _remoteDevices.setLocalIdentity(_remoteService.localId);
     _remoteDevices.setPresenceContext(
       server: _remoteService.profile.server.encode(),
       ready: _remoteService.ready && _remoteService.online,
@@ -1988,6 +1992,7 @@ class _LocalistShellState extends State<LocalistShell>
           ),
         ),
       ),
+      const KeepAlivePage(child: LiveCapturePage()),
       KeepAlivePage(child: StreamPage(service: MediaStreamService.instance)),
     ];
 
@@ -2234,6 +2239,11 @@ class _LocalistShellState extends State<LocalistShell>
         l10n.isPersian ? 'اشتراک VPN' : 'VPN Sharing',
         Icons.share_outlined,
         Icons.share,
+      ),
+      _NavItem(
+        l10n.isPersian ? 'دوربین و صدا' : 'Camera & Mic',
+        Icons.video_camera_back_outlined,
+        Icons.video_camera_back,
       ),
       _NavItem(
         l10n.isPersian ? 'استریم' : 'Stream',

@@ -10,6 +10,8 @@ list(APPEND FLUTTER_PLUGIN_LIST
   flutter_custom_cursor
   flutter_desktop_notifications
   flutter_gpu_texture_renderer
+  flutter_secure_storage_windows
+  flutter_webrtc
   permission_handler_windows
   screen_retriever
   texture_rgba_renderer

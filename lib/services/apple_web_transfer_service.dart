@@ -958,6 +958,8 @@ class AppleWebTransferService extends ChangeNotifier {
           received,
           state: QuickSendTransferState.failed,
           message: '$error',
+          soundBatchId:
+              '${peer.id}:${request.uri.queryParameters['batch'] ?? transfer}',
         );
       }
       rethrow;

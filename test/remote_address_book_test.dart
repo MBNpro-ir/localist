@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,7 @@ import 'package:localist/widgets/remote_ready_indicator.dart';
 import 'package:localist/widgets/feature_page_layout.dart';
 
 void main() {
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
     'relay defaults follow private-server fields, public settings disable it',
@@ -203,7 +205,7 @@ void main() {
     expect(find.text('Connecting to server'), findsOneWidget);
     await show(true, true, true);
     expect(find.text('Ready'), findsOneWidget);
-    expect(find.text('81.30.108.248'), findsOneWidget);
+    expect(find.text('81.30.108.248'), findsNothing);
     await show(true, true, false);
     expect(find.text('Hosting stopped'), findsOneWidget);
   });

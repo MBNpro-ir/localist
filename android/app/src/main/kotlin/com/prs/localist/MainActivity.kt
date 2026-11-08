@@ -101,13 +101,31 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        CaptureForegroundService.channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "localist/capture").apply {
+            setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        val camera = call.argument<Boolean>("camera") == true
+                        val microphone = call.argument<Boolean>("microphone") == true
+                        if (!camera && !microphone) result.error("NO_CAPTURE", "Choose camera or microphone.", null)
+                        else runCatching {
+                            val intent = Intent(this@MainActivity, CaptureForegroundService::class.java)
+                                .putExtra("camera", camera).putExtra("microphone", microphone)
+                            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
+                        }.onSuccess { result.success(true) }.onFailure { result.error("CAPTURE_START", it.message, null) }
+                    }
+                    "stop" -> { stopService(Intent(this@MainActivity, CaptureForegroundService::class.java)); result.success(true) }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "ensureVpnPermission" -> ensureVpnPermission(result)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "getFeatureAccessStatus" -> result.success(mapOf(
-                    "vpn" to (VpnService.prepare(this) == null),
+                    "vpn" to getSharedPreferences("localist-vpn-consent", MODE_PRIVATE).getBoolean("granted", false),
                     "overlay" to (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)),
                     "input" to com.carriez.flutter_hbb.InputService.isOpen,
                     "capture" to com.carriez.flutter_hbb.MainService.isReady,
@@ -298,6 +316,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
+            getSharedPreferences("localist-vpn-consent", MODE_PRIVATE).edit().putBoolean("granted", resultCode == Activity.RESULT_OK).apply()
             pendingVpnResult?.success(resultCode == Activity.RESULT_OK)
             pendingVpnResult = null
             return
@@ -343,6 +362,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     private fun ensureVpnPermission(result: MethodChannel.Result) {
         val intent = VpnService.prepare(this)
         if (intent == null) {
+            getSharedPreferences("localist-vpn-consent", MODE_PRIVATE).edit().putBoolean("granted", true).apply()
             result.success(true)
             return
         }

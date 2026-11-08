@@ -314,15 +314,7 @@ class RustDeskDebugService extends ChangeNotifier {
     final api = await RemoteNativeApi.get();
     // Sync the chosen server before session creation; never route an ID via
     // stale public-server options while the hidden host applies a new profile.
-    await api.mainSetOptions(
-      json: jsonEncode({
-        ...Map<String, String>.from(
-          jsonDecode(api.mainGetOptionsSync()) as Map,
-        ),
-        ...profile.serverOptions,
-        'allow-auto-update': 'N',
-      }),
-    );
+    await _applyProfileNow();
     final targetId = normalizeRemoteTarget(target);
     // Repair off values written by Localist 6.0.0 to existing peer configs.
     for (final key in ['swap-left-right-mouse', 'i444', 'collapse_toolbar']) {
@@ -455,6 +447,11 @@ class RustDeskDebugService extends ChangeNotifier {
     }
     await refresh();
   }
+
+  Future<void> forgetPeerPassword(String id) async =>
+      (await RemoteNativeApi.get()).mainForgetPassword(
+        id: normalizeRemoteTarget(id),
+      );
 
   Future<Map<String, dynamic>> savedPeer(String id) async {
     final api = await RemoteNativeApi.get();

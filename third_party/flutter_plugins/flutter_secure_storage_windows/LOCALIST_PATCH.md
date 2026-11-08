@@ -1,0 +1,1 @@
+Based on flutter_secure_storage_windows 4.2.2. Replaces the ATL string conversion helpers with Win32 UTF-8 conversions, retaining Windows Credential Manager and the original storage/encryption implementation. ASCII credential namespaces remain compatible.

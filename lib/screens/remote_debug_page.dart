@@ -73,6 +73,8 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
       _relayConfig = config;
       _relay = _service.profile.server.usesRelay;
     }
+    _devices.credentialServer = _service.profile.server.idServer.toLowerCase();
+    _devices.setLocalIdentity(_service.localId);
     _devices.setPresenceContext(
       server: config,
       ready: _service.ready && _service.online,
@@ -145,7 +147,6 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                     ready: _service.ready,
                     online: _service.online,
                     hosting: _service.hosting,
-                    server: _service.serverLabel,
                   ),
                   const SizedBox(height: 10),
                   if (_service.localId.isNotEmpty)
@@ -338,6 +339,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
               service: _devices,
               localId: _service.localId,
               canConnect: _service.ready && !_connecting,
+              onForgetPassword: _service.forgetPeerPassword,
               onConnect: (id) {
                 _target.text = id;
                 _password.clear();
@@ -367,11 +369,15 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     }
     setState(() => _connecting = true);
     try {
+      final targetId = normalizeRemoteTarget(_target.text);
+      final password = _password.text.isNotEmpty
+          ? _password.text
+          : await _devices.passwordFor(targetId);
       await _service.launch(
-        target: _target.text,
+        target: targetId,
         mode: _mode,
         relay: _relay,
-        password: _password.text,
+        password: password,
       );
       if (_target.text.trim().isNotEmpty) {
         await _devices.rememberOpened(normalizeRemoteTarget(_target.text));

@@ -8,6 +8,12 @@ import 'package:localist/services/rustdesk_debug_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('each setting has one unambiguous native key', () {
+    expect(
+      remoteSettings.map((s) => s.key).toSet().length,
+      remoteSettings.length,
+    );
+  });
   test(
     'retained Windows host reads new password policy despite stale preferences cache',
     () async {
@@ -145,10 +151,10 @@ void main() {
   });
   test('decodes the supplied server code and round trips it', () {
     final config = RemoteServerConfig.decode(RemoteServerConfig.suppliedCode);
-    expect(config.idServer, '81.30.108.248');
-    expect(config.relayServer, '81.30.108.248');
+    expect(config.idServer, 'rustdesk.mbnpro.ir');
+    expect(config.relayServer, 'rustdesk.mbnpro.ir:21117');
     expect(config.apiServer, isEmpty);
-    expect(config.key, 'n4Zq55BrNpmfqWENX5ZqO3xo0oCsbASuSO71a5SGk5Y=');
+    expect(config.key, 'uxkGLcLydl2ag5RpLfH+D81Uh54Xs+xkKvRrZdo4IK4=');
     final decodedAgain = RemoteServerConfig.decode(config.encode());
     expect(decodedAgain.key, config.key);
     expect(

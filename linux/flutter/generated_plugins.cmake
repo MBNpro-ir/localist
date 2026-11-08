@@ -8,6 +8,8 @@ list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   file_selector_linux
   flutter_custom_cursor
+  flutter_secure_storage_linux
+  flutter_webrtc
   screen_retriever
   texture_rgba_renderer
   tray_manager

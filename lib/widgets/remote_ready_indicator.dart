@@ -6,7 +6,7 @@ class RemoteReadyIndicator extends StatefulWidget {
     required this.ready,
     required this.online,
     required this.hosting,
-    required this.server,
+    this.server = '',
   });
   final bool ready, online, hosting;
   final String server;
@@ -99,11 +99,6 @@ class _RemoteReadyIndicatorState extends State<RemoteReadyIndicator>
                     key: ValueKey(text),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
-                ),
-                Text(
-                  widget.server,
-                  textDirection: TextDirection.ltr,
-                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),

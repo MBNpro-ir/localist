@@ -3,6 +3,48 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/widgets/localist_bottom_navigation.dart';
 
 void main() {
+  testWidgets(
+    'five feature destinations fit a narrow RTL screen during transitions',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      for (var index = 0; index < 5; index++) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Directionality(
+              textDirection: TextDirection.rtl,
+              child: Scaffold(
+                bottomNavigationBar: LocalistBottomNavigationBar(
+                  currentIndex: index,
+                  onDestinationSelected: (_) {},
+                  items: [
+                    for (final name in [
+                      'ارسال سریع',
+                      'ریموت کنترل',
+                      'اشتراک VPN',
+                      'دوربین و صدا',
+                      'استریم',
+                    ])
+                      LocalistBottomNavigationItem(
+                        label: name,
+                        icon: Icons.devices_outlined,
+                        selectedIcon: Icons.devices,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        for (var frame = 0; frame < 30; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(tester.takeException(), isNull);
+        }
+      }
+    },
+  );
   final items = [
     const LocalistBottomNavigationItem(
       label: 'Quick Send',

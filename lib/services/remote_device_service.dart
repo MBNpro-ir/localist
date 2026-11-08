@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'lan_network_service.dart';
+import 'remote_credential_store.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -183,8 +184,18 @@ class RemoteDiscoveryProtocol {
 }
 
 class RemoteDeviceService extends ChangeNotifier {
-  RemoteDeviceService({this.queryPresence, DateTime Function()? now})
-    : _presence = RemotePeerPresenceStore(now: now);
+  RemoteDeviceService({
+    this.queryPresence,
+    DateTime Function()? now,
+    RemoteCredentialStore? credentials,
+  }) : _presence = RemotePeerPresenceStore(now: now),
+       credentials = credentials ?? RemoteCredentialStore();
+  final RemoteCredentialStore credentials;
+  String credentialServer = '';
+  Future<String> passwordFor(String id) async =>
+      await credentials.read(credentialServer, id) ?? '';
+  Future<void> savePassword(String id, String password) =>
+      credentials.write(credentialServer, id, password);
 
   final Future<Map<String, String>> Function(List<String>)? queryPresence;
   final RemotePeerPresenceStore _presence;
@@ -215,7 +226,7 @@ class RemoteDeviceService extends ChangeNotifier {
     if (_disposed || !_presenceReady || queryPresence == null) return;
     final generation = _presenceGeneration;
     final ids = _devices.keys
-        .where((id) => RegExp(r'^\d+$').hasMatch(id))
+        .where((id) => RegExp(r'^\d+$').hasMatch(id) && !isLocal(_devices[id]!))
         .toList();
     if (ids.isEmpty) return;
     try {
@@ -233,6 +244,22 @@ class RemoteDeviceService extends ChangeNotifier {
     _notify();
   }
 
+  String _localId = '';
+  Set<String> _localAddresses = {};
+  bool isLocal(RemoteDevice device) =>
+      (_localId.isNotEmpty &&
+          device.id.replaceAll(RegExp(r'\s'), '') == _localId) ||
+      _localAddresses.contains(device.id.split(':').first) ||
+      (device.ip.isNotEmpty && _localAddresses.contains(device.ip));
+
+  void setLocalIdentity(String id, {Iterable<String>? addresses}) {
+    final normalized = id.replaceAll(RegExp(r'\s'), '');
+    if (normalized == _localId && addresses == null) return;
+    if (normalized.isNotEmpty) _localId = normalized;
+    if (addresses != null) _localAddresses = addresses.toSet();
+    _notify();
+  }
+
   final Map<String, RemoteDevice> _devices = {};
   final List<RawDatagramSocket> _sockets = [];
   Timer? _expiry;
@@ -240,16 +267,22 @@ class RemoteDeviceService extends ChangeNotifier {
   bool scanning = false;
   String error = '';
   Future<void> _write = Future<void>.value();
-  List<RemoteDevice> get devices => _devices.values.toList()
-    ..sort(
-      (a, b) => a.onLan != b.onLan
-          ? (a.onLan ? -1 : 1)
-          : (b.lastOpened ?? DateTime(1970)).compareTo(
-              a.lastOpened ?? DateTime(1970),
-            ),
-    );
+  List<RemoteDevice> get devices =>
+      _devices.values.where((d) => !isLocal(d)).toList()..sort(
+        (a, b) => a.onLan != b.onLan
+            ? (a.onLan ? -1 : 1)
+            : (b.lastOpened ?? DateTime(1970)).compareTo(
+                a.lastOpened ?? DateTime(1970),
+              ),
+      );
 
-  Future<void> initialize() async {
+  Future<void>? _initializing;
+  Future<void> initialize() =>
+      _initializing ??= _initialize().catchError((Object error) {
+        _initializing = null;
+        throw error;
+      });
+  Future<void> _initialize() async {
     final raw = (await SharedPreferences.getInstance()).getString(
       'remote.devices.v1',
     );
@@ -313,7 +346,7 @@ class RemoteDeviceService extends ChangeNotifier {
   Future<void> rememberOpened(String id) async {
     if (_disposed) return;
     id = id.trim().replaceAll(RegExp(r'\s'), '');
-    if (id.isEmpty) return;
+    if (id.isEmpty || isLocal(RemoteDevice(id: id))) return;
     final previous = _devices[id] ?? RemoteDevice(id: id);
     _devices[id] = previous.copyWith(
       lastOpened: DateTime.now(),
@@ -411,6 +444,7 @@ class RemoteDeviceService extends ChangeNotifier {
   }
 
   Future<void> forget(String id) async {
+    await savePassword(id, '');
     _devices.remove(id);
     await _save();
     _notify();
@@ -418,6 +452,7 @@ class RemoteDeviceService extends ChangeNotifier {
 
   Future<void> scan({String localId = ''}) async {
     if (scanning || _disposed) return;
+    setLocalIdentity(localId);
     scanning = true;
     // Remove stale advertisements for our own ID from earlier scans.
     if (localId.isNotEmpty) _devices.remove(localId);
@@ -425,6 +460,7 @@ class RemoteDeviceService extends ChangeNotifier {
     _notify();
     try {
       final routes = await LanNetworkService.instance.routes();
+      setLocalIdentity(localId, addresses: routes.map((r) => r.address));
       for (final route in routes) {
         final address = InternetAddress(route.address);
         if (_disposed) break;
@@ -445,7 +481,7 @@ class RemoteDeviceService extends ChangeNotifier {
                 packet.address.address,
               );
               if (device == null ||
-                  device.id == localId ||
+                  isLocal(device) ||
                   (!_devices.containsKey(device.id) &&
                       _devices.length >= 100)) {
                 continue;

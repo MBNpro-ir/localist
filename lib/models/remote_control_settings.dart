@@ -19,6 +19,9 @@ class RemoteServerConfig {
   final String key;
 
   static const suppliedCode =
+      '9JSP0sUS08GZaJnU2t0a4tycYRTNoVVM4Q0KIZGTwJVNnFmMsRWeMNGTHtGe1JiOikXZrJCLiIiOikGchJCLicTMxEjM6IXau8mcw5mYt5yazVGZ0NXdyJiOikXYsVmciwiIylmLvJHcuJWbus2clRGdzVnciojI0N3boJye';
+
+  static const legacySuppliedCode =
       '=0nI9kVNrd0U1EWM380U1NVQiN3QvBzb4NzTxpVNY5URXFnZtBnTyJUN1EnW04mI6ISeltmIsIiI6ISawFmIsICO0IjL4ATMuAzMuEDOiojI5FGblJnIsICO0IjL4ATMuAzMuEDOiojI0N3boJye';
 
   factory RemoteServerConfig.decode(String value) {
@@ -1041,8 +1044,15 @@ class RemoteControlProfile {
           values['approve-mode'] == 'password') {
         values['approve-mode'] = 'password-click';
       }
+      if (data['server'] == RemoteServerConfig.legacySuppliedCode) {
+        values['allow-insecure-tls-fallback'] = 'Y';
+      }
       return RemoteControlProfile(
-        server: RemoteServerConfig.decode(data['server'] as String),
+        server: RemoteServerConfig.decode(
+          data['server'] == RemoteServerConfig.legacySuppliedCode
+              ? RemoteServerConfig.suppliedCode
+              : data['server'] as String,
+        ),
         values: values,
       );
     } catch (_) {

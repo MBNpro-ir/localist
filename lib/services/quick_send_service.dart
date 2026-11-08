@@ -340,6 +340,11 @@ class QuickSendService extends ChangeNotifier {
   }
 
   List<QuickSendTransfer> get transfers => List.unmodifiable(_transfers);
+  int _sendBatchCompletions = 0;
+  int get sendBatchCompletions => _sendBatchCompletions;
+  int _failedBatchCompletions = 0;
+  int get failedBatchCompletions => _failedBatchCompletions;
+  final Set<String> _failedReceiveBatches = {};
   int _receiveBatchCompletions = 0;
   int get receiveBatchCompletions => _receiveBatchCompletions;
   void completeBrowserBatch() {
@@ -377,7 +382,15 @@ class QuickSendService extends ChangeNotifier {
     int bytes, {
     QuickSendTransferState? state,
     String? message,
+    String? soundBatchId,
   }) {
+    if (state == QuickSendTransferState.failed &&
+        _failedReceiveBatches.add(soundBatchId ?? id)) {
+      _failedBatchCompletions++;
+      if (_failedReceiveBatches.length > 100) {
+        _failedReceiveBatches.remove(_failedReceiveBatches.first);
+      }
+    }
     _updateTransfer(
       id,
       transferredBytes: bytes,
@@ -932,6 +945,8 @@ class QuickSendService extends ChangeNotifier {
             state: QuickSendTransferState.completed,
           );
         }
+        _sendBatchCompletions++;
+        notifyListeners();
         return;
       }
       if (prepare.statusCode != HttpStatus.ok) {
@@ -975,7 +990,11 @@ class QuickSendService extends ChangeNotifier {
           legacy: legacy,
         );
       }
+      _sendBatchCompletions++;
+      notifyListeners();
     } catch (error) {
+      _failedBatchCompletions++;
+      notifyListeners();
       for (final file in files) {
         final transfer = _findTransfer('send-${file.id}');
         if (transfer?.state != QuickSendTransferState.completed) {
@@ -1742,6 +1761,13 @@ class QuickSendService extends ChangeNotifier {
         notifyListeners();
       }
     } catch (error) {
+      if (_failedReceiveBatches.add(session.id)) {
+        _failedBatchCompletions++;
+        if (_failedReceiveBatches.length > 100) {
+          _failedReceiveBatches.remove(_failedReceiveBatches.first);
+        }
+        notifyListeners();
+      }
       await sink.close().catchError((_) {});
       try {
         await partial.delete();
