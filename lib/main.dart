@@ -496,6 +496,7 @@ class _LocalistShellState extends State<LocalistShell>
     _appLifecycleState = state;
     unawaited(_syncDiscoveryLifecycle());
     if (state == AppLifecycleState.resumed) {
+      unawaited(_bridge.clearQuickSendRequestNotification());
       _handleUpdateChanged();
       if (_updates.installRequested && _updates.installPermissionNeeded) {
         unawaited(_updates.installPreparedUpdate());
@@ -1053,6 +1054,9 @@ class _LocalistShellState extends State<LocalistShell>
     }
     final pending = _quickSend.pendingRequest;
     if (pending == null) {
+      if (_announcedQuickSendRequestId != null) {
+        unawaited(_bridge.clearQuickSendRequestNotification());
+      }
       _announcedQuickSendRequestId = null;
       return;
     }
@@ -1093,7 +1097,9 @@ class _LocalistShellState extends State<LocalistShell>
     _knownTransferStates.removeWhere(
       (id, _) => !transfers.any((transfer) => transfer.id == id),
     );
-    if (event != null && widget.settings.soundEffectsEnabled) {
+    if (event != null &&
+        widget.settings.soundEffectsEnabled &&
+        (!Platform.isAndroid || _appIsActive)) {
       unawaited(_bridge.playAppSound(event));
     }
   }
@@ -1133,6 +1139,9 @@ class _LocalistShellState extends State<LocalistShell>
         ? '${request.files.length} مورد از ${request.sender.alias} به‌صورت خودکار پذیرفته شد.'
         : '${request.files.length} item${request.files.length == 1 ? '' : 's'} from ${request.sender.alias} accepted automatically.';
     if (!_appIsActive) {
+      // Automatic acceptance is already reflected by the service/transfer UI;
+      // Android should only surface incoming requests that need a decision.
+      if (Platform.isAndroid) return;
       unawaited(
         _bridge.showQuickSendRequestNotification(
           title: persian
@@ -2275,7 +2284,7 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<void> _configureWindowsStartupPreference() async {
     if (!Platform.isWindows || !mounted) return;
-    // A test build must not replace the installed application's Run entry.
+    // A test build must not replace the installed application's logon task.
     // The explicit App behavior toggle remains available for startup testing.
     if (kDebugMode) return;
     if (widget.settings.windowsLaunchAtStartupPrompted) {
@@ -2296,8 +2305,8 @@ class _LocalistShellState extends State<LocalistShell>
         ),
         content: Text(
           context.l10n.isPersian
-              ? 'لوکالیست پس از ورود به ویندوز خودکار باز می‌شود. این گزینه بعداً در تنظیمات برنامه قابل تغییر است.'
-              : 'Localist can open automatically when you sign in to Windows. '
+              ? 'لوکالیست با دسترسی ادمین و از طریق تسک ورود ویندوز اجرا می‌شود؛ هنگام ورود، تأیید UAC تکرار نمی‌شود. این گزینه بعداً در تنظیمات قابل تغییر است.'
+              : 'Localist starts as administrator using a Windows logon task, without another UAC prompt at sign-in. '
                     'You can change this later in App behavior.',
         ),
         actions: [

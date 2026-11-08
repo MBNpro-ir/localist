@@ -37,7 +37,8 @@ def run(helper: Path):
         raise SystemExit('This test requires Windows and an x64 MSVC environment.')
     helper = helper.resolve(strict=True)
     hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW)
-    with tempfile.TemporaryDirectory(prefix='Localist-updater-qa-') as temporary:
+    workspace_build = Path(__file__).resolve().parent.parent / 'build'
+    with tempfile.TemporaryDirectory(prefix='Localist-updater-qa-', dir=workspace_build) as temporary:
         root = Path(temporary).resolve()
         source = root / 'stub.cpp'
         source.write_text(STUB, encoding='utf-8')

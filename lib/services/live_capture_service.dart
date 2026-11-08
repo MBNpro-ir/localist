@@ -22,7 +22,10 @@ class LiveCaptureOptions {
     this.echoCancellation = true,
     this.noiseSuppression = true,
     this.autoGain = true,
+    this.cameraId,
+    this.microphoneId,
   });
+  final String? cameraId, microphoneId;
   final bool background;
   final bool camera,
       microphone,
@@ -38,6 +41,11 @@ class LiveCaptureOptions {
             'width': width,
             'height': height,
             'frameRate': fps,
+            if (cameraId != null) 'deviceId': cameraId,
+            if (cameraId != null)
+              'optional': [
+                {'sourceId': cameraId},
+              ],
           }
         : false,
     'audio': microphone
@@ -47,19 +55,56 @@ class LiveCaptureOptions {
             'autoGainControl': autoGain,
             'sampleRate': 48000,
             'channelCount': 1,
+            if (microphoneId != null) 'deviceId': microphoneId,
+            // Android's native parser still consumes legacy optional APM keys.
+            // Flat W3C properties alone do not reach its AudioSource.
+            'optional': [
+              if (microphoneId != null) {'sourceId': microphoneId},
+              {'googEchoCancellation': echoCancellation},
+              {'googEchoCancellation2': echoCancellation},
+              {'googDAEchoCancellation': echoCancellation},
+              {'googNoiseSuppression': noiseSuppression},
+              {'googNoiseSuppression2': noiseSuppression},
+              {'googAutoGainControl': autoGain},
+              {'googAutoGainControl2': autoGain},
+              {'echoCancellation': echoCancellation},
+              {'noiseSuppression': noiseSuppression},
+              {'autoGainControl': autoGain},
+            ],
           }
         : false,
   };
   void validate() {
     if ((!camera && !microphone) ||
-        ![640, 1280, 1920].contains(width) ||
-        ![480, 720, 1080].contains(height) ||
-        ![15, 24, 30, 60].contains(fps) ||
+        ![320, 640, 1280, 1920].contains(width) ||
+        ![240, 480, 720, 1080].contains(height) ||
+        ![10, 15, 24, 30, 60].contains(fps) ||
         bitrateKbps < 250 ||
         bitrateKbps > 12000) {
       throw const FormatException('Invalid capture settings.');
     }
   }
+
+  LiveCaptureOptions copyWith({
+    bool? background,
+    String? cameraId,
+    String? microphoneId,
+    bool clearCameraId = false,
+  }) => LiveCaptureOptions(
+    background: background ?? this.background,
+    camera: camera,
+    microphone: microphone,
+    rearCamera: rearCamera,
+    width: width,
+    height: height,
+    fps: fps,
+    bitrateKbps: bitrateKbps,
+    echoCancellation: echoCancellation,
+    noiseSuppression: noiseSuppression,
+    autoGain: autoGain,
+    cameraId: clearCameraId ? null : cameraId ?? this.cameraId,
+    microphoneId: microphoneId ?? this.microphoneId,
+  );
 }
 
 /// Local signaling only; WebRTC encrypts media with DTLS-SRTP. No public STUN,
@@ -135,17 +180,48 @@ class CaptureSignalingServer {
   }
 
   Future<void> stop() async {
-    for (final client in clients.toList()) {
-      await client.close();
-    }
-    clients.clear();
-    await _server?.close(force: true);
+    final server = _server;
     _server = null;
     token = '';
+    final sockets = clients.toList();
+    clients.clear();
+    await server?.close(force: true);
+    await Future.wait(
+      sockets.map(
+        (client) => client
+            .close()
+            .timeout(const Duration(seconds: 2), onTimeout: () => null)
+            .then<void>((_) {})
+            .catchError((Object _) {}),
+      ),
+    );
   }
 }
 
 class LiveCaptureService extends ChangeNotifier {
+  static Future<void>? _mediaInitialization;
+  static Future<void> initializeMedia() => _mediaInitialization ??=
+      WebRTC.initialize(
+        options: {
+          if (Platform.isAndroid) 'androidUseHardwareAudioProcessing': false,
+        },
+      ).catchError((Object error) {
+        _mediaInitialization = null;
+        throw error;
+      });
+  static Future<List<MediaDeviceInfo>> inputDevices() async {
+    await initializeMedia();
+    return (await navigator.mediaDevices.enumerateDevices())
+        .where(
+          (device) =>
+              device.kind == 'audioinput' || device.kind == 'videoinput',
+        )
+        .where(
+          (device) => !device.label.toLowerCase().contains('localist camera'),
+        )
+        .toList();
+  }
+
   MediaStream? localStream, remoteStream;
   CaptureSignalingServer? _server;
   WebSocket? _receiver;
@@ -154,6 +230,10 @@ class LiveCaptureService extends ChangeNotifier {
   List<String> addresses = [];
   LiveCaptureOptions options = const LiveCaptureOptions();
   bool busy = false, microphoneMuted = false, cameraPaused = false;
+  bool playbackMuted = false, torch = false;
+  double zoom = 1, maxZoom = 1;
+  bool hasTorch = false;
+  String? activeCameraId;
   String error = '', status = '';
   bool get broadcasting => _server != null;
   bool get receiving => _receiver != null;
@@ -199,6 +279,7 @@ class LiveCaptureService extends ChangeNotifier {
       }
       options = value;
       if (_disposed) return;
+      await initializeMedia();
       if (Platform.isAndroid && value.background) {
         _captureChannel.setMethodCallHandler((call) async {
           if (call.method == 'stopCapture') await stop();
@@ -213,13 +294,38 @@ class LiveCaptureService extends ChangeNotifier {
           return;
         }
       }
-      localStream = await navigator.mediaDevices.getUserMedia(
-        value.constraints,
-      );
+      final constraints = value.constraints;
+      if (Platform.isWindows && value.camera && value.cameraId == null) {
+        final inputs = (await Helper.cameras)
+            .where(
+              (device) =>
+                  !device.label.toLowerCase().contains('localist camera'),
+            )
+            .toList();
+        if (inputs.isEmpty) {
+          throw StateError(
+            'دوربین ورودی دیگری پیدا نشد؛ برای دریافت از گوشی، لینک را در بخش گیرنده وارد کنید. / '
+            'No input camera found. To receive from your phone, use the Receive section.',
+          );
+        }
+        final video = constraints['video'] as Map<String, dynamic>;
+        video.remove('facingMode');
+        video['optional'] = [
+          {'sourceId': inputs.first.deviceId},
+        ];
+      }
+      if (value.microphoneId != null && value.microphone) {
+        await selectMicrophone(value.microphoneId!);
+      }
+      localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      activeCameraId =
+          localStream?.getVideoTracks().firstOrNull?.getSettings()['deviceId']
+              as String?;
       if (_disposed) {
         await stop();
         return;
       }
+      await refreshCameraControls();
       // Preview must never play our own microphone through the local speakers.
       final html = await rootBundle.loadString('assets/live_capture.html');
       final server = CaptureSignalingServer(html: html, accept: _acceptViewer);
@@ -348,6 +454,7 @@ class LiveCaptureService extends ChangeNotifier {
     error = '';
     _changed();
     try {
+      await initializeMedia();
       final socket = await WebSocket.connect(
         uri
             .replace(
@@ -371,6 +478,9 @@ class LiveCaptureService extends ChangeNotifier {
       }
       peer.onTrack = (event) {
         if (event.streams.isNotEmpty) remoteStream = event.streams.first;
+        if (event.track.kind == 'audio' && playbackMuted) {
+          unawaited(Helper.setVolume(0, event.track));
+        }
         _changed();
       };
       peer.onIceCandidate = (candidate) {
@@ -455,9 +565,122 @@ class LiveCaptureService extends ChangeNotifier {
     _changed();
   }
 
-  Future<void> switchCamera() async {
+  Future<void> selectMicrophone(String id) async {
+    final inputs = await inputDevices();
+    if (!inputs.any(
+      (device) => device.kind == 'audioinput' && device.deviceId == id,
+    )) {
+      throw StateError(
+        'ورودی میکروفون در دسترس نیست. / Microphone input is no longer available.',
+      );
+    }
+    await Helper.selectAudioInput(id);
+    options = options.copyWith(microphoneId: id);
+    _changed();
+  }
+
+  Future<void> setPlaybackMuted(bool mute) async {
+    for (final track
+        in remoteStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
+      await Helper.setVolume(mute ? 0 : 1, track);
+    }
+    playbackMuted = mute;
+    _changed();
+  }
+
+  Future<void> refreshCameraControls() async {
+    maxZoom = zoom = 1;
+    hasTorch = torch = false;
     final track = localStream?.getVideoTracks().firstOrNull;
-    if (track != null) await Helper.switchCamera(track);
+    if (!Platform.isAndroid || track == null) return;
+    try {
+      final result =
+          await _captureChannel.invokeMapMethod<String, dynamic>(
+            'cameraCapabilities',
+            {'cameraId': activeCameraId, 'rear': options.rearCamera},
+          ) ??
+          {};
+      maxZoom = ((result['maxZoom'] as num?)?.toDouble() ?? 1).clamp(1, 100);
+      hasTorch = result['torch'] == true;
+    } catch (_) {
+      /* Optional hardware controls never block capture. */
+    }
+    _changed();
+  }
+
+  Future<void> setZoom(double value) async {
+    final track = localStream?.getVideoTracks().firstOrNull;
+    if (track == null) return;
+    final target = value.clamp(1, maxZoom);
+    await Helper.setZoom(track, target.toDouble());
+    zoom = target.toDouble();
+    _changed();
+  }
+
+  Future<void> setTorch(bool enabled) async {
+    final track = localStream?.getVideoTracks().firstOrNull;
+    if (track == null || !hasTorch) return;
+    await track.setTorch(enabled);
+    torch = enabled;
+    // Upstream torch rebuilds its Camera2 request; reapply the current crop.
+    await Helper.setZoom(track, zoom);
+    _changed();
+  }
+
+  Future<void> prepareBackgroundCapture() async {
+    if (!broadcasting || !Platform.isAndroid) return;
+    if (!_foregroundOwned) {
+      _captureChannel.setMethodCallHandler((call) async {
+        if (call.method == 'stopCapture') await stop();
+      });
+      _foregroundOwned = true;
+      try {
+        await _captureChannel.invokeMethod<bool>('start', {
+          'camera': options.camera,
+          'microphone': options.microphone,
+        });
+      } catch (_) {
+        _foregroundOwned = false;
+        _captureChannel.setMethodCallHandler(null);
+        rethrow;
+      }
+      if (!broadcasting || _disposed) {
+        await _captureChannel.invokeMethod<bool>('stop');
+        _foregroundOwned = false;
+        return;
+      }
+    }
+    options = options.copyWith(background: true);
+    _changed();
+  }
+
+  Future<void> continueWithScreenOff() async {
+    await prepareBackgroundCapture();
+    if (broadcasting && Platform.isAndroid) {
+      await _captureChannel.invokeMethod('background');
+    }
+  }
+
+  Future<void> switchCamera({String? cameraId}) async {
+    final track = localStream?.getVideoTracks().firstOrNull;
+    if (track != null) {
+      if (torch) await setTorch(false);
+      final cameras = (await inputDevices())
+          .where((device) => device.kind == 'videoinput')
+          .toList();
+      final current = cameras.indexWhere(
+        (device) => device.deviceId == activeCameraId,
+      );
+      final next =
+          cameraId ??
+          (cameras.isEmpty
+              ? null
+              : cameras[(current + 1) % cameras.length].deviceId);
+      await Helper.switchCamera(track, next);
+      activeCameraId = next;
+      options = options.copyWith(cameraId: next, clearCameraId: next == null);
+      await refreshCameraControls();
+    }
   }
 
   Future<void>? _stopping;
@@ -466,22 +689,17 @@ class LiveCaptureService extends ChangeNotifier {
   Future<void> _stop() async {
     final receiver = _receiver;
     _receiver = null;
-    await receiver?.close();
     final server = _server;
     _server = null;
-    await server?.stop();
-    for (final peer in _peers.values.toList()) {
-      await peer.close();
-    }
-    _peers.clear();
-    _pendingCandidates.clear();
     final local = localStream;
     localStream = null;
     remoteStream = null;
+    _changed();
+    // Stop private media and its CPU lease before waiting for network peers.
     for (final track in local?.getTracks() ?? <MediaStreamTrack>[]) {
-      await track.stop();
+      await track.stop().catchError((Object _) {});
     }
-    await local?.dispose();
+    await local?.dispose().catchError((Object _) {});
     if (_foregroundOwned) {
       _foregroundOwned = false;
       _captureChannel.setMethodCallHandler(null);
@@ -491,8 +709,21 @@ class LiveCaptureService extends ChangeNotifier {
         error = 'Could not stop the capture notification: $exception';
       }
     }
+    for (final peer in _peers.values.toList()) {
+      await peer.close().catchError((Object _) {});
+    }
+    _peers.clear();
+    _pendingCandidates.clear();
+    await server?.stop();
+    await receiver
+        ?.close()
+        .timeout(const Duration(seconds: 2), onTimeout: () => null)
+        .catchError((Object _) {});
     microphoneMuted = false;
     cameraPaused = false;
+    playbackMuted = torch = hasTorch = false;
+    zoom = maxZoom = 1;
+    activeCameraId = null;
     status = '';
     FeatureActivityService.instance.setActive(
       this,

@@ -11,7 +11,11 @@ AppPublisher=MBN
 AppPublisherURL=https://app.mbnpro.ir/
 DefaultDirName={localappdata}\Programs\{#DisplayName}
 DefaultGroupName={#DisplayName}
+#if Int(IsQa) != 0
 PrivilegesRequired=lowest
+#else
+PrivilegesRequired=admin
+#endif
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
@@ -51,6 +55,14 @@ Source: "{#UninstallShell}"; DestDir: "{app}"; DestName: "MBNUninstall.exe"; Fla
 [Icons]
 Name: "{group}\{#DisplayName}"; Filename: "{app}\{#Executable}"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#DisplayName}"; Filename: "{app}\{#Executable}"; WorkingDir: "{app}"; Tasks: desktopicon
+
+#if Int(IsQa) == 0
+[Run]
+Filename: "{app}\{#Executable}"; Parameters: "--repair-elevated-startup"; Flags: runhidden waituntilterminated
+
+[UninstallRun]
+Filename: "{app}\{#Executable}"; Parameters: "--remove-windows-integration"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLocalistIntegration"
+#endif
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#RegistryExe}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#Executable}"; Flags: uninsdeletekey

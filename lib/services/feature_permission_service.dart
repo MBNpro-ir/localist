@@ -13,6 +13,7 @@ enum FeatureAccess {
   storage,
   camera,
   microphone,
+  bluetoothAudio,
   nearbyDevices,
   localNetwork,
   overlay,
@@ -78,6 +79,8 @@ class FeaturePermissionService with WidgetsBindingObserver {
       fa ? 'فایل‌ها و Download/Localist' : 'Files and Download/Localist',
     FeatureAccess.camera => fa ? 'دوربین' : 'Camera',
     FeatureAccess.microphone => fa ? 'میکروفن' : 'Microphone',
+    FeatureAccess.bluetoothAudio =>
+      fa ? 'میکروفون و صدای بلوتوث' : 'Bluetooth microphone and audio',
     FeatureAccess.nearbyDevices =>
       fa ? 'دستگاه‌های نزدیک و Wi-Fi' : 'Nearby devices and Wi-Fi',
     FeatureAccess.localNetwork => fa ? 'شبکهٔ محلی' : 'Local network',
@@ -101,6 +104,8 @@ class FeaturePermissionService with WidgetsBindingObserver {
         sdk >= 30 ? Permission.manageExternalStorage : Permission.storage,
       FeatureAccess.camera => Permission.camera,
       FeatureAccess.microphone => Permission.microphone,
+      FeatureAccess.bluetoothAudio =>
+        sdk >= 31 ? Permission.bluetoothConnect : null,
       FeatureAccess.nearbyDevices =>
         sdk >= 33 ? Permission.nearbyWifiDevices : Permission.locationWhenInUse,
       FeatureAccess.overlay => Permission.systemAlertWindow,
@@ -131,6 +136,7 @@ class FeaturePermissionService with WidgetsBindingObserver {
       return features[name] == true;
     }
     return switch (access) {
+      FeatureAccess.bluetoothAudio => true,
       FeatureAccess.battery => _bridge.isIgnoringBatteryOptimizations(),
       FeatureAccess.localNetwork => _bridge.hasLocalNetworkPermission(),
       FeatureAccess.installUpdates => _bridge.canInstallAndroidPackages(),

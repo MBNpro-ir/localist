@@ -18,9 +18,24 @@ All notable user-facing changes are documented here. Version numbers follow [Sem
   USB tethering support, capture options and Android foreground capture controls.
 - Added a Persian animated Windows Setup and uninstaller with upgrade/repair
   detection, downgrade protection and preservation of user-owned files.
+- Consolidated Android foreground services and incoming requests into one
+  silent notification, retiring old noisy channels and redundant alerts.
+- Honor the selected Android target ABI for dependency JNI libraries in
+  non-split APKs, avoiding extra architectures and unnecessary package size.
+- Added Android screen-off capture, battery profiles, microphone/camera input
+  selection, resolution/FPS/bitrate, noise/echo/gain controls, zoom and torch.
+  Fixed capture startup and wait for foreground-service readiness before hiding.
+- Added a standalone Localist Camera DirectShow device for x86/x64 Windows
+  consumers without OBS, plus direct received-audio routing and an explicit,
+  signature-checked official VB-CABLE installer download.
+- Require administrator privileges for Windows app/remote hosts, use a
+  highest-privilege per-user startup task, and remove the remote helper icon.
+  Final elevated task launch/sign-in validation remains pending after canceled UAC.
 
 See [local validation](docs/VALIDATION_6.1.0_LOCAL.md) for per-setting checks,
 real media/authentication/VPN regression tests, and remaining hardware limits.
+See the [follow-up validation](docs/VALIDATION_6.1.0_NOTIFICATIONS_DEVICES.md)
+for notifications, screen-off capture, virtual devices and Windows integration.
 
 ## [6.0.9] - 2026-10-17
 

@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'desktop_host_bridge.dart';
 
-const desktopHostStatusVersion = 2;
+const desktopHostStatusVersion = 3;
 
 class DesktopHostProcess {
   DesktopHostProcess(this.pid, this.exitCode);
@@ -60,6 +60,7 @@ class DesktopHostRuntime {
           executablePath.replaceAll('/', '\\').toLowerCase() &&
       data['hostFingerprint'] == digest &&
       data['ready'] == true &&
+      data['elevated'] == true &&
       data['pid'] is int &&
       (data['pid'] as int) > 0;
 

@@ -1,5 +1,6 @@
 #include "embedded_remote.h"
 #include <flutter/dart_project.h>
+#include <shellapi.h>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -26,6 +27,13 @@ int RunEmbeddedRemote(HINSTANCE instance) {
   const auto directory = ExecutableDirectory();
   SetCurrentDirectoryW(directory.c_str());
   const auto command_arguments = GetCommandLineArguments();
+  // This helper is not a second app entry point. An accidental double-click
+  // opens Localist instead of the upstream desktop shell.
+  if (command_arguments.empty()) {
+    const auto app = directory + L"\\Localist.exe";
+    return reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", app.c_str(),
+        nullptr, directory.c_str(), SW_SHOWNORMAL)) > 32 ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
   const bool is_host = std::find(command_arguments.begin(), command_arguments.end(),
                                  "--localist-host") != command_arguments.end();
   HANDLE host_mutex = nullptr;

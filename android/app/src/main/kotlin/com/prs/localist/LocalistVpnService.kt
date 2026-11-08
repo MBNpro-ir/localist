@@ -1,13 +1,11 @@
 package com.prs.localist
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
+import androidx.core.app.NotificationCompat
+import com.carriez.flutter_hbb.LocalistNotifications
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.VpnService
@@ -39,8 +37,7 @@ class LocalistVpnService : VpnService() {
                     State.receivingRunning ||
                     State.localProxyRunning
             ) {
-                val manager = getSystemService(NotificationManager::class.java)
-                manager.notify(NOTIFICATION_ID, buildNotification())
+                LocalistNotifications.update(this@LocalistVpnService, notificationLabel(), notificationDetail())
                 notificationHandler.postDelayed(this, NOTIFICATION_REFRESH_MS)
             }
         }
@@ -111,8 +108,7 @@ class LocalistVpnService : VpnService() {
         State.sessionRxBytes = 0
         State.sessionTxBytes = 0
 
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startNotification()
         acquireRuntimeLocks()
         runCatching { vpnInterface?.close() }
         vpnInterface = null
@@ -159,8 +155,7 @@ class LocalistVpnService : VpnService() {
         tunProxyForwarder?.stop()
         tunProxyForwarder = null
 
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startNotification()
         acquireRuntimeLocks()
         startAppLocalForwarder(
             protocol = State.remoteProtocol,
@@ -215,8 +210,7 @@ class LocalistVpnService : VpnService() {
             localPort = localPort,
         )
 
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startNotification()
         acquireRuntimeLocks()
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
@@ -476,7 +470,7 @@ class LocalistVpnService : VpnService() {
         stopDiscoveryResponder()
         releaseRuntimeLocks()
         if (removeForeground) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            LocalistNotifications.stop(this)
             stopSelf()
         }
         LocalistWidgetProvider.updateAll(this)
@@ -515,15 +509,7 @@ class LocalistVpnService : VpnService() {
         }
     }
 
-    private fun buildNotification(): Notification {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-            ?: Intent(this, MainActivity::class.java)
-        val contentIntent = PendingIntent.getActivity(
-            this,
-            1,
-            launchIntent,
-            pendingIntentFlags(),
-        )
+    private fun startNotification() {
         val stopIntent = PendingIntent.getService(
             this,
             2,
@@ -536,55 +522,22 @@ class LocalistVpnService : VpnService() {
             Intent(this, LocalistVpnService::class.java).setAction(ACTION_RESTART),
             pendingIntentFlags(),
         )
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-        val title = when (State.mode) {
-            MODE_RECEIVING -> LocalistText.choose(this, "دریافت VPN لوکالیست فعال است", "Localist receiving VPN is running")
-            MODE_LOCAL_PROXY -> LocalistText.choose(this, "پروکسی محلی لوکالیست فعال است", "Localist local proxy is running")
-            else -> LocalistText.choose(this, "اشتراک VPN لوکالیست فعال است", "Localist proxy is running")
-        }
-        val endpoint = when (State.mode) {
-            MODE_RECEIVING ->
-                "VPN via ${State.remoteProtocol.uppercase(Locale.US)} ${State.remoteHost}:${State.remotePort}; local proxy 127.0.0.1:${State.localProxyPort}"
-            MODE_LOCAL_PROXY ->
-                "127.0.0.1:${State.localProxyPort} via ${State.remoteProtocol.uppercase(Locale.US)} ${State.remoteHost}:${State.remotePort}"
-            else ->
-                State.protocols.joinToString(" / ") { protocol ->
-                    "${protocol.uppercase(Locale.US)} ${State.ipAddress}:${State.protocolPorts[protocol] ?: defaultPort(protocol)}"
-                }
-        }
-        return builder
-            .setSmallIcon(android.R.drawable.stat_sys_upload_done)
-            .setContentTitle(title)
-            .setContentText(
-                "$endpoint - " +
-                    formatBytes(State.sessionRxBytes + State.sessionTxBytes),
-            )
-            .setOngoing(true)
-            .setColor(Color.rgb(103, 58, 183))
-            .setContentIntent(contentIntent)
-            .addAction(android.R.drawable.ic_media_pause, LocalistText.choose(this, "توقف", "Stop"), stopIntent)
-            .addAction(android.R.drawable.ic_popup_sync, LocalistText.choose(this, "شروع مجدد", "Restart"), restartIntent)
-            .build()
+        LocalistNotifications.start(this, notificationLabel(), notificationDetail(), listOf(
+            NotificationCompat.Action(android.R.drawable.ic_media_pause,
+                LocalistText.choose(this, "توقف VPN", "Stop VPN"), stopIntent),
+            NotificationCompat.Action(android.R.drawable.ic_popup_sync,
+                LocalistText.choose(this, "شروع مجدد VPN", "Restart VPN"), restartIntent),
+        ))
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return
-        }
-        val channel = NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
-            "localist service",
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply {
-            description = "Shows localist VPN and proxy sharing status."
-        }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    private fun notificationLabel(): String = when (State.mode) {
+        MODE_RECEIVING -> LocalistText.choose(this, "دریافت VPN", "VPN receiving")
+        MODE_LOCAL_PROXY -> LocalistText.choose(this, "پروکسی محلی", "Local proxy")
+        else -> LocalistText.choose(this, "اشتراک VPN", "VPN sharing")
     }
+
+    private fun notificationDetail() = LocalistText.choose(this, "فعال", "Active") +
+        " · " + formatBytes(State.sessionRxBytes + State.sessionTxBytes)
 
     private fun pendingIntentFlags(): Int {
         return PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -625,8 +578,6 @@ class LocalistVpnService : VpnService() {
         const val EXTRA_DISCOVERY_DEVICE_ID = "discoveryDeviceId"
         val SUPPORTED_PROTOCOLS = setOf("http", "socks5")
 
-        private const val NOTIFICATION_ID = 10888
-        private const val NOTIFICATION_CHANNEL_ID = "localist_service"
         private const val NOTIFICATION_REFRESH_MS = 5_000L
         private const val PRSTUN_PROXY_PORT = 3782
         private const val PREFS_STATS = "localist_stats"

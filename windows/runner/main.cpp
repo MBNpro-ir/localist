@@ -4,6 +4,7 @@
 #include <shobjidl.h>
 
 #include <cctype>
+#include <algorithm>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -14,6 +15,8 @@
 
 #include "flutter_window.h"
 #include "embedded_remote.h"
+#include "elevated_startup.h"
+#include "virtual_devices.h"
 #include "utils.h"
 
 namespace {
@@ -327,6 +330,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Explorer's sign-in Run key starts applications in an arbitrary directory.
   ::SetCurrentDirectoryW(ExeDirectory().c_str());
   const auto arguments = GetCommandLineArguments();
+  if (std::find(arguments.begin(), arguments.end(), "--repair-elevated-startup") != arguments.end()) {
+    return MigrateLegacyLocalistStartup(JoinPath(ExeDirectory(), L"Localist.exe")) ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
+  if (std::find(arguments.begin(), arguments.end(), "--remove-windows-integration") != arguments.end()) {
+    const auto app = JoinPath(ExeDirectory(), L"Localist.exe");
+    const bool task = !IsElevatedStartupEnabled(app) || ConfigureElevatedStartup(false, app);
+    const bool camera = ConfigureLocalistCamera(ExeDirectory(), false);
+    return task && camera ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
   bool startup = false;
   for (const auto& argument : arguments) {
     if (argument == "--startup") startup = true;

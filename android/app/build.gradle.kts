@@ -24,6 +24,7 @@ android {
         targetSdk = 37
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "com.prs.localist.NotificationRegressionRunner"
     }
 
     packaging {
@@ -74,6 +75,28 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+    }
+}
+
+androidComponents {
+    finalizeDsl { extension ->
+        // Flutter's non-split default includes all supported ABIs even when a
+        // single target was requested. Filter dependency JNI libraries too,
+        // after the plugin finalizes its defaults. Keep ABI splits untouched.
+        val targets = providers.gradleProperty("target-platform").orNull
+        if (!extension.splits.abi.isEnable && targets != null) {
+            val abiByPlatform = mapOf(
+                "android-arm" to "armeabi-v7a",
+                "android-arm64" to "arm64-v8a",
+                "android-x64" to "x86_64",
+            )
+            extension.defaultConfig.ndk.abiFilters.apply {
+                clear()
+                addAll(targets.split(',').map { platform ->
+                    requireNotNull(abiByPlatform[platform]) { "Unsupported Android target: $platform" }
+                })
+            }
         }
     }
 }

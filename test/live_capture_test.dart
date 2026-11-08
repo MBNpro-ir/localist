@@ -32,6 +32,27 @@ void main() {
         () => const LiveCaptureOptions(fps: 500).validate(),
         throwsFormatException,
       );
+      const LiveCaptureOptions(
+        width: 320,
+        height: 240,
+        fps: 10,
+        bitrateKbps: 350,
+      ).validate();
+      final audio =
+          const LiveCaptureOptions(
+                noiseSuppression: false,
+                autoGain: false,
+                echoCancellation: false,
+                microphoneId: 'usb-mic',
+              ).constraints['audio']
+              as Map;
+      final native = {
+        for (final option in audio['optional'] as List) ...(option as Map),
+      };
+      expect(native['googNoiseSuppression'], false);
+      expect(native['googAutoGainControl'], false);
+      expect(native['googEchoCancellation'], false);
+      expect(native['sourceId'], 'usb-mic');
     },
   );
   test('signaling rejects binary, oversized and unrelated messages', () {

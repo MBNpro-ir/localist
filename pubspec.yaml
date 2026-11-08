@@ -61,7 +61,7 @@ dependencies:
   characters: ^1.4.0
   desktop_drop: ^0.4.4
   flutter_secure_storage: ^11.2.0
-  flutter_webrtc: ^1.6.3
+  flutter_webrtc: 1.6.3
 
 dev_dependencies:
   get: ^4.7.3

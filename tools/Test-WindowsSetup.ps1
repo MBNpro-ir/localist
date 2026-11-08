@@ -43,7 +43,7 @@ function Run-Core([string]$Name, [bool]$Success = $true) {
     else { Require ($process.ExitCode -ne 0) "$Name did not reject a downgrade" }
 }
 Write-Fixture (Join-Path $payload $exe) "$version.$build"
-foreach ($file in @('flutter_windows.dll','LocalistUpdater.exe', 'LocalistRemote.exe', 'librustdesk.dll','data/app.so','data/icudtl.dat')) {
+foreach ($file in @('flutter_windows.dll','LocalistUpdater.exe', 'LocalistRemote.exe', 'librustdesk.dll',"LocalistCamera64-$version.$build.dll","LocalistCamera32-$version.$build.dll",'data/app.so','data/icudtl.dat')) {
     [IO.File]::WriteAllText((Join-Path $payload $file), 'installer fixture')
 }
 $parameters = @{ Bundle = "$relative/payload"; Output = "$relative/output"; Qa = $true }

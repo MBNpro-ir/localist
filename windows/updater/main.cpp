@@ -221,20 +221,18 @@ bool IsCompleteBundle(const std::wstring& bundle) {
 
 bool LaunchUpdatedApplication(const std::wstring& executable,
                               const std::wstring& version) {
-  std::wstring command_line = QuoteArgument(executable) + L" --updated-to=" +
-                              QuoteArgument(version);
-  std::vector<wchar_t> buffer(command_line.begin(), command_line.end());
-  buffer.push_back(L'\0');
-  STARTUPINFOW startup_info{};
-  startup_info.cb = sizeof(startup_info);
-  PROCESS_INFORMATION process_info{};
-  if (!CreateProcessW(executable.c_str(), buffer.data(), nullptr, nullptr, FALSE,
-                      CREATE_UNICODE_ENVIRONMENT, nullptr, nullptr, &startup_info,
-                      &process_info)) {
-    return false;
-  }
-  CloseHandle(process_info.hThread);
-  CloseHandle(process_info.hProcess);
+  const auto parameters = L"--updated-to=" + QuoteArgument(version);
+  const auto directory = executable.substr(0, executable.find_last_of(L"\\/"));
+  SHELLEXECUTEINFOW launch{};
+  launch.cbSize = sizeof(launch);
+  launch.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+  launch.lpVerb = L"open";
+  launch.lpFile = executable.c_str();
+  launch.lpParameters = parameters.c_str();
+  launch.lpDirectory = directory.c_str();
+  launch.nShow = SW_SHOWNORMAL;
+  if (!ShellExecuteExW(&launch)) return false;
+  if (launch.hProcess) CloseHandle(launch.hProcess);
   return true;
 }
 

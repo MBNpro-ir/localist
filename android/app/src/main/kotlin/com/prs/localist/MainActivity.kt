@@ -2,9 +2,6 @@ package com.prs.localist
 
 import android.Manifest
 import android.app.Activity
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -104,15 +101,16 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         CaptureForegroundService.channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "localist/capture").apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "cameraCapabilities" -> runCatching {
+                        CaptureDeviceControls.capabilities(this@MainActivity,
+                            call.argument<String>("cameraId"), call.argument<Boolean>("rear") != false)
+                    }.onSuccess { result.success(it) }.onFailure { result.error("CAMERA_CONTROLS", it.message, null) }
+                    "background" -> result.success(CaptureDeviceControls.background(this@MainActivity))
                     "start" -> {
                         val camera = call.argument<Boolean>("camera") == true
                         val microphone = call.argument<Boolean>("microphone") == true
                         if (!camera && !microphone) result.error("NO_CAPTURE", "Choose camera or microphone.", null)
-                        else runCatching {
-                            val intent = Intent(this@MainActivity, CaptureForegroundService::class.java)
-                                .putExtra("camera", camera).putExtra("microphone", microphone)
-                            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
-                        }.onSuccess { result.success(true) }.onFailure { result.error("CAPTURE_START", it.message, null) }
+                        else CaptureForegroundService.requestStart(this@MainActivity, camera, microphone, result)
                     }
                     "stop" -> { stopService(Intent(this@MainActivity, CaptureForegroundService::class.java)); result.success(true) }
                     else -> result.notImplemented()
@@ -184,6 +182,10 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                 "hasQuickSendSharedFiles" -> result.success(hasQuickSendSharedFiles())
                 "showQuickSendRequestNotification" ->
                     showQuickSendRequestNotification(call, result)
+                "clearQuickSendRequestNotification" -> {
+                    QuickSendForegroundService.clearEvent(applicationContext)
+                    result.success(true)
+                }
                 "playAppSound" -> playAppSound(call, result)
                 "takeQuickSendNotificationTap" ->
                     result.success(takeQuickSendNotificationTap())
@@ -1254,7 +1256,6 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                 applicationContext,
                 title,
                 message,
-                call.argument<Boolean>("soundEnabled") != false,
             ),
         )
     }
@@ -1289,6 +1290,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             return
         }
         pendingQuickSendNotificationTap = true
+        QuickSendForegroundService.clearEvent(applicationContext)
         methodChannel?.invokeMethod("quickSendNotificationTapped", null)
     }
 

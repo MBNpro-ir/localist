@@ -6,3 +6,4 @@ third_party/localist_remote/patches/** -text -whitespace
 third_party/localist_remote/windows/runtime/** -text
 third_party/localist_remote/android/src/main/jniLibs/** -text
 third_party/localist_remote/android/maven/** -text
+third_party/virtual_camera/upstream/** -text -whitespace

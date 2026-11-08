@@ -9,14 +9,27 @@ Android VPN preservation and transfer batch sounds are improved.
 
 Camera & Mic shares live audio/video over Wi-Fi or USB tethering using local
 WebRTC. Receive in Localist, a browser or an OBS Browser Source. Android capture
-can continue with a visible foreground notification and Stop action. Virtual
-camera/microphone routing to other applications uses OBS and an appropriate
-virtual audio device.
+can continue with the screen off and a silent foreground notification/Stop
+action. Battery presets, resolution, FPS, bitrate, input selection, audio
+processing, hardware zoom and torch controls are available.
+
+Windows includes a standalone Localist Camera for DirectShow applications;
+OBS is no longer needed for this path. Received audio can route directly to a
+virtual audio device. An explicit action downloads and validates the original
+signed VB-CABLE installer; its vendor license and installation UI are retained.
+
+Android foreground activities share one silent notification. Windows app and
+remote hosts require administrator privileges, with per-user elevated startup
+task registration and a hidden helper icon. Final elevated-task/sign-in testing
+remains pending because the last UAC retry was canceled.
 
 The Windows package now includes a Persian animated Setup and matching removal
 interface with installation discovery, repair/upgrade and downgrade protection.
 Validation and hardware limits are documented in
 [the local validation report](docs/VALIDATION_6.1.0_LOCAL.md).
+See [follow-up validation](docs/VALIDATION_6.1.0_NOTIFICATIONS_DEVICES.md) for
+167 passing Flutter tests, real emulator screen-off capture, native virtual
+camera testing and remaining physical-device/driver acceptance limits.
 
 ## [6.0.9] — Reliable remote passwords and immediate settings synchronization
 

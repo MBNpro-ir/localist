@@ -20,7 +20,6 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.content.res.Configuration.ORIENTATION_LANDSCAPE
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
 import android.hardware.display.VirtualDisplay
@@ -36,7 +35,6 @@ import android.view.WindowManager
 import androidx.annotation.Keep
 import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import java.util.concurrent.Executors
@@ -47,10 +45,6 @@ import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.min
 
-const val DEFAULT_NOTIFY_TITLE = "Localist"
-const val DEFAULT_NOTIFY_TEXT = "Service is running"
-const val DEFAULT_NOTIFY_ID = 1
-const val NOTIFY_ID_OFFSET = 100
 
 const val MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_VP9
 
@@ -151,12 +145,14 @@ class MainService : Service() {
                         if (incomingVoiceCall) {
                             voiceCallRequestNotification(id, "Voice Call Request", username, peerId)
                         } else {
+                            cancelNotification(id)
                             if (!switchOutVoiceCall()) {
                                 Log.e(logTag, "switchOutVoiceCall fail")
                                 showVoiceCallError("Failed to switch out voice call.")
                             }
                         }
                     } else {
+                        cancelNotification(id)
                         if (!switchToVoiceCall()) {
                             Log.e(logTag, "switchToVoiceCall fail")
                             showVoiceCallError(audioRecordHandle.getVoiceCallStartError())
@@ -231,11 +227,6 @@ class MainService : Service() {
     // audio
     private val audioRecordHandle = AudioRecordHandle(this, { isStart }, { isAudioStart })
 
-    // notification
-    private lateinit var notificationManager: NotificationManager
-    private lateinit var notificationChannel: String
-    private lateinit var notificationBuilder: NotificationCompat.Builder
-
     override fun onCreate() {
         super.onCreate()
         Log.d(logTag,"MainService onCreate, sdk int:${Build.VERSION.SDK_INT} reuseVirtualDisplay:$reuseVirtualDisplay")
@@ -246,7 +237,7 @@ class MainService : Service() {
             serviceHandler = Handler(looper)
         }
         updateScreenInfo(resources.configuration.orientation)
-        initNotification()
+        LocalistNotifications.initialize(this)
 
         // keep the config dir same with flutter
         val prefs = applicationContext.getSharedPreferences(KEY_SHARED_PREFERENCES, FlutterActivity.MODE_PRIVATE)
@@ -259,6 +250,7 @@ class MainService : Service() {
     }
 
     override fun onDestroy() {
+        LocalistNotifications.stop(this)
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
         super.onDestroy()
@@ -685,7 +677,7 @@ class MainService : Service() {
         mediaProjectionForegroundService = false
         microphoneForegroundService = false
         checkMediaPermission()
-        stopForeground(true)
+        LocalistNotifications.stop(this)
         stopService(Intent(this, FloatingWindowService::class.java))
         stopSelf()
     }
@@ -827,59 +819,13 @@ class MainService : Service() {
         }
     }
 
-    private fun initNotification() {
-        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationChannel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelId = "Localist"
-            val channelName = "Localist Service"
-            val channel = NotificationChannel(
-                channelId,
-                channelName, NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Localist Service Channel"
-            }
-            channel.lightColor = Color.BLUE
-            channel.lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-            notificationManager.createNotificationChannel(channel)
-            channelId
-        } else {
-            ""
-        }
-        notificationBuilder = NotificationCompat.Builder(this, notificationChannel)
-    }
-
-    @SuppressLint("UnspecifiedImmutableFlag")
     private fun createForegroundNotification() {
-        val intent = (packageManager.getLaunchIntentForPackage(packageName)
-            ?: Intent(this, RemoteActivity::class.java)).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-            action = Intent.ACTION_MAIN
-            addCategory(Intent.CATEGORY_LAUNCHER)
-            putExtra("type", type)
-        }
-        val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.getActivity(this, 0, intent, FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE)
-        } else {
-            PendingIntent.getActivity(this, 0, intent, FLAG_UPDATE_CURRENT)
-        }
-        val notification = notificationBuilder
-            .setOngoing(true)
-            .setSmallIcon(R.mipmap.ic_stat_logo)
-            .setDefaults(Notification.DEFAULT_ALL)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setContentTitle(DEFAULT_NOTIFY_TITLE)
-            .setContentText(translate(DEFAULT_NOTIFY_TEXT))
-            .setOnlyAlertOnce(true)
-            .setContentIntent(pendingIntent)
-            .setColor(ContextCompat.getColor(this, R.color.primary))
-            .setWhen(System.currentTimeMillis())
-            .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(DEFAULT_NOTIFY_ID, notification, foregroundServiceType())
-        } else {
-            startForeground(DEFAULT_NOTIFY_ID, notification)
-        }
+        LocalistNotifications.start(this,
+            LocalistNotifications.text(this, "ریموت کنترل", "Remote control"),
+            if (mediaProjectionForegroundService)
+                LocalistNotifications.text(this, "اشتراک صفحه فعال است", "Screen sharing active")
+            else LocalistNotifications.text(this, "آمادهٔ اتصال ورودی", "Ready for incoming connections"),
+            types = if (Build.VERSION.SDK_INT >= 29) foregroundServiceType() else null)
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -940,16 +886,9 @@ class MainService : Service() {
         username: String,
         peerId: String
     ) {
-        val notification = notificationBuilder
-            .setOngoing(false)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setContentTitle(translate("Do you accept?"))
-            .setContentText("$type:$username-$peerId")
-            // .setStyle(MediaStyle().setShowActionsInCompactView(0, 1))
-            // .addAction(R.drawable.check_blue, "check", genLoginRequestPendingIntent(true))
-            // .addAction(R.drawable.close_red, "close", genLoginRequestPendingIntent(false))
-            .build()
-        notificationManager.notify(getClientNotifyID(clientID), notification)
+        LocalistNotifications.showEvent(this, "remote:$clientID", javaClass.name,
+            LocalistNotifications.text(this, "درخواست اتصال", "Connection request"),
+            "$type: $username - $peerId", remotePendingIntent())
     }
 
     private fun onClientAuthorizedNotification(
@@ -959,13 +898,6 @@ class MainService : Service() {
         peerId: String
     ) {
         cancelNotification(clientID)
-        val notification = notificationBuilder
-            .setOngoing(false)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setContentTitle("$type ${translate("Established")}")
-            .setContentText("$username - $peerId")
-            .build()
-        notificationManager.notify(getClientNotifyID(clientID), notification)
     }
 
     private fun voiceCallRequestNotification(
@@ -974,46 +906,28 @@ class MainService : Service() {
         username: String,
         peerId: String
     ) {
-        val notification = notificationBuilder
-            .setOngoing(false)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setContentTitle(translate("Do you accept?"))
-            .setContentText("$type:$username-$peerId")
-            .build()
-        notificationManager.notify(getClientNotifyID(clientID), notification)
-    }
-
-    private fun getClientNotifyID(clientID: Int): Int {
-        return clientID + NOTIFY_ID_OFFSET
+        LocalistNotifications.showEvent(this, "remote:$clientID", javaClass.name,
+            LocalistNotifications.text(this, "درخواست تماس صوتی", "Voice call request"),
+            "$username - $peerId", remotePendingIntent())
     }
 
     fun cancelNotification(clientID: Int) {
-        notificationManager.cancel(getClientNotifyID(clientID))
+        LocalistNotifications.clearEvent(this, "remote:$clientID")
     }
 
-    @SuppressLint("UnspecifiedImmutableFlag")
-    private fun genLoginRequestPendingIntent(res: Boolean): PendingIntent {
-        val intent = Intent(this, MainService::class.java).apply {
-            action = ACT_LOGIN_REQ_NOTIFY
-            putExtra(EXT_LOGIN_REQ_NOTIFY, res)
+    private fun remotePendingIntent(): PendingIntent {
+        val intent = (packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(this, RemoteActivity::class.java)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.getService(this, 111, intent, FLAG_IMMUTABLE)
-        } else {
-            PendingIntent.getService(this, 111, intent, FLAG_UPDATE_CURRENT)
-        }
+        return PendingIntent.getActivity(this, LocalistNotifications.ID + 2,
+            intent, FLAG_UPDATE_CURRENT or FLAG_IMMUTABLE)
     }
 
     private fun setTextNotification(_title: String?, _text: String?) {
-        val title = _title ?: DEFAULT_NOTIFY_TITLE
-        val text = _text ?: translate(DEFAULT_NOTIFY_TEXT)
-        val notification = notificationBuilder
-            .clearActions()
-            .setStyle(null)
-            .setContentTitle(title)
-            .setContentText(text)
-            .build()
-        notificationManager.notify(DEFAULT_NOTIFY_ID, notification)
+        LocalistNotifications.update(this,
+            _title ?: LocalistNotifications.text(this, "ریموت کنترل", "Remote control"),
+            _text ?: LocalistNotifications.text(this, "آمادهٔ اتصال ورودی", "Ready for incoming connections"))
     }
 }
 

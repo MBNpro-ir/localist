@@ -25,6 +25,7 @@ void main() {
     'hostFingerprint': 'bundled-digest',
     'pid': pid,
     'ready': true,
+    'elevated': true,
     'updatedMs': DateTime.now().millisecondsSinceEpoch,
     'activeSessions': 0,
     ...bridge.endpoint,
@@ -109,6 +110,18 @@ void main() {
     expect(starts, 1);
     expect(retired, [100]);
   });
+
+  test(
+    'a fresh healthy host without elevation is replaced before adoption',
+    () async {
+      await write(status(100, overrides: {'elevated': false}));
+      expect(await runtime.status(), isNull);
+      await runtime.ensureStarted();
+      expect(starts, 1);
+      expect(retired, [100]);
+      expect((await runtime.status())!['elevated'], true);
+    },
+  );
 
   test(
     'stale active session record cannot permanently block recovery',

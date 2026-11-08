@@ -1,7 +1,9 @@
 # Persian Windows Setup
 
 `tools/Build-WindowsSetup.ps1` packages the exact Windows Release bundle in a
-single per-user x64 installer. The WPF shell uses bundled Vazirmatn, Persian RTL,
+single x64 installer. Production Setup, removal, Localist and its remote helper
+now request administrator access. The retained install path and user data remain
+per-user. QA fixtures keep their separate unelevated manifest. The WPF shell uses bundled Vazirmatn, Persian RTL,
 native rounded window clipping, app-specific colors, entrance/hover/progress
 animations and a lighter path when Windows disables animations or GPU rendering.
 The install core is pinned Inno Setup 7.1.0, verified by SHA-256 and Authenticode
@@ -14,6 +16,15 @@ update/repair/newer versions and waits for the app's normal full exit so its fin
 sync is retained. The core rejects downgrades independently. Accounts, downloads
 and settings are not deleted. Inno manages uninstall registration and shortcuts;
 uninstallation removes installed files and preserves unrelated user files.
+
+Existing enabled Run entries migrate to a per-user interactive logon task with
+RunLevel Highest, a ten-second delay, no battery/network requirement, and no
+execution time limit. This uses normal Task Scheduler authorization, stores no
+password and does not change UAC policy. The app's startup switch registers or
+removes the same task. Sign-in does not need a second UAC prompt after setup;
+manual launches still follow Windows UAC policy. Uninstall removes only this
+installation's task and virtual camera registration. The camera's x86/x64 DLLs
+carry a version in their names so other camera consumers cannot lock updates.
 
 The release pipeline retains the ZIP asset for the existing Windows updater and
 adds `*-Windows-Setup-x64-<version>.exe` plus its SHA-256 file for new installs.

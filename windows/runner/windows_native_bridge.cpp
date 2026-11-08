@@ -1,5 +1,7 @@
 #include "windows_native_bridge.h"
 #include "remote_host_process.h"
+#include "elevated_startup.h"
+#include "virtual_devices.h"
 
 #include <dwmapi.h>
 #include <commdlg.h>
@@ -195,47 +197,16 @@ std::wstring QuoteArgument(const std::wstring& value) {
 }
 
 bool SetLaunchAtStartup(bool enabled) {
-  if (!enabled) {
-    const LSTATUS status = RegDeleteKeyValueW(
-        HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName);
-    return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
-  }
-  const std::wstring command = QuoteArgument(GetModulePath()) + L" --startup";
-  const bool written = RegSetKeyValueW(
-             HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName, REG_SZ,
-             command.c_str(),
-             static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t))) ==
-         ERROR_SUCCESS;
-  if (!written) return false;
-  // A valid Run entry can still be disabled in Startup Apps/Task Manager.
-  // The explicit Enable action must repair that state as well as the path.
-  const BYTE approved[12] = {2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  HKEY startup_approved = nullptr;
-  if (RegCreateKeyExW(HKEY_CURRENT_USER,
-      L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
-      0, nullptr, 0, KEY_SET_VALUE, nullptr, &startup_approved, nullptr) != ERROR_SUCCESS) return false;
-  const bool enabled_approved = RegSetValueExW(startup_approved,
-      kStartupValueName, 0, REG_BINARY, approved, sizeof(approved)) == ERROR_SUCCESS;
-  RegCloseKey(startup_approved);
-  return enabled_approved;
+  if (!ConfigureElevatedStartup(enabled, GetModulePath())) return false;
+  // Retire the old unelevated Run entry only after task registration succeeds.
+  RegDeleteKeyValueW(HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName);
+  RegDeleteKeyValueW(HKEY_CURRENT_USER,
+      L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run", kStartupValueName);
+  return true;
 }
 
 bool GetLaunchAtStartup() {
-  BYTE approved[12] = {};
-  DWORD approved_size = sizeof(approved);
-  if (RegGetValueW(HKEY_CURRENT_USER,
-      L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
-      kStartupValueName, RRF_RT_REG_BINARY, nullptr, approved, &approved_size) == ERROR_SUCCESS &&
-      (approved[0] == 3 || approved[0] == 7)) return false;
-  wchar_t value[32768] = {};
-  DWORD size = sizeof(value);
-  const LSTATUS status =
-      RegGetValueW(HKEY_CURRENT_USER, kStartupRegKey, kStartupValueName,
-                   RRF_RT_REG_SZ, nullptr, value, &size);
-  const std::wstring command = QuoteArgument(GetModulePath());
-  return status == ERROR_SUCCESS &&
-         (_wcsicmp(value, command.c_str()) == 0 ||
-          _wcsicmp(value, (command + L" --startup").c_str()) == 0);
+  return IsElevatedStartupEnabled(GetModulePath());
 }
 
 HANDLE hosted_network_client = nullptr;
@@ -709,6 +680,11 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
   const std::string& method = call.method_name();
   const EncodableValue* arguments = call.arguments();
 
+  if (method == "isWindowsProcessElevated") {
+    result->Success(EncodableValue(IsLocalistProcessElevated()));
+    return;
+  }
+
   if (method == "isRemoteHostRunning") {
     const auto pid = GetIntegerArgument(arguments, "pid");
     const bool running = pid > 0 && pid <= MAXDWORD && IsRemoteHostProcessRunning(
@@ -912,6 +888,25 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     return;
   }
 
+  if (method == "getWindowsVirtualCameraStatus") {
+    const auto directory = ParentDirectory(GetModulePath());
+    result->Success(EncodableValue(EncodableMap{
+      {EncodableValue("installed"), EncodableValue(IsLocalistCameraInstalled(directory))},
+      {EncodableValue("elevated"), EncodableValue(IsLocalistProcessElevated())},
+      {EncodableValue("available"), EncodableValue(IsRegularFile(directory + L"\\" + LocalistCameraFileName(true)) && IsRegularFile(directory + L"\\" + LocalistCameraFileName(false)))},
+    }));
+    return;
+  }
+  if (method == "launchWindowsMicrophoneInstaller") {
+    const auto path = Utf8ToWide(GetStringArgument(arguments, "path"));
+    result->Success(EncodableValue(LaunchSignedMicrophoneInstaller(path)));
+    return;
+  }
+  if (method == "setWindowsVirtualCameraInstalled") {
+    result->Success(EncodableValue(ConfigureLocalistCamera(ParentDirectory(GetModulePath()),
+        GetBoolArgument(call.arguments(), "enabled"))));
+    return;
+  }
   if (method == "setWindowsLaunchAtStartup") {
     result->Success(EncodableValue(SetLaunchAtStartup(
         GetBoolArgument(arguments, "enabled", false))));

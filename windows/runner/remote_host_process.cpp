@@ -76,7 +76,12 @@ bool IsRemoteHostProcessRunning(DWORD process_id, int64_t heartbeat_ms,
   HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
                                FALSE, process_id);
   if (!process) return false;
-  const bool running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT &&
+  HANDLE token = nullptr;
+  TOKEN_ELEVATION elevation{}; DWORD bytes = 0;
+  const bool elevated = OpenProcessToken(process, TOKEN_QUERY, &token) &&
+      GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &bytes) && elevation.TokenIsElevated;
+  if (token) CloseHandle(token);
+  const bool running = elevated && WaitForSingleObject(process, 0) == WAIT_TIMEOUT &&
       CheckIdentity(process, process_id, heartbeat_ms, expected_path) == HostIdentity::match;
   CloseHandle(process);
   return running;

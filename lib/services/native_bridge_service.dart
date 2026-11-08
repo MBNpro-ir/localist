@@ -547,7 +547,6 @@ class NativeBridgeService {
       return await _invoke<bool>('showQuickSendRequestNotification', {
             'title': title,
             'message': message,
-            'soundEnabled': soundEnabled,
           }) ??
           false;
     }
@@ -580,6 +579,12 @@ class NativeBridgeService {
     } catch (error, stack) {
       _logs.warning('Windows Quick Send notification failed: $error\n$stack');
       return await flashWindowsTaskbar();
+    }
+  }
+
+  Future<void> clearQuickSendRequestNotification() async {
+    if (Platform.isAndroid) {
+      await _invoke<bool>('clearQuickSendRequestNotification');
     }
   }
 

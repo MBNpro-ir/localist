@@ -21,7 +21,7 @@ $displayName = 'Localist'
 $registryExe = $exe
 $accent = '#9DCCFF'
 if ($Qa) { $appId += '.InstallerQA'; $displayName += ' Installer QA'; $registryExe = "$product-InstallerQA.exe" }
-foreach ($required in @($exe, 'flutter_windows.dll', 'data/app.so', 'data/icudtl.dat', 'LocalistUpdater.exe', 'LocalistRemote.exe', 'librustdesk.dll')) {
+foreach ($required in @($exe, 'flutter_windows.dll', 'data/app.so', 'data/icudtl.dat', 'LocalistUpdater.exe', 'LocalistRemote.exe', 'librustdesk.dll', "LocalistCamera64-$version.$build.dll", "LocalistCamera32-$version.$build.dll")) {
     if (-not (Test-Path -LiteralPath (Join-Path $bundlePath $required))) { throw "Bundle missing: $required" }
 }
 New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
@@ -79,12 +79,18 @@ namespace MbnSetup { internal static class Config {
     )
     if ($Payload) { $resources += '/resource:' + $Payload + ',MBN.Payload' }
     foreach ($weight in @('Regular','Medium','Bold')) { $resources += '/resource:' + (Join-Path $project "windows/installer/fonts/Vazirmatn-$weight.ttf") + ',MBN.Font.' + $weight }
-    & $csc /nologo /target:winexe /platform:x64 /optimize+ /utf8output ("/out:$Target") ("/win32icon:$icon") ("/win32manifest:" + (Join-Path $source 'setup.manifest')) @references @resources (Join-Path $source 'Setup.cs') $configPath
+    $manifest = Join-Path $source 'setup.manifest'
+    if ($Qa) {
+        $manifest = Join-Path $stage 'qa.manifest'
+        [IO.File]::WriteAllText($manifest, (Get-Content -LiteralPath (Join-Path $source 'setup.manifest') -Raw).Replace('requireAdministrator', 'asInvoker'), [Text.UTF8Encoding]::new($false))
+    }
+    & $csc /nologo /target:winexe /platform:x64 /optimize+ /utf8output ("/out:$Target") ("/win32icon:$icon") ("/win32manifest:" + $manifest) @references @resources (Join-Path $source 'Setup.cs') $configPath
     if ($LASTEXITCODE -ne 0) { throw 'Persian maintenance shell compilation failed' }
 }
 $uninstallShell = Join-Path $stage 'MBNUninstall.exe'
 Build-Shell $uninstallShell $true '' ''
 $defines = @("/DProduct=$product", "/DDisplayName=$displayName", "/DVersion=$version", "/DBuildNumber=$build", "/DAppId=$appId", "/DExecutable=$exe", "/DRegistryExe=$registryExe", "/DBundleDir=$bundlePath", "/DOutputDir=$stage", "/DIconFile=$icon", "/DVersionHigh=$versionHigh", "/DVersionLow=$versionLow", "/DUninstallShell=$uninstallShell")
+$defines += if ($Qa) { '/DIsQa=1' } else { '/DIsQa=0' }
 & $Compiler @defines (Join-Path $source 'Installer.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer core compilation failed' }
 $core = Join-Path $stage 'install-core.exe'

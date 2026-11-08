@@ -312,6 +312,17 @@ void configureEmbeddedDesktop({bool host = false}) {
     );
     await bridge.start();
     final hostFingerprint = await LocalistRemoteRuntime.hostFingerprint();
+    final elevated =
+        await const MethodChannel(
+          'com.prs.localist.vpn',
+        ).invokeMethod<bool>('isWindowsProcessElevated') ??
+        false;
+    if (!elevated) {
+      await bridge.close();
+      throw StateError(
+        'The Localist remote host requires administrator access.',
+      );
+    }
     Future<void> sync() async {
       try {
         await synchronize();
@@ -324,6 +335,7 @@ void configureEmbeddedDesktop({bool host = false}) {
           jsonEncode({
             'statusVersion': desktopHostStatusVersion,
             'ready': true,
+            'elevated': elevated,
             'pid': pid,
             'hostExecutable': Platform.resolvedExecutable,
             'hostFingerprint': hostFingerprint,
