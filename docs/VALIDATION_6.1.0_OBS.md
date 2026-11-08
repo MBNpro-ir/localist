@@ -98,3 +98,9 @@ VB-CABLE در این دور نصب نشد و تست WASAPI با آن انجام 
 شدند؛ گزارش‌ها در `capture-layout-tests.log`، `capture-layout-all-tests.log`
 و `capture-layout-analyze.log` هستند. این بررسی به کنترل کامپیوتری برنامهٔ
 کاربر نیاز نداشت.
+
+بیلد Release جدید با موفقیت در `build/windows-layout/x64/runner/Release`
+ساخته شد؛ لاگ در `.runlogs/capture-layout-isolated-build.log` است. تأیید UAC
+برای جایگزینی نسخهٔ بازشده لغو شد، بنابراین این بیلد جداگانه اجرا نشد و
+نسخهٔ بازشده همچنان نسخهٔ پیش از اصلاح چیدمان است. برای مشاهدهٔ بیلد تازه،
+باید از نسخهٔ قبلی با Exit خارج و فایل اجرایی داخل مسیر جدید اجرا شود.
