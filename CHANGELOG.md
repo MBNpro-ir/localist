@@ -2,7 +2,11 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
-## [6.1.0] - 2026-11-08 (local development, unpublished)
+## [7.0.0] - 2026-11-08
+
+- Release version 7.0.0+73, incorporating the locally validated 6.1.0
+  development changes below. Validation: 179 passing Flutter tests, clean
+  analysis, successful Windows build and verified bundled native engines.
 
 - Treat an active device VPN as a warning for file transfers. Keep native/web
   transfers, discovery, manual connections and existing sessions available;

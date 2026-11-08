@@ -1,53 +1,49 @@
 # Release Notes
 
-## [6.1.0] — Local development build (not published)
+## [7.0.0] — Camera & Mic, rebuilt web streaming and reliable file transfers
 
-An active device VPN now displays an advisory warning without disabling file
-transfers, discovery or browser sharing, or interrupting existing sessions.
+- **Camera & Mic:** share live video/audio over Wi-Fi or USB tethering and
+  receive in Localist, a browser or an OBS Browser Source. Android includes
+  screen-off capture, battery presets, resolution/FPS/bitrate, input selection,
+  noise/echo/gain controls, hardware zoom and torch. Capture controls adapt to
+  desktop, narrow displays and larger text.
+- **Windows webcam output:** Localist Camera works as a DirectShow webcam,
+  including in OBS, with independent output resolution/FPS. OBS Configure Video
+  can control the paired sender after opt-in. Received audio can route to a
+  virtual audio device; installing VB-CABLE remains an explicit user action
+  using the signature-checked official installer.
+- **New Stream web interface:** responsive Persian/English gallery and player,
+  light/dark themes, thumbnails, search, media filters, sorting, grid/list views,
+  a collection sidebar, keyboard controls and image zoom/pan. All assets load
+  locally; native media controls remain available without JavaScript. Sharing
+  addresses stay IP:port.
+- **File transfers with VPN:** an active VPN now displays a warning while
+  sending, receiving, discovery, manual connections and browser sharing remain
+  enabled. VPN status changes preserve existing transfer sessions and nearby
+  devices. Actual LAN reachability still depends on the VPN's routing policy.
+- **Remote Control:** updated the embedded RustDesk source and matching native
+  engines to pinned upstream commit `78450f49877fa047b729619c662703ed93bb119a`.
+  Improved self-device filtering, inline credential copy, encrypted saved-device
+  passwords with edit/remove, private-server migration and discovery startup.
+- **Android:** opening Localist preserves an existing VPN. Foreground services
+  and incoming requests share one silent notification. Transfer sounds play
+  once per batch, with a distinct failure cue. APKs retain only their target ABI.
+- **Windows installation:** Persian animated Setup and uninstaller support
+  installation discovery, repair/upgrade and downgrade protection. App and
+  remote hosts use administrator privileges, with per-user elevated startup
+  registration and a hidden helper icon.
 
-The Stream web gallery and player have been rebuilt with responsive layouts,
-Persian/English text, light/dark themes, search, media filters, sorting and
-grid/list views. Playback adds a collection sidebar, keyboard controls and
-image zoom/pan. All assets load from Localist itself; native media controls
-remain available without JavaScript. The sharing address stays IP:port.
-See [Stream web validation](docs/VALIDATION_6.1.0_STREAM_WEB.md) for browser,
-HTTP and packaging checks.
+**Validation:** 179 passing Flutter tests, clean analysis, successful local
+Windows build, verified bundled native engines, real loopback file transfers,
+Chrome web-player acceptance and OBS/Chrome/FFmpeg webcam consumers. Physical
+iPhone/TV/console coverage and all third-party webcam/VPN configurations are
+not claimed; codec and virtual-device compatibility depend on the destination.
 
-Updated RustDesk to the pinned latest source commit checked on 2026-11-08,
-with matching native engines and generated bindings. Local-device filtering,
-inline copy actions, private-server migration, encrypted device passwords,
-Android VPN preservation and transfer batch sounds are improved.
-
-Camera & Mic shares live audio/video over Wi-Fi or USB tethering using local
-WebRTC. Receive in Localist, a browser or an OBS Browser Source. Android capture
-can continue with the screen off and a silent foreground notification/Stop
-action. Battery presets, resolution, FPS, bitrate, input selection, audio
-processing, hardware zoom and torch controls are available.
-
-Windows includes a standalone Localist Camera for DirectShow applications;
-OBS is no longer needed for this path. Received audio can route directly to a
-virtual audio device. An explicit action downloads and validates the original
-signed VB-CABLE installer; its vendor license and installation UI are retained.
-
-Android foreground activities share one silent notification. Windows app and
-remote hosts require administrator privileges, with per-user elevated startup
-task registration and a hidden helper icon. Retesting confirmed task registration,
-actual elevated launch, disabled-task repair and removal of the QA task.
-
-OBS can select Localist Camera as a Video Capture Device with independent output
-resolution/FPS. Configure Video exposes paired sender capture settings after
-the sender opts in. OBS, Chrome and FFmpeg received actual test frames; sender
-audio/quality/zoom changes retained the same connection, including screen-off use.
-
-The Windows package now includes a Persian animated Setup and matching removal
-interface with installation discovery, repair/upgrade and downgrade protection.
-Validation and hardware limits are documented in
-[the local validation report](docs/VALIDATION_6.1.0_LOCAL.md).
-See [follow-up validation](docs/VALIDATION_6.1.0_NOTIFICATIONS_DEVICES.md) for
-167 passing Flutter tests, real emulator screen-off capture, native virtual
-camera testing and remaining physical-device/driver acceptance limits.
-See [OBS and startup retesting](docs/VALIDATION_6.1.0_OBS.md) for the updated
-169-test result, actual consumers, configuration controls and remaining limits.
+Details: [core validation](https://github.com/MBNpro-ir/localist/blob/v7.0.0/docs/VALIDATION_6.1.0_LOCAL.md),
+[notifications and devices](https://github.com/MBNpro-ir/localist/blob/v7.0.0/docs/VALIDATION_6.1.0_NOTIFICATIONS_DEVICES.md),
+[OBS and startup](https://github.com/MBNpro-ir/localist/blob/v7.0.0/docs/VALIDATION_6.1.0_OBS.md),
+[Stream web](https://github.com/MBNpro-ir/localist/blob/v7.0.0/docs/VALIDATION_6.1.0_STREAM_WEB.md),
+[VPN and transfers](https://github.com/MBNpro-ir/localist/blob/v7.0.0/docs/VALIDATION_6.1.0_VPN_TRANSFERS.md).
 
 ## [6.0.9] — Reliable remote passwords and immediate settings synchronization
 
