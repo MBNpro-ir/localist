@@ -24,8 +24,10 @@ class LiveCaptureOptions {
     this.autoGain = true,
     this.cameraId,
     this.microphoneId,
+    this.receiverControls = false,
   });
   final String? cameraId, microphoneId;
+  final bool receiverControls;
   final bool background;
   final bool camera,
       microphone,
@@ -90,18 +92,27 @@ class LiveCaptureOptions {
     String? cameraId,
     String? microphoneId,
     bool clearCameraId = false,
+    bool? receiverControls,
+    int? width,
+    int? height,
+    int? fps,
+    int? bitrateKbps,
+    bool? echoCancellation,
+    bool? noiseSuppression,
+    bool? autoGain,
   }) => LiveCaptureOptions(
     background: background ?? this.background,
     camera: camera,
     microphone: microphone,
     rearCamera: rearCamera,
-    width: width,
-    height: height,
-    fps: fps,
-    bitrateKbps: bitrateKbps,
-    echoCancellation: echoCancellation,
-    noiseSuppression: noiseSuppression,
-    autoGain: autoGain,
+    width: width ?? this.width,
+    height: height ?? this.height,
+    fps: fps ?? this.fps,
+    bitrateKbps: bitrateKbps ?? this.bitrateKbps,
+    echoCancellation: echoCancellation ?? this.echoCancellation,
+    noiseSuppression: noiseSuppression ?? this.noiseSuppression,
+    autoGain: autoGain ?? this.autoGain,
+    receiverControls: receiverControls ?? this.receiverControls,
     cameraId: clearCameraId ? null : cameraId ?? this.cameraId,
     microphoneId: microphoneId ?? this.microphoneId,
   );
@@ -235,6 +246,29 @@ class LiveCaptureService extends ChangeNotifier {
   bool hasTorch = false;
   String? activeCameraId;
   String error = '', status = '';
+  Map<String, dynamic> _remoteControls = {};
+  List<MediaDeviceInfo> _controlMicrophones = [];
+  final Map<int, Completer<void>> _controlRequests = {};
+  int _controlSequence = 0, _captureGeneration = 0;
+  Map<String, dynamic> get captureControlState => receiving
+      ? Map<String, dynamic>.from(_remoteControls)
+      : {
+          'enabled': broadcasting && options.receiverControls && !busy,
+          'width': options.width,
+          'height': options.height,
+          'fps': options.fps,
+          'bitrate': options.bitrateKbps,
+          'zoom': (zoom * 100).round(),
+          'maxZoom': (maxZoom * 100).round(),
+          'noise': options.noiseSuppression,
+          'echo': options.echoCancellation,
+          'gain': options.autoGain,
+          'torch': torch,
+          'torchAvailable': hasTorch,
+          'message': error,
+          for (var i = 0; i < _controlMicrophones.length && i < 12; i++)
+            'microphone$i': _controlMicrophones[i].label,
+        };
   bool get broadcasting => _server != null;
   bool get receiving => _receiver != null;
   bool get active => broadcasting || receiving;
@@ -251,7 +285,18 @@ class LiveCaptureService extends ChangeNotifier {
   bool _foregroundOwned = false;
   bool _disposed = false;
   void _changed() {
-    if (!_disposed) notifyListeners();
+    if (!_disposed) {
+      notifyListeners();
+      if (broadcasting) {
+        final message = jsonEncode({
+          'type': 'control-state',
+          'state': captureControlState,
+        });
+        for (final socket in _peers.keys.toList()) {
+          if (socket.readyState == WebSocket.open) socket.add(message);
+        }
+      }
+    }
   }
 
   Future<void> start(LiveCaptureOptions value, {int port = 0}) async {
@@ -326,6 +371,10 @@ class LiveCaptureService extends ChangeNotifier {
         return;
       }
       await refreshCameraControls();
+      _controlMicrophones = (await inputDevices())
+          .where((device) => device.kind == 'audioinput')
+          .take(12)
+          .toList();
       // Preview must never play our own microphone through the local speakers.
       final html = await rootBundle.loadString('assets/live_capture.html');
       final server = CaptureSignalingServer(html: html, accept: _acceptViewer);
@@ -393,6 +442,28 @@ class LiveCaptureService extends ChangeNotifier {
                   candidates.add(candidate);
                 } else {
                   await peer.addCandidate(candidate);
+                }
+              } else if (data['type'] == 'control') {
+                final id = data['id'];
+                try {
+                  await requestCaptureControl(
+                    Map<String, dynamic>.from(data['command'] as Map),
+                  );
+                  if (socket.readyState == WebSocket.open) {
+                    socket.add(
+                      jsonEncode({'type': 'control-result', 'id': id}),
+                    );
+                  }
+                } catch (error) {
+                  if (socket.readyState == WebSocket.open) {
+                    socket.add(
+                      jsonEncode({
+                        'type': 'control-result',
+                        'id': id,
+                        'error': '$error',
+                      }),
+                    );
+                  }
                 }
               }
             })
@@ -521,6 +592,18 @@ class LiveCaptureService extends ChangeNotifier {
                   } else {
                     await peer.addCandidate(candidate);
                   }
+                } else if (data['type'] == 'control-state') {
+                  _remoteControls = Map<String, dynamic>.from(
+                    data['state'] as Map,
+                  );
+                  _changed();
+                } else if (data['type'] == 'control-result') {
+                  final pending = _controlRequests.remove(data['id']);
+                  if (data['error'] is String) {
+                    pending?.completeError(StateError(data['error'] as String));
+                  } else {
+                    pending?.complete();
+                  }
                 }
               })
               .catchError((Object e) {
@@ -586,6 +669,155 @@ class LiveCaptureService extends ChangeNotifier {
     }
     playbackMuted = mute;
     _changed();
+  }
+
+  void allowReceiverControls(bool allow) {
+    options = options.copyWith(receiverControls: allow);
+    _changed();
+  }
+
+  Future<void> requestCaptureControl(Map<String, dynamic> command) async {
+    validateCaptureControl(command);
+    if (receiving) {
+      if (_remoteControls['enabled'] != true || _controlRequests.isNotEmpty) {
+        throw StateError('Sender controls are unavailable or busy.');
+      }
+      final id = ++_controlSequence;
+      final pending = Completer<void>();
+      _controlRequests[id] = pending;
+      _receiver!.add(
+        jsonEncode({'type': 'control', 'id': id, 'command': command}),
+      );
+      try {
+        await pending.future.timeout(const Duration(seconds: 15));
+      } finally {
+        _controlRequests.remove(id);
+      }
+      return;
+    }
+    if (!broadcasting || !options.receiverControls || busy) {
+      throw StateError('Receiver controls are not enabled by the sender.');
+    }
+    final width = command['width'] as int? ?? options.width;
+    final microphone = command['microphone'] as int? ?? -1;
+    if (microphone >= _controlMicrophones.length) {
+      throw StateError('The requested microphone is no longer available.');
+    }
+    final next = options.copyWith(
+      width: width,
+      height: switch (width) {
+        320 => 240,
+        640 => 480,
+        1280 => 720,
+        _ => 1080,
+      },
+      fps: command['fps'] as int?,
+      bitrateKbps: command['bitrate'] as int?,
+      noiseSuppression: command['noise'] as bool?,
+      echoCancellation: command['echo'] as bool?,
+      autoGain: command['gain'] as bool?,
+      microphoneId: microphone >= 0
+          ? _controlMicrophones[microphone].deviceId
+          : null,
+    );
+    next.validate();
+    final restart =
+        next.width != options.width ||
+        next.fps != options.fps ||
+        next.noiseSuppression != options.noiseSuppression ||
+        next.echoCancellation != options.echoCancellation ||
+        next.autoGain != options.autoGain;
+    busy = true;
+    final generation = _captureGeneration;
+    final previous = options;
+    error = '';
+    _changed();
+    try {
+      if (restart) {
+        final old = localStream;
+        for (final track in old?.getTracks() ?? <MediaStreamTrack>[]) {
+          await track.stop();
+        }
+        await old?.dispose();
+        localStream = null;
+        Future<MediaStream> acquire(LiveCaptureOptions value) async {
+          final selected = value.microphoneId;
+          if (selected != null && value.microphone) {
+            await Helper.selectAudioInput(selected);
+          }
+          return navigator.mediaDevices.getUserMedia(value.constraints);
+        }
+
+        MediaStream stream;
+        var applied = next;
+        try {
+          stream = await acquire(next);
+        } catch (_) {
+          applied = previous;
+          stream = await acquire(previous);
+        }
+        if (generation != _captureGeneration || !broadcasting || _disposed) {
+          for (final track in stream.getTracks()) {
+            await track.stop();
+          }
+          await stream.dispose();
+          throw StateError('Capture stopped during configuration.');
+        }
+        localStream = stream;
+        for (final peer in _peers.values.toList()) {
+          for (final sender in await peer.getSenders()) {
+            final replacement = stream
+                .getTracks()
+                .where((track) => track.kind == sender.track?.kind)
+                .firstOrNull;
+            if (replacement != null) await sender.replaceTrack(replacement);
+          }
+        }
+        // A sender may revoke permission while native capture is restarting.
+        // Never restore the older permission value from an accepted request.
+        options = applied.copyWith(receiverControls: options.receiverControls);
+        muteMicrophone(microphoneMuted);
+        pauseCamera(cameraPaused);
+        activeCameraId =
+            stream.getVideoTracks().firstOrNull?.getSettings()['deviceId']
+                as String?;
+        await refreshCameraControls();
+        if (applied == previous) {
+          throw StateError(
+            'Requested mode was unavailable; previous capture restored.',
+          );
+        }
+      } else {
+        if (microphone >= 0) {
+          await selectMicrophone(_controlMicrophones[microphone].deviceId);
+        }
+        options = next.copyWith(receiverControls: options.receiverControls);
+      }
+      for (final peer in _peers.values.toList()) {
+        for (final sender in await peer.getSenders()) {
+          if (sender.track?.kind != 'video') continue;
+          final parameters = sender.parameters;
+          for (final encoding in parameters.encodings ?? <RTCRtpEncoding>[]) {
+            encoding.maxBitrate = options.bitrateKbps * 1000;
+            encoding.maxFramerate = options.fps;
+          }
+          await sender.setParameters(parameters);
+        }
+      }
+      if (command['zoom'] is num) {
+        await setZoom((command['zoom'] as num).toDouble());
+      }
+      if (command['torch'] is bool && hasTorch) {
+        await setTorch(command['torch'] as bool);
+      }
+    } catch (exception) {
+      error = '$exception';
+      if (localStream == null && generation == _captureGeneration) await stop();
+      rethrow;
+    } finally {
+      busy = false;
+      _changed();
+    }
   }
 
   Future<void> refreshCameraControls() async {
@@ -687,6 +919,12 @@ class LiveCaptureService extends ChangeNotifier {
   Future<void> stop() =>
       _stopping ??= _stop().whenComplete(() => _stopping = null);
   Future<void> _stop() async {
+    ++_captureGeneration;
+    for (final pending in _controlRequests.values) {
+      pending.completeError(StateError('Capture disconnected.'));
+    }
+    _controlRequests.clear();
+    _remoteControls = {};
     final receiver = _receiver;
     _receiver = null;
     final server = _server;
@@ -749,9 +987,71 @@ Map<String, dynamic> decodeCaptureSignal(dynamic message) {
   if (data is! Map<String, dynamic> ||
       (data['type'] != 'offer' &&
           data['type'] != 'answer' &&
-          data['candidate'] is! Map) ||
+          data['candidate'] is! Map &&
+          data['type'] != 'control' &&
+          data['type'] != 'control-state' &&
+          data['type'] != 'control-result') ||
       (data.containsKey('sdp') && data['sdp'] is! String)) {
     throw const FormatException('Invalid signal.');
   }
+  if (data['type'] == 'control') {
+    if (data['id'] is! int || data['command'] is! Map<String, dynamic>) {
+      throw const FormatException('Invalid control request.');
+    }
+    validateCaptureControl(data['command'] as Map<String, dynamic>);
+  }
+  if (data['type'] == 'control-state' &&
+      data['state'] is! Map<String, dynamic>) {
+    throw const FormatException('Invalid control state.');
+  }
+  if (data['type'] == 'control-result' &&
+      (data['id'] is! int ||
+          (data['error'] != null && data['error'] is! String))) {
+    throw const FormatException('Invalid control result.');
+  }
   return data;
+}
+
+void validateCaptureControl(Map<String, dynamic> command) {
+  const keys = {
+    'width',
+    'fps',
+    'bitrate',
+    'zoom',
+    'noise',
+    'echo',
+    'gain',
+    'torch',
+    'microphone',
+  };
+  if (command.isEmpty || command.keys.any((key) => !keys.contains(key))) {
+    throw const FormatException('Unsupported capture control.');
+  }
+  for (final key in ['noise', 'echo', 'gain', 'torch']) {
+    if (command.containsKey(key) && command[key] is! bool) {
+      throw const FormatException('Invalid capture switch.');
+    }
+  }
+  for (final key in ['width', 'fps', 'bitrate', 'microphone']) {
+    if (command.containsKey(key) && command[key] is! int) {
+      throw const FormatException('Invalid capture number.');
+    }
+  }
+  if ((command.containsKey('width') &&
+          ![320, 640, 1280, 1920].contains(command['width'])) ||
+      (command.containsKey('fps') &&
+          ![10, 15, 24, 30, 60].contains(command['fps'])) ||
+      (command.containsKey('bitrate') &&
+          ((command['bitrate'] as int) < 250 ||
+              (command['bitrate'] as int) > 12000)) ||
+      (command.containsKey('microphone') &&
+          ((command['microphone'] as int) < -1 ||
+              (command['microphone'] as int) >= 12)) ||
+      (command.containsKey('zoom') &&
+          (command['zoom'] is! num ||
+              !(command['zoom'] as num).isFinite ||
+              (command['zoom'] as num) < 1 ||
+              (command['zoom'] as num) > 100))) {
+    throw const FormatException('Capture control is out of range.');
+  }
 }

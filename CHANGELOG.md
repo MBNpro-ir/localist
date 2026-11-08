@@ -30,7 +30,11 @@ All notable user-facing changes are documented here. Version numbers follow [Sem
   signature-checked official VB-CABLE installer download.
 - Require administrator privileges for Windows app/remote hosts, use a
   highest-privilege per-user startup task, and remove the remote helper icon.
-  Final elevated task launch/sign-in validation remains pending after canceled UAC.
+  Retested task registration, actual elevated launch, disabled-task repair and cleanup.
+- Expose standard webcam output modes and an OBS Configure Video panel for
+  paired sender quality, audio processing, microphone, zoom and torch controls.
+  Sender opt-in is required; active connections survive capture reconfiguration.
+  Validated actual OBS, Chrome and FFmpeg consumers without changing user profiles.
 
 See [local validation](docs/VALIDATION_6.1.0_LOCAL.md) for per-setting checks,
 real media/authentication/VPN regression tests, and remaining hardware limits.

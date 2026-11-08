@@ -16,7 +16,19 @@ set(VC_QUEUE "${VC_SOURCE}/shared/obs-shared-memory-queue")
 # Keep reference sources byte-for-byte pinned; adaptations live in the build.
 file(READ "${VC_MODULE}/virtualcam-module.cpp" module)
 string(REPLACE "OBS Virtual Camera" "Localist Camera" module "${module}")
+string(PREPEND module "#include \"capture_controls.h\"\n")
+string(REPLACE "CreateInstance(LPUNKNOWN parent, REFIID, void **p_ptr)" "CreateInstance(LPUNKNOWN parent, REFIID iid, void **p_ptr)" module "${module}")
+string(REPLACE "*p_ptr = (void *)new VCamFilter();\n\t\treturn S_OK;" "auto* filter = new VCamFilter();\n\t\tconst auto hr = filter->QueryInterface(iid, p_ptr);\n\t\tfilter->Release();\n\t\treturn hr;" module "${module}")
+string(REPLACE "if (IsEqualCLSID(cls, CLSID_OBS_VirtualVideo)) {" "if (IsEqualCLSID(cls, CLSID_LocalistControls)) return CreateLocalistControlsPage(iid, p_ptr);\n\tif (IsEqualCLSID(cls, CLSID_OBS_VirtualVideo)) {" module "${module}")
+string(REPLACE "return RegServer(CLSID_OBS_VirtualVideo, L\"Localist Camera\", file);" "return RegServer(CLSID_OBS_VirtualVideo, L\"Localist Camera\", file) && RegServer(CLSID_LocalistControls, L\"Localist Camera Controls\", file);" module "${module}")
+string(REPLACE "return UnregServer(CLSID_OBS_VirtualVideo);" "UnregServer(CLSID_LocalistControls); return UnregServer(CLSID_OBS_VirtualVideo);" module "${module}")
+string(REPLACE "if (!IsEqualCLSID(cls, CLSID_OBS_VirtualVideo)) {" "if (!IsEqualCLSID(cls, CLSID_OBS_VirtualVideo) && !IsEqualCLSID(cls, CLSID_LocalistControls)) {" module "${module}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/virtualcam-module.cpp" "${module}")
+file(READ "${VC_MODULE}/virtualcam-filter.hpp" header)
+string(PREPEND header "#include <ocidl.h>\n")
+string(REPLACE "class VCamFilter : public DShow::OutputFilter {" "class VCamFilter : public DShow::OutputFilter, public IAMCameraControl, public ISpecifyPropertyPages {" header "${header}")
+string(REPLACE "\tVCamFilter();" "\tSTDMETHODIMP QueryInterface(REFIID, void**) override;\n\tSTDMETHODIMP_(ULONG) AddRef() override { return OutputFilter::AddRef(); }\n\tSTDMETHODIMP_(ULONG) Release() override { return OutputFilter::Release(); }\n\tSTDMETHODIMP GetPages(CAUUID*) override;\n\tSTDMETHODIMP GetRange(long,long*,long*,long*,long*,long*) override;\n\tSTDMETHODIMP Get(long,long*,long*) override;\n\tSTDMETHODIMP Set(long,long,long) override;\n\tVCamFilter();" header "${header}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/virtualcam-filter.hpp" "${header}")
 file(READ "${VC_MODULE}/virtualcam-filter.cpp" filter)
 # Stable idle capabilities without writing any user-wide OBS/configuration file.
 string(REPLACE "uint32_t new_obs_cx = obs_cx;" "uint32_t new_obs_cx = obs_cx ? obs_cx : 640;" filter "${filter}")
@@ -30,20 +42,28 @@ endif()
 string(SUBSTRING "${filter}" 0 ${config_start} filter_before)
 string(SUBSTRING "${filter}" ${config_end} -1 filter_after)
 set(filter "${filter_before}\t}\n${filter_after}")
+# Consumer output modes are independent of the phone's current capture mode.
+string(REPLACE "\t/* ---------------------------------------- */\n\n\tth = std::thread" "\tfor (auto size : {std::pair<int,int>{320,240},{640,480},{1280,720},{1920,1080},{480,640},{720,1280},{1080,1920}})\n\t\tfor (int fps : {10,15,24,30,60})\n\t\t\tfor (auto fmt : {VideoFormat::NV12,VideoFormat::I420,VideoFormat::YUY2})\n\t\t\t\tAddVideoFormat(fmt,size.first,size.second,10000000LL/fps);\n\t/* ---------------------------------------- */\n\n\tth = std::thread" filter "${filter}")
+string(REPLACE "in_obs = !!wcsstr(file, obs_process);" "in_obs = false; // Localist always respects the consumer-selected output mode." filter "${filter}")
+string(REPLACE "sleepto_100ns(cur_time += obs_interval);\n\t\tfilter_time += obs_interval;" "const uint64_t output_interval = static_cast<uint64_t>(GetInterval());\n\t\tsleepto_100ns(cur_time += output_interval);\n\t\tfilter_time += output_interval;" filter "${filter}")
+string(REPLACE "UnlockSampleData(ts, ts + obs_interval);" "UnlockSampleData(ts, ts + GetInterval());" filter "${filter}")
 string(REPLACE "if (!video_queue_read(vq, &scaler, ptr, &temp)) {"
   "if (!video_queue_read(vq, &scaler, ptr, &temp)) {\n\t\tShowDefaultFrame(ptr);" filter "${filter}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/virtualcam-filter.cpp" "${filter}")
+file(READ "${VC_DSHOW}/source/output-filter.cpp" pin)
+string(REPLACE "if (pmt == nullptr)\n\t\treturn VFW_E_INVALIDMEDIATYPE;" "if (!pmt || pmt->majortype != MEDIATYPE_Video || pmt->formattype != FORMAT_VideoInfo || !pmt->pbFormat || pmt->cbFormat < sizeof(VIDEOINFOHEADER)) return VFW_E_INVALIDMEDIATYPE;\n\tconst auto* requested = reinterpret_cast<const VIDEOINFOHEADER*>(pmt->pbFormat);\n\tif (requested->bmiHeader.biWidth < 2 || requested->bmiHeader.biWidth > 4096 || requested->bmiHeader.biHeight < 2 || requested->bmiHeader.biHeight > 4096 || (requested->bmiHeader.biWidth & 1) || (requested->bmiHeader.biHeight & 1) || requested->AvgTimePerFrame < 166666 || requested->AvgTimePerFrame > 1000000 || (pmt->subtype != MEDIASUBTYPE_NV12 && pmt->subtype != MEDIASUBTYPE_I420 && pmt->subtype != MEDIASUBTYPE_YUY2)) return VFW_E_INVALIDMEDIATYPE;\n\tif (connectedPin) return VFW_E_ALREADY_CONNECTED;" pin "${pin}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/output-filter.cpp" "${pin}")
 file(READ "${VC_QUEUE}/shared-memory-queue.c" queue)
 string(REPLACE "#define VIDEO_NAME L\"OBSVirtualCamVideo\"" "#include \"camera_namespace.h\"" queue "${queue}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/shared-memory-queue.c" "${queue}")
 
 set(VC_COMMON "${CMAKE_CURRENT_BINARY_DIR}/shared-memory-queue.c" "${VC_SCALE}/tiny-nv12-scale.c")
-set(VC_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}" "${VC_MODULE}" "${VC_DSHOW}" "${VC_SCALE}" "${VC_QUEUE}" "${VC_SOURCE}/libobs")
+set(VC_INCLUDES "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" "${VC_MODULE}" "${VC_DSHOW}" "${VC_DSHOW}/source" "${VC_SCALE}" "${VC_QUEUE}" "${VC_SOURCE}/libobs")
 add_library(LocalistVirtualCamera SHARED
   "${CMAKE_CURRENT_BINARY_DIR}/virtualcam-module.cpp"
   "${CMAKE_CURRENT_BINARY_DIR}/virtualcam-filter.cpp"
-  "${VC_MODULE}/sleepto.c" placeholder.cpp dshow_errors.cpp camera.def
-  "${VC_DSHOW}/source/output-filter.cpp"
+  "${VC_MODULE}/sleepto.c" placeholder.cpp dshow_errors.cpp camera.def capture_controls.cpp capture_controls_bus.cpp
+  "${CMAKE_CURRENT_BINARY_DIR}/output-filter.cpp"
   "${VC_DSHOW}/source/dshow-formats.cpp"
   "${VC_DSHOW}/source/dshow-media-type.cpp"
   "${VC_DSHOW}/source/log.cpp"
@@ -62,11 +82,11 @@ endif()
 
 option(LOCALIST_CAMERA_QA "Build the isolated camera probe" OFF)
 if(LOCALIST_CAMERA_QA)
-  add_executable(localist_camera_probe camera_probe.cpp webrtc_virtual_camera.cpp ${VC_COMMON})
+  add_executable(localist_camera_probe camera_probe.cpp webrtc_virtual_camera.cpp capture_controls_bus.cpp ${VC_COMMON})
   target_include_directories(localist_camera_probe PRIVATE ${VC_INCLUDES} "${LOCALIST_WEBRTC_DIR}/include")
   target_compile_features(localist_camera_probe PRIVATE cxx_std_17)
   target_compile_definitions(localist_camera_probe PRIVATE UNICODE _UNICODE NOMINMAX LIB_WEBRTC_API_DLL)
-  target_link_libraries(localist_camera_probe PRIVATE "${LOCALIST_WEBRTC_DIR}/lib/libwebrtc.dll.lib" advapi32 ole32)
+  target_link_libraries(localist_camera_probe PRIVATE "${LOCALIST_WEBRTC_DIR}/lib/libwebrtc.dll.lib" advapi32 ole32 oleaut32 strmiids)
   add_custom_command(TARGET localist_camera_probe POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${LOCALIST_WEBRTC_DIR}/lib/libwebrtc.dll" "$<TARGET_FILE_DIR:localist_camera_probe>")
 endif()

@@ -2,6 +2,7 @@
 #include "remote_host_process.h"
 #include "elevated_startup.h"
 #include "virtual_devices.h"
+#include "../virtual_camera/capture_controls.h"
 
 #include <dwmapi.h>
 #include <commdlg.h>
@@ -895,6 +896,30 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
       {EncodableValue("elevated"), EncodableValue(IsLocalistProcessElevated())},
       {EncodableValue("available"), EncodableValue(IsRegularFile(directory + L"\\" + LocalistCameraFileName(true)) && IsRegularFile(directory + L"\\" + LocalistCameraFileName(false)))},
     }));
+    return;
+  }
+  if (method == "publishCaptureControls") {
+    LocalistCaptureState state;
+    state.persian = GetBoolArgument(arguments, "persian");
+    state.enabled = GetBoolArgument(arguments, "enabled");
+    state.width = static_cast<int>(GetIntegerArgument(arguments, "width"));
+    state.height = static_cast<int>(GetIntegerArgument(arguments, "height"));
+    state.fps = static_cast<int>(GetIntegerArgument(arguments, "fps"));
+    state.bitrate = static_cast<int>(GetIntegerArgument(arguments, "bitrate"));
+    state.zoom = static_cast<int>(GetIntegerArgument(arguments, "zoom"));
+    state.max_zoom = static_cast<int>(GetIntegerArgument(arguments, "maxZoom"));
+    state.noise = GetBoolArgument(arguments, "noise"); state.echo = GetBoolArgument(arguments, "echo"); state.gain = GetBoolArgument(arguments, "gain");
+    state.torch = GetBoolArgument(arguments, "torch"); state.torch_available = GetBoolArgument(arguments, "torchAvailable");
+    wcsncpy_s(state.message, Utf8ToWide(GetStringArgument(arguments, "message")).c_str(), _TRUNCATE);
+    for (int i = 0; i < 12; ++i) {
+      const auto name = "microphone" + std::to_string(i);
+      const auto label = Utf8ToWide(GetStringArgument(arguments, name.c_str()));
+      if (label.empty()) break;
+      wcsncpy_s(state.microphone_names[i], label.c_str(), _TRUNCATE); ++state.microphones;
+    }
+    PublishLocalistCaptureState(state);
+    char command[1024] = {};
+    result->Success(EncodableValue(TakeLocalistCaptureCommand(command, sizeof(command)) ? command : ""));
     return;
   }
   if (method == "launchWindowsMicrophoneInstaller") {

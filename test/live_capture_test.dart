@@ -4,6 +4,66 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/services/live_capture_service.dart';
 
 void main() {
+  test('capture controls validate all commands before native or peer use', () {
+    for (final command in <Map<String, dynamic>>[
+      {},
+      {'password': 'x'},
+      {'zoom': double.nan},
+      {'zoom': 101},
+      {'width': 4096},
+      {'fps': 500},
+      {'bitrate': -1},
+      {'noise': 1},
+      {'microphone': 12},
+      {'microphone': -2},
+      {'width': '640'},
+    ]) {
+      expect(() => validateCaptureControl(command), throwsFormatException);
+    }
+    validateCaptureControl({
+      'width': 640,
+      'fps': 15,
+      'bitrate': 750,
+      'zoom': 2.0,
+      'noise': false,
+      'echo': false,
+      'gain': true,
+      'torch': false,
+      'microphone': 0,
+    });
+    expect(const LiveCaptureOptions().receiverControls, false);
+    expect(
+      const LiveCaptureOptions(
+        receiverControls: true,
+      ).copyWith(background: true).receiverControls,
+      true,
+    );
+    expect(
+      () => decodeCaptureSignal(
+        '{"type":"control","id":1,"command":{"fps":999}}',
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => decodeCaptureSignal('{"type":"control-state","state":[]}'),
+      throwsFormatException,
+    );
+    expect(
+      () =>
+          decodeCaptureSignal('{"type":"control-result","id":1,"error":true}'),
+      throwsFormatException,
+    );
+  });
+
+  test('capture controls are unavailable without sender opt-in', () async {
+    final service = LiveCaptureService();
+    addTearDown(service.dispose);
+    await expectLater(
+      service.requestCaptureControl({'zoom': 2}),
+      throwsStateError,
+    );
+    expect(service.captureControlState['enabled'], false);
+  });
   test(
     'microphone-only and camera-only constraints request only selected hardware',
     () {

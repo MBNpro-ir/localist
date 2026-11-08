@@ -1,10 +1,13 @@
 import 'dart:ffi';
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:path_provider/path_provider.dart';
+import 'live_capture_service.dart';
 
 typedef _SetTextureNative = Int32 Function(Int64 texture, Int32 fps);
 typedef _SetTexture = int Function(int texture, int fps);
@@ -21,6 +24,42 @@ class WindowsVirtualDevicesService {
   bool cameraEnabled = false;
   String? microphoneOutput;
   String? _restoreOutput;
+  Timer? _controlsTimer;
+  LiveCaptureService? _capture;
+  bool _controlsBusy = false;
+  String _controlError = '';
+  bool persian = false;
+
+  void bindCaptureControls(LiveCaptureService capture) => _capture = capture;
+
+  Future<void> _syncControls() async {
+    final capture = _capture;
+    if (_controlsBusy || capture == null) return;
+    _controlsBusy = true;
+    try {
+      final state = Map<String, dynamic>.from(capture.captureControlState);
+      state['enabled'] =
+          state['enabled'] == true && cameraEnabled && capture.active;
+      state['persian'] = persian;
+      state['message'] = _controlError.isEmpty
+          ? state['message']
+          : _controlError;
+      final command = await _channel.invokeMethod<String>(
+        'publishCaptureControls',
+        state,
+      );
+      if (command != null && command.isNotEmpty && state['enabled'] == true) {
+        await capture.requestCaptureControl(
+          Map<String, dynamic>.from(jsonDecode(command) as Map),
+        );
+        _controlError = '';
+      }
+    } catch (error) {
+      _controlError = '$error';
+    } finally {
+      _controlsBusy = false;
+    }
+  }
 
   Future<Map<String, dynamic>> cameraStatus() async =>
       Map<String, dynamic>.from(
@@ -52,11 +91,20 @@ class WindowsVirtualDevicesService {
       throw StateError('Unable to start virtual camera output.');
     }
     cameraEnabled = true;
+    _controlsTimer?.cancel();
+    _controlsTimer = Timer.periodic(
+      const Duration(milliseconds: 500),
+      (_) => unawaited(_syncControls()),
+    );
+    unawaited(_syncControls());
   }
 
   void stopCamera() {
     _setTexture?.call(-1, 30);
     cameraEnabled = false;
+    _controlsTimer?.cancel();
+    _controlsTimer = null;
+    unawaited(_syncControls());
   }
 
   Future<List<MediaDeviceInfo>> audioOutputs() => Helper.audiooutputs;

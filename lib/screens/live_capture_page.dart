@@ -29,6 +29,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   List<MediaDeviceInfo> _inputs = [];
   String? _cameraId, _microphoneId;
   bool _operationRunning = false, _previewSuspended = false;
+  bool _receiverControls = false;
   double? _zoomDraft;
   bool _rendererReady = false, _camera = true, _microphone = true, _rear = true;
   bool _echo = true,
@@ -45,6 +46,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _service.addListener(_changed);
+    _virtual.bindCaptureControls(_service);
     if (_windows) unawaited(_refreshVirtualDevices());
     unawaited(_refreshInputs(silent: true));
   }
@@ -62,6 +64,12 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           : _service.localStream ?? _service.remoteStream;
     }
     if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _virtual.persian = Localizations.localeOf(context).languageCode == 'fa';
   }
 
   Future<void> _refreshInputs({bool silent = false}) async {
@@ -280,7 +288,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                   child: Text(input.label, overflow: TextOverflow.ellipsis),
                 ),
             ],
-            onChanged: _operationRunning
+            onChanged: _operationRunning || _service.busy
                 ? null
                 : (value) async {
                     final id = value?.isEmpty == true ? null : value;
@@ -396,7 +404,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               ),
             if (_service.broadcasting && _camera)
               OutlinedButton.icon(
-                onPressed: () => _run(_service.switchCamera),
+                onPressed: _service.busy
+                    ? null
+                    : () => _run(_service.switchCamera),
                 icon: const Icon(Icons.cameraswitch),
                 label: Text(t('تعویض دوربین', 'Switch camera')),
               ),
@@ -441,7 +451,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                       max: _service.maxZoom,
                       label:
                           '${(_zoomDraft ?? _service.zoom).toStringAsFixed(1)}×',
-                      onChanged: _operationRunning
+                      onChanged: _operationRunning || _service.busy
                           ? null
                           : (value) => setState(() => _zoomDraft = value),
                       onChangeEnd: (value) async {
@@ -457,7 +467,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               FilterChip(
                 label: Text(t('چراغ دوربین', 'Camera light')),
                 selected: _service.torch,
-                onSelected: (value) => _run(() => _service.setTorch(value)),
+                onSelected: _service.busy
+                    ? null
+                    : (value) => _run(() => _service.setTorch(value)),
               ),
           ],
           OutlinedButton.icon(
@@ -489,6 +501,24 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             ),
           ),
         ],
+        if (_service.broadcasting)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              t(
+                'کنترل تنظیمات توسط گیرنده / OBS',
+                'Allow receiver / OBS capture controls',
+              ),
+            ),
+            subtitle: Text(
+              t(
+                'گیرندهٔ لینک جفت‌شده می‌تواند کیفیت، میکروفون، حذف نویز و زوم را تغییر دهد.',
+                'Paired viewers can change capture quality, microphone, audio processing and zoom.',
+              ),
+            ),
+            value: _service.options.receiverControls,
+            onChanged: _service.allowReceiverControls,
+          ),
         for (final link in _service.links)
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -542,6 +572,22 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                 title: Text(t('میکروفون', 'Microphone')),
                 value: _microphone,
                 onChanged: (v) => setState(() => _microphone = v),
+              ),
+              SwitchListTile(
+                title: Text(
+                  t(
+                    'کنترل تنظیمات توسط گیرنده / OBS',
+                    'Allow receiver / OBS capture controls',
+                  ),
+                ),
+                subtitle: Text(
+                  t(
+                    'با اجازهٔ شما، گیرندهٔ لینک می‌تواند تنظیمات ضبط را تغییر دهد.',
+                    'Let a paired viewer adjust the capture settings.',
+                  ),
+                ),
+                value: _receiverControls,
+                onChanged: (value) => setState(() => _receiverControls = value),
               ),
               SwitchListTile(
                 title: Text(
@@ -653,6 +699,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                             echoCancellation: _echo,
                             noiseSuppression: _noise,
                             autoGain: _gain,
+                            receiverControls: _receiverControls,
                           ),
                         ),
                       ),
@@ -708,8 +755,8 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               ),
               Text(
                 t(
-                  'در نرم‌افزار مقصد، Localist Camera را به‌عنوان دوربین انتخاب کنید. OBS لازم نیست.',
-                  'Select Localist Camera in the destination app. OBS is not required.',
+                  'در OBS: Sources ← Video Capture Device ← Localist Camera. رزولوشن و FPS خروجی در Properties تنظیم می‌شوند. Configure Video تنظیمات ضبطِ فرستنده را با اجازهٔ او تغییر می‌دهد. در دیگر برنامه‌های سازگار هم Localist Camera را انتخاب کنید.',
+                  'In OBS: Sources → Video Capture Device → Localist Camera. Set output resolution/FPS in Properties. Configure Video adjusts capture on a sender that has allowed receiver controls. Other compatible webcam apps can also select Localist Camera.',
                 ),
               ),
               SwitchListTile(

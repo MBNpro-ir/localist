@@ -20,8 +20,13 @@ signed VB-CABLE installer; its vendor license and installation UI are retained.
 
 Android foreground activities share one silent notification. Windows app and
 remote hosts require administrator privileges, with per-user elevated startup
-task registration and a hidden helper icon. Final elevated-task/sign-in testing
-remains pending because the last UAC retry was canceled.
+task registration and a hidden helper icon. Retesting confirmed task registration,
+actual elevated launch, disabled-task repair and removal of the QA task.
+
+OBS can select Localist Camera as a Video Capture Device with independent output
+resolution/FPS. Configure Video exposes paired sender capture settings after
+the sender opts in. OBS, Chrome and FFmpeg received actual test frames; sender
+audio/quality/zoom changes retained the same connection, including screen-off use.
 
 The Windows package now includes a Persian animated Setup and matching removal
 interface with installation discovery, repair/upgrade and downgrade protection.
@@ -30,6 +35,8 @@ Validation and hardware limits are documented in
 See [follow-up validation](docs/VALIDATION_6.1.0_NOTIFICATIONS_DEVICES.md) for
 167 passing Flutter tests, real emulator screen-off capture, native virtual
 camera testing and remaining physical-device/driver acceptance limits.
+See [OBS and startup retesting](docs/VALIDATION_6.1.0_OBS.md) for the updated
+169-test result, actual consumers, configuration controls and remaining limits.
 
 ## [6.0.9] — Reliable remote passwords and immediate settings synchronization
 

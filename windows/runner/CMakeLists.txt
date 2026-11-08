@@ -22,6 +22,7 @@ add_executable(${BINARY_NAME} WIN32
   "windows_native_bridge.cpp"
   "elevated_startup.cpp"
   "virtual_devices.cpp"
+  "../virtual_camera/capture_controls_bus.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
   "${CMAKE_CURRENT_BINARY_DIR}/runner.exe.manifest"
