@@ -1,5 +1,42 @@
 # Release Notes
 
+## [7.1.0] — Automatic multi-device capture and Remote Control IPC repair
+
+- **Automatic camera and microphone reception:** discover active Localist
+  senders on the local network and receive up to four simultaneous streams,
+  without copying a URL. Each device has its own enable, video and audio
+  switches, authorized capture settings and persistent webcam slot.
+- **Four Windows webcams:** received video is exposed as Localist Camera 1–4.
+  Independent DirectShow consumers, Chrome and OBS were exercised with real
+  frames. OBS Configure Video controls target only the paired sender after
+  that sender grants permission. Audio reception supports independent mute;
+  input to other applications still uses an installed virtual-audio driver
+  and a mixed audio output, not four separate virtual microphone endpoints.
+- **Cable preference:** USB tethering network interfaces take precedence over
+  Wi-Fi for discovery and media candidates. Network routes refresh after
+  launch so a newly connected cable can be recognized. USB tethering must be
+  enabled; a charge-only USB connection does not create a network route.
+- **Camera orientation:** automatic device rotation or portrait/landscape
+  locks affect outgoing video. Mic, camera pause, camera switch, mirror,
+  screen-off and stop controls use a compact icon toolbar.
+- **iPhone browser transfer:** choose the current local network without
+  starting or configuring a hotspot, alongside the existing hotspot option.
+- **Windows Remote Control:** preserve byte-identical app/helper executables
+  required by authenticated native IPC. The helper is hidden using file
+  metadata instead of modifying PE resources. ZIP and Setup include it, and
+  package checks reject a mismatched executable pair or missing camera module.
+  The status indicator waits for a device ID before displaying Ready.
+
+**Validation:** 187 passing Flutter tests, clean analysis, Windows Release and
+Android Debug builds, four concurrent Android WebRTC receivers, actual
+orientation changes, LAN-only web transfer, four native/browser webcam
+consumers, OBS capture and isolated installer lifecycle checks.
+
+**Coverage limits:** the original Windows 10 machine, physical USB failover,
+four physical phones, iPhone browser hardware and every third-party webcam
+application have not been tested. Independent virtual microphone inputs need
+additional driver work. See [validation details](https://github.com/MBNpro-ir/localist/blob/v7.1.0/docs/VALIDATION_7.1.0.md).
+
 ## [7.0.0] — Camera & Mic, rebuilt web streaming and reliable file transfers
 
 - **Camera & Mic:** share live video/audio over Wi-Fi or USB tethering and

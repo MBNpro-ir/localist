@@ -2,8 +2,9 @@
 #include <windows.h>
 #include <dshow.h>
 #include <cstdint>
+#include "camera_namespace.h"
 
-inline const CLSID CLSID_LocalistControls = {0xcc7c10e5,0x899c,0x4b6a,{0xad,0x0a,0x8d,0x04,0x3e,0x7c,0x2f,0x91}};
+inline const CLSID CLSID_LocalistControls = {0xcc7c10e5 + LOCALIST_CAMERA_SLOT + LOCALIST_CAMERA_GUID_OFFSET,0x899c,0x4b6a,{0xad,0x0a,0x8d,0x04,0x3e,0x7c,0x2f,0x91}};
 struct LocalistCaptureState {
   int persian = 0;
   int enabled = 0, width = 640, height = 480, fps = 30, bitrate = 2500;
@@ -12,8 +13,8 @@ struct LocalistCaptureState {
   wchar_t microphone_names[12][128] = {};
   wchar_t message[256] = {};
 };
-bool PublishLocalistCaptureState(const LocalistCaptureState& state);
-bool ReadLocalistCaptureState(LocalistCaptureState& state);
-bool SubmitLocalistCaptureCommand(const char* json);
-bool TakeLocalistCaptureCommand(char* json, size_t size);
+bool PublishLocalistCaptureState(const LocalistCaptureState& state, int slot = LOCALIST_CAMERA_SLOT);
+bool ReadLocalistCaptureState(LocalistCaptureState& state, int slot = LOCALIST_CAMERA_SLOT);
+bool SubmitLocalistCaptureCommand(const char* json, int slot = LOCALIST_CAMERA_SLOT);
+bool TakeLocalistCaptureCommand(char* json, size_t size, int slot = LOCALIST_CAMERA_SLOT);
 HRESULT CreateLocalistControlsPage(REFIID iid, void** out);

@@ -292,7 +292,7 @@ void main() {
   }
 
   testWidgets(
-    'resizing keeps capture quality and pairing link, with an active session layout',
+    'resizing keeps capture quality and automatic reception alongside sharing',
     (tester) async {
       tester.view.physicalSize = const Size(1844, 994);
       tester.view.devicePixelRatio = 1;
@@ -305,17 +305,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('High quality'));
-      await tester.enterText(
-        find.byType(TextField),
-        'http://192.168.1.2:33333/#pairing',
-      );
+      expect(find.byType(TextField), findsNothing);
       tester.view.physicalSize = const Size(900, 780);
       await tester.pumpAndSettle();
       expect(find.text('1920 × 1080'), findsOneWidget);
-      expect(
-        tester.widget<TextField>(find.byType(TextField)).controller!.text,
-        contains('#pairing'),
-      );
+      expect(find.text('Automatically receive devices'), findsOneWidget);
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Start live capture'));
@@ -341,13 +335,13 @@ void main() {
         find.byKey(const ValueKey('capture-session-card')),
         findsOneWidget,
       );
-      expect(find.byKey(const ValueKey('capture-receive-card')), findsNothing);
+      expect(find.byKey(const ValueKey('capture-receive-card')), findsOneWidget);
       expect(
         tester
             .getTopLeft(find.byKey(const ValueKey('capture-session-card')))
             .dy,
         tester
-            .getTopLeft(find.byKey(const ValueKey('capture-outputs-card')))
+            .getTopLeft(find.byKey(const ValueKey('capture-receive-card')))
             .dy,
       );
       expect(tester.takeException(), isNull);

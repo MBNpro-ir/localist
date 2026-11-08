@@ -7,10 +7,14 @@
 #include <vector>
 
 namespace {
-const wchar_t* kCameraKey = L"Software\\Classes\\CLSID\\{58BC2225-E9D9-4BB9-A460-6630C82A5301}\\InprocServer32";
-std::wstring RegisteredPath(bool x64) {
+std::wstring CameraKey(int slot) {
+  wchar_t key[160];
+  swprintf_s(key, L"Software\\Classes\\CLSID\\{58BC%04X-E9D9-4BB9-A460-6630C82A5301}\\InprocServer32", 0x2225 + slot);
+  return key;
+}
+std::wstring RegisteredPath(bool x64, int slot) {
   HKEY key = nullptr;
-  if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, kCameraKey, 0, KEY_QUERY_VALUE |
+  if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, CameraKey(slot).c_str(), 0, KEY_QUERY_VALUE |
       (x64 ? KEY_WOW64_64KEY : KEY_WOW64_32KEY), &key) != ERROR_SUCCESS) return {};
   wchar_t path[32768] = {}; DWORD size = sizeof(path);
   const auto status = RegQueryValueExW(key, nullptr, nullptr, nullptr, reinterpret_cast<BYTE*>(path), &size);
@@ -34,28 +38,30 @@ bool Register(const std::wstring& dll, bool x64, bool install) {
   return wait == WAIT_OBJECT_0 && result == 0;
 }
 }
-std::wstring LocalistCameraFileName(bool x64) {
-  return std::wstring(x64 ? L"LocalistCamera64-" : L"LocalistCamera32-") + LOCALIST_CAMERA_VERSION + L".dll";
+std::wstring LocalistCameraFileName(bool x64, int slot) {
+  return std::wstring(x64 ? L"LocalistCamera64" : L"LocalistCamera32") + (slot > 0 ? L"-" + std::to_wstring(slot + 1) : L"") + L"-" + LOCALIST_CAMERA_VERSION + L".dll";
 }
-bool IsLocalistCameraInstalled(const std::wstring& directory) {
+bool IsLocalistCameraInstalled(const std::wstring& directory, int slot) {
+  if (slot < 0 || slot >= 4) return false;
   for (bool x64 : {true, false}) {
-    const auto expected = directory + L"\\" + LocalistCameraFileName(x64);
-    if (_wcsicmp(RegisteredPath(x64).c_str(), expected.c_str()) != 0) return false;
+    const auto expected = directory + L"\\" + LocalistCameraFileName(x64, slot);
+    if (_wcsicmp(RegisteredPath(x64, slot).c_str(), expected.c_str()) != 0) return false;
   }
   return true;
 }
-bool ConfigureLocalistCamera(const std::wstring& directory, bool install) {
-  if (install && IsLocalistCameraInstalled(directory)) return true;
+bool ConfigureLocalistCamera(const std::wstring& directory, bool install, int slot) {
+  if (slot < 0 || slot >= 4) return false;
+  if (install && IsLocalistCameraInstalled(directory, slot)) return true;
   bool success = true;
   for (bool x64 : {true, false}) {
-    const auto dll = directory + L"\\" + LocalistCameraFileName(x64);
+    const auto dll = directory + L"\\" + LocalistCameraFileName(x64, slot);
     // An old portable copy must never uninstall the active copy's registration.
-    if (!install && _wcsicmp(RegisteredPath(x64).c_str(), dll.c_str()) != 0) continue;
+    if (!install && _wcsicmp(RegisteredPath(x64, slot).c_str(), dll.c_str()) != 0) continue;
     const DWORD attributes = GetFileAttributesW(dll.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) { success = false; continue; }
     if (!Register(dll, x64, install)) success = false;
   }
-  return success && (!install || IsLocalistCameraInstalled(directory));
+  return success && (!install || IsLocalistCameraInstalled(directory, slot));
 }
 
 bool LaunchSignedMicrophoneInstaller(const std::wstring& path) {

@@ -112,6 +112,9 @@ flutter {
 }
 
 dependencies {
+    // CaptureOrientation uses the plugin's public frame-processor API. Keep
+    // this compile dependency aligned with flutter_webrtc's native SDK.
+    implementation("io.github.webrtc-sdk:android:150.7871.04")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("com.zaneschepke:hevtunnel:1.0.1") {
         isTransitive = false

@@ -25,7 +25,9 @@ class LiveCaptureOptions {
     this.cameraId,
     this.microphoneId,
     this.receiverControls = false,
+    this.orientation = 'auto',
   });
+  final String orientation;
   final String? cameraId, microphoneId;
   final bool receiverControls;
   final bool background;
@@ -78,6 +80,7 @@ class LiveCaptureOptions {
   };
   void validate() {
     if ((!camera && !microphone) ||
+        !['auto', 'portrait', 'landscape'].contains(orientation) ||
         ![320, 640, 1280, 1920].contains(width) ||
         ![240, 480, 720, 1080].contains(height) ||
         ![10, 15, 24, 30, 60].contains(fps) ||
@@ -100,6 +103,7 @@ class LiveCaptureOptions {
     bool? echoCancellation,
     bool? noiseSuppression,
     bool? autoGain,
+    String? orientation,
   }) => LiveCaptureOptions(
     background: background ?? this.background,
     camera: camera,
@@ -115,6 +119,7 @@ class LiveCaptureOptions {
     receiverControls: receiverControls ?? this.receiverControls,
     cameraId: clearCameraId ? null : cameraId ?? this.cameraId,
     microphoneId: microphoneId ?? this.microphoneId,
+    orientation: orientation ?? this.orientation,
   );
 }
 
@@ -124,12 +129,13 @@ class CaptureSignalingServer {
   CaptureSignalingServer({
     required this.html,
     required this.accept,
-    this.maxViewers = 3,
+    this.maxViewers = 4,
   });
   final String html;
   final Future<void> Function(WebSocket) accept;
   final int maxViewers;
   final Set<WebSocket> clients = {};
+  final Map<WebSocket, String> clientHosts = {};
   HttpServer? _server;
   String token = '';
   int get port => _server?.port ?? 0;
@@ -169,10 +175,15 @@ class CaptureSignalingServer {
           }
           final socket = await WebSocketTransformer.upgrade(request);
           clients.add(socket);
+          clientHosts[socket] =
+              request.connectionInfo?.remoteAddress.address ?? '';
           socket.pingInterval = const Duration(seconds: 15);
           unawaited(
             socket.done
-                .whenComplete(() => clients.remove(socket))
+                .whenComplete(() {
+                  clients.remove(socket);
+                  clientHosts.remove(socket);
+                })
                 .catchError((Object _) => false),
           );
           try {
@@ -196,6 +207,7 @@ class CaptureSignalingServer {
     token = '';
     final sockets = clients.toList();
     clients.clear();
+    clientHosts.clear();
     await server?.close(force: true);
     await Future.wait(
       sockets.map(
@@ -273,6 +285,8 @@ class LiveCaptureService extends ChangeNotifier {
   bool get receiving => _receiver != null;
   bool get active => broadcasting || receiving;
   int get viewers => _peers.length;
+  int get signalingPort => _server?.port ?? 0;
+  String get signalingKey => _server?.token ?? '';
   List<String> get links => [
     for (final address in addresses)
       'http://$address:${_server?.port}/#${_server?.token}',
@@ -349,8 +363,8 @@ class LiveCaptureService extends ChangeNotifier {
             .toList();
         if (inputs.isEmpty) {
           throw StateError(
-            'دوربین ورودی دیگری پیدا نشد؛ برای دریافت از گوشی، لینک را در بخش گیرنده وارد کنید. / '
-            'No input camera found. To receive from your phone, use the Receive section.',
+            'دوربین ورودی پیدا نشد؛ فرستندهٔ گوشی را روشن کنید تا خودکار دریافت شود. / '
+            'No input camera found. Start sharing on your phone for automatic reception.',
           );
         }
         final video = constraints['video'] as Map<String, dynamic>;
@@ -363,6 +377,7 @@ class LiveCaptureService extends ChangeNotifier {
         await selectMicrophone(value.microphoneId!);
       }
       localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      await setOrientation(value.orientation);
       activeCameraId =
           localStream?.getVideoTracks().firstOrNull?.getSettings()['deviceId']
               as String?;
@@ -406,10 +421,14 @@ class LiveCaptureService extends ChangeNotifier {
       return;
     }
     final peer = await createPeerConnection(_configuration);
+    final preferredAddresses = await _usbAddresses(
+      _server?.clientHosts[socket] ?? '',
+    );
     _peers[socket] = peer;
     final candidates = <RTCIceCandidate>[];
     peer.onIceCandidate = (candidate) {
-      if (socket.readyState == WebSocket.open) {
+      if (socket.readyState == WebSocket.open &&
+          captureCandidateAllowed(candidate.candidate, preferredAddresses)) {
         socket.add(jsonEncode({'candidate': candidate.toMap()}));
       }
     };
@@ -542,6 +561,7 @@ class LiveCaptureService extends ChangeNotifier {
         return;
       }
       final peer = await createPeerConnection(_configuration);
+      final preferredAddresses = await _usbAddresses(uri.host);
       _peers[socket] = peer;
       if (_disposed) {
         await stop();
@@ -555,7 +575,8 @@ class LiveCaptureService extends ChangeNotifier {
         _changed();
       };
       peer.onIceCandidate = (candidate) {
-        if (socket.readyState == WebSocket.open) {
+        if (socket.readyState == WebSocket.open &&
+            captureCandidateAllowed(candidate.candidate, preferredAddresses)) {
           socket.add(jsonEncode({'candidate': candidate.toMap()}));
         }
       };
@@ -563,6 +584,16 @@ class LiveCaptureService extends ChangeNotifier {
         status = state.name
             .replaceFirst('RTCPeerConnectionState', '')
             .toLowerCase();
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+          unawaited(stop());
+        } else if (state ==
+            RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          Timer(const Duration(seconds: 5), () {
+            if (_receiver == socket && status == 'disconnected') {
+              unawaited(stop());
+            }
+          });
+        }
         _changed();
       };
       Future<void> queue = Future.value();
@@ -632,6 +663,14 @@ class LiveCaptureService extends ChangeNotifier {
     map['sdpMid'] as String?,
     map['sdpMLineIndex'] as int?,
   );
+  static Future<Set<String>> _usbAddresses(String remoteHost) async {
+    final routes = await LanNetworkService.instance.routes();
+    final usb = routes.where(
+      (route) => route.capturePriority == 0 && route.contains(remoteHost),
+    );
+    return usb.map((route) => route.address).toSet();
+  }
+
   void muteMicrophone(bool mute) {
     microphoneMuted = mute;
     for (final track in localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
@@ -663,11 +702,26 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   Future<void> setPlaybackMuted(bool mute) async {
+    if (playbackMuted == mute) return;
     for (final track
         in remoteStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
       await Helper.setVolume(mute ? 0 : 1, track);
     }
     playbackMuted = mute;
+    _changed();
+  }
+
+  Future<void> setOrientation(String value) async {
+    if (!['auto', 'portrait', 'landscape'].contains(value)) {
+      throw const FormatException('Invalid camera orientation.');
+    }
+    if (Platform.isAndroid) {
+      await _captureChannel.invokeMethod('orientation', {
+        'track': localStream?.getVideoTracks().firstOrNull?.id,
+        'mode': value,
+      });
+    }
+    options = options.copyWith(orientation: value);
     _changed();
   }
 
@@ -764,6 +818,7 @@ class LiveCaptureService extends ChangeNotifier {
           throw StateError('Capture stopped during configuration.');
         }
         localStream = stream;
+        await setOrientation(applied.orientation);
         for (final peer in _peers.values.toList()) {
           for (final sender in await peer.getSenders()) {
             final replacement = stream
@@ -911,6 +966,7 @@ class LiveCaptureService extends ChangeNotifier {
       await Helper.switchCamera(track, next);
       activeCameraId = next;
       options = options.copyWith(cameraId: next, clearCameraId: next == null);
+      await setOrientation(options.orientation);
       await refreshCameraControls();
     }
   }
@@ -930,6 +986,11 @@ class LiveCaptureService extends ChangeNotifier {
     final server = _server;
     _server = null;
     final local = localStream;
+    if (Platform.isAndroid && local != null) {
+      await _captureChannel
+          .invokeMethod('orientation', {'mode': 'auto'})
+          .catchError((Object _) {});
+    }
     localStream = null;
     remoteStream = null;
     _changed();
@@ -977,6 +1038,17 @@ class LiveCaptureService extends ChangeNotifier {
     unawaited(stop());
     super.dispose();
   }
+}
+
+bool captureCandidateAllowed(
+  String? candidate,
+  Set<String> preferredAddresses,
+) {
+  if (preferredAddresses.isEmpty || candidate == null || candidate.isEmpty) {
+    return true;
+  }
+  final fields = candidate.trim().split(RegExp(r'\s+'));
+  return fields.length > 4 && preferredAddresses.contains(fields[4]);
 }
 
 Map<String, dynamic> decodeCaptureSignal(dynamic message) {

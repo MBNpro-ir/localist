@@ -48,7 +48,8 @@ Name: "fa"; MessagesFile: "{#SourcePath}Farsi.isl"
 Name: "desktopicon"; Description: "ساخت میان‌بر روی دسکتاپ"; GroupDescription: "میان‌برها:"
 
 [Files]
-Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "LocalistRemote.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\LocalistRemote.exe"; DestDir: "{app}"; Attribs: hidden; Flags: ignoreversion
 Source: "{#SourcePath}Vazirmatn-OFL.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "{#UninstallShell}"; DestDir: "{app}"; DestName: "MBNUninstall.exe"; Flags: ignoreversion
 

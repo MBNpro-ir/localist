@@ -31,6 +31,7 @@ import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
 import 'screens/stream_page.dart';
 import 'screens/live_capture_page.dart';
+import 'services/capture_hub_service.dart';
 import 'screens/vpn_sharing_page.dart';
 import 'services/feature_activity_service.dart';
 import 'services/dlna_cast_service.dart';
@@ -427,6 +428,7 @@ class _LocalistShellState extends State<LocalistShell>
     );
     unawaited(_bridge.initializeNotifications());
     unawaited(_quickSend.initialize());
+    unawaited(CaptureHubService.instance.start());
     _refreshState();
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (_appLifecycleState == AppLifecycleState.resumed ||
@@ -478,6 +480,7 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(_quickSend.disposeService());
     unawaited(_appleWebTransfer.disposeService());
     unawaited(MediaStreamService.instance.stop());
+    unawaited(CaptureHubService.instance.stop());
     _refreshTimer?.cancel();
     _pageController.dispose();
     super.dispose();

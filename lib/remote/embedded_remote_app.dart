@@ -130,6 +130,18 @@ class LocalistRemoteRuntime {
   }
 
   static Future<void> _prepareDesktop() async {
+    final main = File(Platform.resolvedExecutable);
+    final helper = File(hostExecutablePath);
+    if (await helper.exists()) {
+      final mainHash = await sha256.bind(main.openRead()).first;
+      final helperHash = await sha256.bind(helper.openRead()).first;
+      if (mainHash != helperHash) {
+        throw StateError(
+          'فایل‌های موتور ریموت با برنامه یکسان نیستند؛ بستهٔ کامل نسخهٔ جدید را نصب کنید. / '
+          'Remote IPC executable mismatch. Install the complete current Localist package.',
+        );
+      }
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('remote.localPassword');
   }

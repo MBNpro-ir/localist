@@ -336,7 +336,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (std::find(arguments.begin(), arguments.end(), "--remove-windows-integration") != arguments.end()) {
     const auto app = JoinPath(ExeDirectory(), L"Localist.exe");
     const bool task = !IsElevatedStartupEnabled(app) || ConfigureElevatedStartup(false, app);
-    const bool camera = ConfigureLocalistCamera(ExeDirectory(), false);
+    bool camera = true;
+    for (int slot = 0; slot < 4; ++slot)
+      camera = ConfigureLocalistCamera(ExeDirectory(), false, slot) && camera;
     return task && camera ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   bool startup = false;

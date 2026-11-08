@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-bool IsLocalistCameraInstalled(const std::wstring& directory);
-bool ConfigureLocalistCamera(const std::wstring& directory, bool install);
+bool IsLocalistCameraInstalled(const std::wstring& directory, int slot = 0);
+bool ConfigureLocalistCamera(const std::wstring& directory, bool install, int slot = 0);
 bool LaunchSignedMicrophoneInstaller(const std::wstring& path);
-std::wstring LocalistCameraFileName(bool x64);
+std::wstring LocalistCameraFileName(bool x64, int slot = 0);

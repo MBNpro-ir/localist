@@ -218,7 +218,10 @@ jobs:
 
       - name: Build Windows Setup
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-WindowsSetup.ps1 -Output release
+        run: |
+          python tools/verify_windows_bundle.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows package verification failed.' }
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-WindowsSetup.ps1 -Output release
 
       - name: Package Windows x64
         shell: pwsh
@@ -226,10 +229,12 @@ jobs:
           New-Item -ItemType Directory -Force release | Out-Null
           $archive = "release\localist-v${env:APP_VERSION}-windows-64bit.zip"
           if (Test-Path $archive) { Remove-Item -LiteralPath $archive -Force }
-          Compress-Archive `
-            -Path .\build\windows\x64\runner\Release\* `
-            -DestinationPath $archive `
-            -CompressionLevel Optimal
+          # ZipFile includes the hidden helper that Compress-Archive omits.
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            (Resolve-Path .\build\windows\x64\runner\Release).Path,
+            [System.IO.Path]::GetFullPath($archive),
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $false)
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7

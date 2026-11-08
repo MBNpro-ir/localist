@@ -891,10 +891,11 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
 
   if (method == "getWindowsVirtualCameraStatus") {
     const auto directory = ParentDirectory(GetModulePath());
+    const int slot = static_cast<int>(GetIntegerArgument(arguments, "slot"));
     result->Success(EncodableValue(EncodableMap{
-      {EncodableValue("installed"), EncodableValue(IsLocalistCameraInstalled(directory))},
+      {EncodableValue("installed"), EncodableValue(IsLocalistCameraInstalled(directory, slot))},
       {EncodableValue("elevated"), EncodableValue(IsLocalistProcessElevated())},
-      {EncodableValue("available"), EncodableValue(IsRegularFile(directory + L"\\" + LocalistCameraFileName(true)) && IsRegularFile(directory + L"\\" + LocalistCameraFileName(false)))},
+      {EncodableValue("available"), EncodableValue(IsRegularFile(directory + L"\\" + LocalistCameraFileName(true, slot)) && IsRegularFile(directory + L"\\" + LocalistCameraFileName(false, slot)))},
     }));
     return;
   }
@@ -917,9 +918,11 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
       if (label.empty()) break;
       wcsncpy_s(state.microphone_names[i], label.c_str(), _TRUNCATE); ++state.microphones;
     }
-    PublishLocalistCaptureState(state);
+    const int slot = static_cast<int>(GetIntegerArgument(arguments, "slot"));
+    if (slot < 0 || slot >= 4) { result->Error("invalid_slot", "Camera slot must be 0..3"); return; }
+    PublishLocalistCaptureState(state, slot);
     char command[1024] = {};
-    result->Success(EncodableValue(TakeLocalistCaptureCommand(command, sizeof(command)) ? command : ""));
+    result->Success(EncodableValue(TakeLocalistCaptureCommand(command, sizeof(command), slot) ? command : ""));
     return;
   }
   if (method == "launchWindowsMicrophoneInstaller") {
@@ -929,7 +932,7 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
   }
   if (method == "setWindowsVirtualCameraInstalled") {
     result->Success(EncodableValue(ConfigureLocalistCamera(ParentDirectory(GetModulePath()),
-        GetBoolArgument(call.arguments(), "enabled"))));
+        GetBoolArgument(call.arguments(), "enabled"), static_cast<int>(GetIntegerArgument(arguments, "slot")))));
     return;
   }
   if (method == "setWindowsLaunchAtStartup") {

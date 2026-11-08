@@ -24,6 +24,16 @@ if ($Qa) { $appId += '.InstallerQA'; $displayName += ' Installer QA'; $registryE
 foreach ($required in @($exe, 'flutter_windows.dll', 'data/app.so', 'data/icudtl.dat', 'LocalistUpdater.exe', 'LocalistRemote.exe', 'librustdesk.dll', "LocalistCamera64-$version.$build.dll", "LocalistCamera32-$version.$build.dll")) {
     if (-not (Test-Path -LiteralPath (Join-Path $bundlePath $required))) { throw "Bundle missing: $required" }
 }
+foreach ($arch in @(32, 64)) {
+    foreach ($slotSuffix in @('', '-2', '-3', '-4')) {
+        $camera = "LocalistCamera$arch$slotSuffix-$version.$build.dll"
+        if (-not (Test-Path -LiteralPath (Join-Path $bundlePath $camera))) { throw "Bundle missing: $camera" }
+    }
+}
+if ((Get-FileHash -LiteralPath (Join-Path $bundlePath $exe)).Hash -ne
+    (Get-FileHash -LiteralPath (Join-Path $bundlePath 'LocalistRemote.exe')).Hash) {
+    throw 'Remote IPC requires byte-identical main and helper executables.'
+}
 New-Item -ItemType Directory -Path $outputPath -Force | Out-Null
 $stage = Join-Path $project 'build/windows-installer'
 if ($Qa) { $stage += '-qa' }

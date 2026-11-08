@@ -23,6 +23,7 @@ string(REPLACE "if (IsEqualCLSID(cls, CLSID_OBS_VirtualVideo)) {" "if (IsEqualCL
 string(REPLACE "return RegServer(CLSID_OBS_VirtualVideo, L\"Localist Camera\", file);" "return RegServer(CLSID_OBS_VirtualVideo, L\"Localist Camera\", file) && RegServer(CLSID_LocalistControls, L\"Localist Camera Controls\", file);" module "${module}")
 string(REPLACE "return UnregServer(CLSID_OBS_VirtualVideo);" "UnregServer(CLSID_LocalistControls); return UnregServer(CLSID_OBS_VirtualVideo);" module "${module}")
 string(REPLACE "if (!IsEqualCLSID(cls, CLSID_OBS_VirtualVideo)) {" "if (!IsEqualCLSID(cls, CLSID_OBS_VirtualVideo) && !IsEqualCLSID(cls, CLSID_LocalistControls)) {" module "${module}")
+string(REPLACE "L\"Localist Camera\"" "LOCALIST_CAMERA_NAME" module "${module}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/virtualcam-module.cpp" "${module}")
 file(READ "${VC_MODULE}/virtualcam-filter.hpp" header)
 string(PREPEND header "#include <ocidl.h>\n")
@@ -54,12 +55,20 @@ file(READ "${VC_DSHOW}/source/output-filter.cpp" pin)
 string(REPLACE "if (pmt == nullptr)\n\t\treturn VFW_E_INVALIDMEDIATYPE;" "if (!pmt || pmt->majortype != MEDIATYPE_Video || pmt->formattype != FORMAT_VideoInfo || !pmt->pbFormat || pmt->cbFormat < sizeof(VIDEOINFOHEADER)) return VFW_E_INVALIDMEDIATYPE;\n\tconst auto* requested = reinterpret_cast<const VIDEOINFOHEADER*>(pmt->pbFormat);\n\tif (requested->bmiHeader.biWidth < 2 || requested->bmiHeader.biWidth > 4096 || requested->bmiHeader.biHeight < 2 || requested->bmiHeader.biHeight > 4096 || (requested->bmiHeader.biWidth & 1) || (requested->bmiHeader.biHeight & 1) || requested->AvgTimePerFrame < 166666 || requested->AvgTimePerFrame > 1000000 || (pmt->subtype != MEDIASUBTYPE_NV12 && pmt->subtype != MEDIASUBTYPE_I420 && pmt->subtype != MEDIASUBTYPE_YUY2)) return VFW_E_INVALIDMEDIATYPE;\n\tif (connectedPin) return VFW_E_ALREADY_CONNECTED;" pin "${pin}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/output-filter.cpp" "${pin}")
 file(READ "${VC_QUEUE}/shared-memory-queue.c" queue)
-string(REPLACE "#define VIDEO_NAME L\"OBSVirtualCamVideo\"" "#include \"camera_namespace.h\"" queue "${queue}")
+string(REPLACE "#define VIDEO_NAME L\"OBSVirtualCamVideo\"" "#define LOCALIST_QUEUE_IMPLEMENTATION\n#include \"camera_namespace.h\"" queue "${queue}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/shared-memory-queue.c" "${queue}")
 
 set(VC_COMMON "${CMAKE_CURRENT_BINARY_DIR}/shared-memory-queue.c" "${VC_SCALE}/tiny-nv12-scale.c")
 set(VC_INCLUDES "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}" "${VC_MODULE}" "${VC_DSHOW}" "${VC_DSHOW}/source" "${VC_SCALE}" "${VC_QUEUE}" "${VC_SOURCE}/libobs")
-add_library(LocalistVirtualCamera SHARED
+foreach(VC_SLOT RANGE 0 3)
+  set(VC_TARGET "LocalistVirtualCamera")
+  set(VC_SLOT_SUFFIX "")
+  if(VC_SLOT GREATER 0)
+    math(EXPR VC_NUMBER "${VC_SLOT} + 1")
+    set(VC_SLOT_SUFFIX "-${VC_NUMBER}")
+    set(VC_TARGET "LocalistVirtualCamera${VC_NUMBER}")
+  endif()
+add_library(${VC_TARGET} SHARED
   "${CMAKE_CURRENT_BINARY_DIR}/virtualcam-module.cpp"
   "${CMAKE_CURRENT_BINARY_DIR}/virtualcam-filter.cpp"
   "${VC_MODULE}/sleepto.c" placeholder.cpp dshow_errors.cpp camera.def capture_controls.cpp capture_controls_bus.cpp
@@ -68,24 +77,29 @@ add_library(LocalistVirtualCamera SHARED
   "${VC_DSHOW}/source/dshow-media-type.cpp"
   "${VC_DSHOW}/source/log.cpp"
   ${VC_COMMON})
-target_include_directories(LocalistVirtualCamera PRIVATE ${VC_INCLUDES})
-target_compile_features(LocalistVirtualCamera PRIVATE cxx_std_17)
-target_compile_definitions(LocalistVirtualCamera PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX)
-target_compile_options(LocalistVirtualCamera PRIVATE /wd4005 /wd4018)
-set_property(TARGET LocalistVirtualCamera PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-target_link_libraries(LocalistVirtualCamera PRIVATE strmiids ole32 oleaut32 advapi32 shell32 winmm)
+target_include_directories(${VC_TARGET} PRIVATE ${VC_INCLUDES})
+target_compile_features(${VC_TARGET} PRIVATE cxx_std_17)
+target_compile_definitions(${VC_TARGET} PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS NOMINMAX LOCALIST_CAMERA_SLOT=${VC_SLOT})
+target_compile_options(${VC_TARGET} PRIVATE /wd4005 /wd4018)
+set_property(TARGET ${VC_TARGET} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+target_link_libraries(${VC_TARGET} PRIVATE strmiids ole32 oleaut32 advapi32 shell32 winmm)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-  set_target_properties(LocalistVirtualCamera PROPERTIES OUTPUT_NAME "LocalistCamera64${VC_SUFFIX}")
+  set_target_properties(${VC_TARGET} PROPERTIES OUTPUT_NAME "LocalistCamera64${VC_SLOT_SUFFIX}${VC_SUFFIX}")
 else()
-  set_target_properties(LocalistVirtualCamera PROPERTIES OUTPUT_NAME "LocalistCamera32${VC_SUFFIX}")
+  set_target_properties(${VC_TARGET} PROPERTIES OUTPUT_NAME "LocalistCamera32${VC_SLOT_SUFFIX}${VC_SUFFIX}")
 endif()
+
+endforeach()
 
 option(LOCALIST_CAMERA_QA "Build the isolated camera probe" OFF)
 if(LOCALIST_CAMERA_QA)
+  foreach(VC_TARGET LocalistVirtualCamera LocalistVirtualCamera2 LocalistVirtualCamera3 LocalistVirtualCamera4)
+    target_compile_definitions(${VC_TARGET} PRIVATE LOCALIST_CAMERA_TEST_IDENTITY=1)
+  endforeach()
   add_executable(localist_camera_probe camera_probe.cpp webrtc_virtual_camera.cpp capture_controls_bus.cpp ${VC_COMMON})
   target_include_directories(localist_camera_probe PRIVATE ${VC_INCLUDES} "${LOCALIST_WEBRTC_DIR}/include")
   target_compile_features(localist_camera_probe PRIVATE cxx_std_17)
-  target_compile_definitions(localist_camera_probe PRIVATE UNICODE _UNICODE NOMINMAX LIB_WEBRTC_API_DLL)
+  target_compile_definitions(localist_camera_probe PRIVATE UNICODE _UNICODE NOMINMAX LIB_WEBRTC_API_DLL LOCALIST_CAMERA_TEST_IDENTITY=1)
   target_link_libraries(localist_camera_probe PRIVATE "${LOCALIST_WEBRTC_DIR}/lib/libwebrtc.dll.lib" advapi32 ole32 oleaut32 strmiids)
   add_custom_command(TARGET localist_camera_probe POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${LOCALIST_WEBRTC_DIR}/lib/libwebrtc.dll" "$<TARGET_FILE_DIR:localist_camera_probe>")
@@ -99,12 +113,14 @@ if(TARGET flutter_webrtc_plugin)
     CMAKE_GENERATOR "${CMAKE_GENERATOR}"
     CMAKE_GENERATOR_PLATFORM Win32
     CMAKE_ARGS "-DLOCALIST_CAMERA_VERSION=${LOCALIST_CAMERA_VERSION}"
-    BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release --target LocalistVirtualCamera
+    BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release --target LocalistVirtualCamera LocalistVirtualCamera2 LocalistVirtualCamera3 LocalistVirtualCamera4
     INSTALL_COMMAND ""
     BUILD_ALWAYS TRUE)
   add_dependencies(${BINARY_NAME} localist_camera_x86)
-  install(FILES "${CMAKE_BINARY_DIR}/camera-x86/Release/LocalistCamera32${VC_SUFFIX}.dll"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  foreach(VC_CAMERA_SUFFIX "" "-2" "-3" "-4")
+    install(FILES "${CMAKE_BINARY_DIR}/camera-x86/Release/LocalistCamera32${VC_CAMERA_SUFFIX}${VC_SUFFIX}.dll"
+      DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  endforeach()
   get_target_property(plugin_sources flutter_webrtc_plugin SOURCES)
   set(renderer_found FALSE)
   foreach(source IN LISTS plugin_sources)
@@ -134,8 +150,8 @@ if(TARGET flutter_webrtc_plugin)
   target_sources(flutter_webrtc_plugin PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/flutter_video_renderer.cc" webrtc_virtual_camera.cpp ${VC_COMMON})
   set_source_files_properties(${VC_COMMON} PROPERTIES COMPILE_OPTIONS /W0)
   target_include_directories(flutter_webrtc_plugin PRIVATE ${VC_INCLUDES})
-  add_dependencies(${BINARY_NAME} LocalistVirtualCamera)
-  install(TARGETS LocalistVirtualCamera RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  add_dependencies(${BINARY_NAME} LocalistVirtualCamera LocalistVirtualCamera2 LocalistVirtualCamera3 LocalistVirtualCamera4)
+  install(TARGETS LocalistVirtualCamera LocalistVirtualCamera2 LocalistVirtualCamera3 LocalistVirtualCamera4 RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
   install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/virtual_camera/"
     DESTINATION "${CMAKE_INSTALL_PREFIX}/data/licenses/LocalistCamera/reference-source" COMPONENT Runtime)
   install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/"

@@ -1,37 +1,13 @@
 #include <windows.h>
 #include <string>
-#include <vector>
 
-namespace {
-struct Resource { WORD type, id, language; bool numeric; std::wstring name; };
-BOOL CALLBACK Language(HMODULE, LPCWSTR type, LPCWSTR name, WORD language, LONG_PTR data) {
-  auto& resources = *reinterpret_cast<std::vector<Resource>*>(data);
-  resources.push_back({static_cast<WORD>(reinterpret_cast<ULONG_PTR>(type)),
-      IS_INTRESOURCE(name) ? static_cast<WORD>(reinterpret_cast<ULONG_PTR>(name)) : WORD(0),
-      language, IS_INTRESOURCE(name), IS_INTRESOURCE(name) ? L"" : name});
-  return TRUE;
-}
-BOOL CALLBACK Name(HMODULE module, LPCWSTR type, LPWSTR name, LONG_PTR data) {
-  return EnumResourceLanguagesW(module, type, name, Language, data);
-}
-}
+// PE resources must remain identical for the native executable-pair IPC trust.
+// Hide the helper through metadata, without changing any binary bytes.
 int wmain(int argc, wchar_t** argv) {
-  if (argc != 2) return 1;
-  HMODULE module = LoadLibraryExW(argv[1], nullptr, LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
-  if (!module) return 2;
-  std::vector<Resource> resources;
-  for (LPCWSTR type : {RT_GROUP_ICON, RT_ICON}) {
-    if (!EnumResourceNamesW(module, type, Name, reinterpret_cast<LONG_PTR>(&resources)) &&
-        GetLastError() != ERROR_RESOURCE_TYPE_NOT_FOUND) { FreeLibrary(module); return 3; }
-  }
-  FreeLibrary(module);
-  if (resources.empty()) return 0;
-  HANDLE update = BeginUpdateResourceW(argv[1], FALSE);
-  if (!update) return 4;
-  for (const auto& resource : resources) {
-    if (!UpdateResourceW(update, MAKEINTRESOURCEW(resource.type),
-        resource.numeric ? MAKEINTRESOURCEW(resource.id) : resource.name.c_str(),
-        resource.language, nullptr, 0)) { EndUpdateResourceW(update, TRUE); return 5; }
-  }
-  return EndUpdateResourceW(update, FALSE) ? 0 : 6;
+  if (argc != 2 && argc != 3) return 1;
+  const bool unhide = argc == 3 && std::wstring(argv[1]) == L"--unhide";
+  const wchar_t* path = argv[argc - 1];
+  const DWORD attributes = GetFileAttributesW(path);
+  if (attributes == INVALID_FILE_ATTRIBUTES) return 2;
+  return SetFileAttributesW(path, unhide ? attributes & ~FILE_ATTRIBUTE_HIDDEN : attributes | FILE_ATTRIBUTE_HIDDEN) ? 0 : 3;
 }

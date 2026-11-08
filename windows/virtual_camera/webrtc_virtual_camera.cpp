@@ -2,20 +2,21 @@
 #include <windows.h>
 #include <mutex>
 #include <vector>
+#include <array>
+#include "camera_namespace.h"
 #include "shared-memory-queue.h"
 
 namespace {
 std::mutex mutex;
-int64_t chosen = -1;
-uint64_t frames = 0;
-int fps = 30, width = 0, height = 0;
-video_queue_t* queue = nullptr;
-std::vector<uint8_t> nv12;
-void Close() {
-  video_queue_close(queue); queue = nullptr;
-  width = height = 0;
-  nv12.clear();
-}
+struct Camera {
+  int64_t chosen = -1;
+  uint64_t frames = 0;
+  int fps = 30, width = 0, height = 0;
+  video_queue_t* queue = nullptr;
+  std::vector<uint8_t> nv12;
+  void Close() { video_queue_close(queue); queue = nullptr; width = height = 0; nv12.clear(); }
+};
+std::array<Camera,4> cameras;
 uint64_t Timestamp() {
   LARGE_INTEGER current, frequency;
   QueryPerformanceCounter(&current); QueryPerformanceFrequency(&frequency);
@@ -33,32 +34,40 @@ void Rotate(const uint8_t* source, int stride, uint8_t* dest, int w, int h, int 
 }
 }
 
-extern "C" __declspec(dllexport) int LocalistVirtualCameraSetTexture(int64_t texture, int requested_fps) {
+extern "C" __declspec(dllexport) int LocalistVirtualCameraSetSlot(int slot, int64_t texture, int requested_fps) {
   std::lock_guard<std::mutex> lock(mutex);
-  if (requested_fps < 1 || requested_fps > 60) return 0;
-  if (chosen != texture || fps != requested_fps) Close();
-  chosen = texture; fps = requested_fps; frames = 0;
+  if (slot < 0 || slot >= 4 || requested_fps < 1 || requested_fps > 60) return 0;
+  auto& camera = cameras[slot];
+  if (camera.chosen != texture || camera.fps != requested_fps) camera.Close();
+  camera.chosen = texture; camera.fps = requested_fps; camera.frames = 0;
   return 1;
 }
-extern "C" __declspec(dllexport) uint64_t LocalistVirtualCameraFrames() {
+extern "C" __declspec(dllexport) int LocalistVirtualCameraSetTexture(int64_t texture, int fps) { return LocalistVirtualCameraSetSlot(0,texture,fps); }
+extern "C" __declspec(dllexport) uint64_t LocalistVirtualCameraSlotFrames(int slot) {
   std::lock_guard<std::mutex> lock(mutex);
-  return frames;
+  return slot >= 0 && slot < 4 ? cameras[slot].frames : 0;
 }
+extern "C" __declspec(dllexport) uint64_t LocalistVirtualCameraFrames() { return LocalistVirtualCameraSlotFrames(0); }
 void LocalistVirtualCameraRelease(int64_t texture) {
   std::lock_guard<std::mutex> lock(mutex);
-  if (chosen == texture) { chosen = -1; Close(); }
+  for(auto& camera : cameras) if (camera.chosen == texture) { camera.chosen = -1; camera.Close(); }
 }
 void LocalistVirtualCameraFrame(int64_t texture, libwebrtc::scoped_refptr<libwebrtc::RTCVideoFrame> frame) {
   std::lock_guard<std::mutex> lock(mutex);
-  if (texture != chosen || chosen < 0 || !frame) return;
+  if (!frame) return;
+  for (int slot = 0; slot < 4; ++slot) {
+  auto& camera = cameras[slot];
+  if (texture != camera.chosen || camera.chosen < 0) continue;
+  auto& queue = camera.queue; auto& width = camera.width; auto& height = camera.height; auto& nv12 = camera.nv12;
+  localist_set_queue_slot(slot);
   const int source_width = frame->width() & ~1, source_height = frame->height() & ~1;
   const int rotation = static_cast<int>(frame->rotation());
   const int w = rotation == 90 || rotation == 270 ? source_height : source_width;
   const int h = rotation == 90 || rotation == 270 ? source_width : source_height;
   if (w < 2 || h < 2 || w > 4096 || h > 4096 || !frame->DataY() || !frame->DataU() || !frame->DataV()) return;
-  if (queue && (width != w || height != h)) Close();
+  if (queue && (width != w || height != h)) camera.Close();
   if (!queue) {
-    queue = video_queue_create(static_cast<uint32_t>(w), static_cast<uint32_t>(h), 10000000ULL / static_cast<uint64_t>(fps));
+    queue = video_queue_create(static_cast<uint32_t>(w), static_cast<uint32_t>(h), 10000000ULL / static_cast<uint64_t>(camera.fps));
     if (!queue) return; // Readers release the previous-size queue asynchronously.
     width = w; height = h; nv12.resize(static_cast<size_t>(w) * h * 3 / 2);
   }
@@ -69,5 +78,6 @@ void LocalistVirtualCameraFrame(int64_t texture, libwebrtc::scoped_refptr<libweb
   uint8_t* planes[] = {nv12.data(), nv12.data() + y_size};
   uint32_t strides[] = {static_cast<uint32_t>(w), static_cast<uint32_t>(w)};
   video_queue_write(queue, planes, strides, Timestamp());
-  ++frames;
+  ++camera.frames;
+  }
 }

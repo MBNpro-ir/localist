@@ -162,6 +162,7 @@ class AppleWebTransferService extends ChangeNotifier {
     required List<String> paths,
     required Map<String, String> offeredNames,
     String selectedText = '',
+    bool useHotspot = true,
   }) async {
     if (!FeatureActivityService.instance.allows(LocalistFeature.quickSend)) {
       throw StateError(
@@ -189,7 +190,7 @@ class AppleWebTransferService extends ChangeNotifier {
     LocalOnlyHotspotInfo hotspotInfo = const LocalOnlyHotspotInfo.unsupported();
     try {
       await _quickSend.initialize();
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid && useHotspot) {
         final permissionGranted = await _ensureHotspotPermission();
         if (permissionGranted) {
           hotspotInfo = await _bridge.startLocalOnlyHotspot();
@@ -266,6 +267,8 @@ class AppleWebTransferService extends ChangeNotifier {
       _active = true;
       _statusMessage = _managedHotspot
           ? 'Private hotspot and browser transfer are ready.'
+          : !useHotspot
+          ? 'Browser transfer is ready on the current local network.'
           : Platform.isWindows
           ? 'Browser transfer is ready on this Windows PC.'
           : 'Browser transfer is ready; turn on a hotspot or use the current Wi-Fi network.';

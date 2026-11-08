@@ -3,9 +3,22 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 
 class LanRoute {
-  const LanRoute(this.address, this.prefixLength);
+  const LanRoute(this.address, this.prefixLength, [this.name = '']);
   final String address;
   final int prefixLength;
+  final String name;
+  int get capturePriority {
+    final value = name.toLowerCase();
+    if (RegExp(r'usb|rndis|ncm|tether').hasMatch(value)) return 0;
+    if (RegExp(r'ethernet|^eth\d|enp\d').hasMatch(value)) return 1;
+    return 2;
+  }
+
+  bool contains(String other) {
+    final first = ipv4Broadcast(address, prefixLength);
+    return first != null && first == ipv4Broadcast(other, prefixLength);
+  }
+
   String? get broadcast => ipv4Broadcast(address, prefixLength);
 }
 
@@ -55,7 +68,7 @@ class LanNetworkService {
           '-NoProfile',
           '-NonInteractive',
           '-Command',
-          '@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object IPAddress,PrefixLength,InterfaceAlias) | ConvertTo-Json -Compress',
+          '@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { \$ip = \$_; \$adapter = Get-NetAdapter -InterfaceIndex \$ip.InterfaceIndex -ErrorAction SilentlyContinue; [pscustomobject]@{IPAddress=\$ip.IPAddress;PrefixLength=\$ip.PrefixLength;InterfaceAlias=\$ip.InterfaceAlias;description=\$adapter.InterfaceDescription} }) | ConvertTo-Json -Compress',
         ], runInShell: false);
         final value = jsonDecode('${result.stdout}');
         records = value is List ? value : [value];
@@ -63,12 +76,13 @@ class LanNetworkService {
       for (final row in records ?? []) {
         final map = row as Map;
         final address = '${map['address'] ?? map['IPAddress']}';
-        final name = '${map['name'] ?? map['InterfaceAlias']}';
+        final name =
+            '${map['name'] ?? map['InterfaceAlias']} ${map['description'] ?? ''}';
         final prefix = (map['prefixLength'] ?? map['PrefixLength']) as num;
         if (isPhysicalLan(name) &&
             !address.startsWith('127.') &&
             address != '0.0.0.0') {
-          routes.add(LanRoute(address, prefix.toInt()));
+          routes.add(LanRoute(address, prefix.toInt(), name.trim()));
         }
       }
     } catch (_) {}
@@ -78,10 +92,13 @@ class LanNetworkService {
       )) {
         if (!isPhysicalLan(interface.name)) continue;
         for (final address in interface.addresses) {
-          if (!address.isLoopback) routes.add(LanRoute(address.address, 32));
+          if (!address.isLoopback) {
+            routes.add(LanRoute(address.address, 32, interface.name));
+          }
         }
       }
     }
+    routes.sort((a, b) => a.capturePriority.compareTo(b.capturePriority));
     _cache = routes.take(8).toList();
     _updated = DateTime.now();
     return _cache;

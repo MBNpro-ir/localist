@@ -7,9 +7,11 @@ class RemoteReadyIndicator extends StatefulWidget {
     required this.online,
     required this.hosting,
     this.server = '',
+    this.identityReady = true,
   });
   final bool ready, online, hosting;
   final String server;
+  final bool identityReady;
   @override
   State<RemoteReadyIndicator> createState() => _RemoteReadyIndicatorState();
 }
@@ -51,7 +53,8 @@ class _RemoteReadyIndicatorState extends State<RemoteReadyIndicator>
   Widget build(BuildContext context) {
     final fa = Localizations.localeOf(context).languageCode == 'fa';
     final scheme = Theme.of(context).colorScheme;
-    final available = widget.ready && widget.online && widget.hosting;
+    final available =
+        widget.ready && widget.online && widget.hosting && widget.identityReady;
     final color = available ? scheme.primary : scheme.onSurfaceVariant;
     final text = !widget.ready
         ? (fa ? 'در حال آماده‌سازی' : 'Starting')
@@ -59,6 +62,8 @@ class _RemoteReadyIndicatorState extends State<RemoteReadyIndicator>
         ? (fa ? 'میزبانی متوقف است' : 'Hosting stopped')
         : !widget.online
         ? (fa ? 'در حال اتصال به سرور' : 'Connecting to server')
+        : !widget.identityReady
+        ? (fa ? 'در انتظار شناسهٔ دستگاه' : 'Waiting for device ID')
         : (fa ? 'آمادهٔ اتصال · Ready' : 'Ready');
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),

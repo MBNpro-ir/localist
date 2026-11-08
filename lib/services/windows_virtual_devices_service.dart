@@ -9,18 +9,22 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:path_provider/path_provider.dart';
 import 'live_capture_service.dart';
 
-typedef _SetTextureNative = Int32 Function(Int64 texture, Int32 fps);
-typedef _SetTexture = int Function(int texture, int fps);
+typedef _SetSlotNative = Int32 Function(Int32 slot, Int64 texture, Int32 fps);
+typedef _SetSlot = int Function(int slot, int texture, int fps);
 
 /// Native camera output receives decoded I420 frames inside the WebRTC plugin.
 /// No per-frame Dart messages, PNG encoding or OBS process is involved.
 class WindowsVirtualDevicesService {
+  WindowsVirtualDevicesService({this.slot = 0}) {
+    RangeError.checkValueInInterval(slot, 0, 3, 'slot');
+  }
+  final int slot;
   static const _channel = MethodChannel('com.prs.localist.vpn');
   static const cableUrl =
       'https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack46.zip';
   static const cableDigest =
       'bc44e8974191a5a2427d6c979e2dab08dbb09925f3f435dfa2f0ba3e45b6eb90';
-  _SetTexture? _setTexture;
+  _SetSlot? _setSlot;
   bool cameraEnabled = false;
   String? microphoneOutput;
   String? _restoreOutput;
@@ -41,6 +45,7 @@ class WindowsVirtualDevicesService {
       state['enabled'] =
           state['enabled'] == true && cameraEnabled && capture.active;
       state['persian'] = persian;
+      state['slot'] = slot;
       state['message'] = _controlError.isEmpty
           ? state['message']
           : _controlError;
@@ -65,6 +70,7 @@ class WindowsVirtualDevicesService {
       Map<String, dynamic>.from(
         await _channel.invokeMapMethod<String, dynamic>(
               'getWindowsVirtualCameraStatus',
+              {'slot': slot},
             ) ??
             {},
       );
@@ -73,6 +79,7 @@ class WindowsVirtualDevicesService {
     if (!installed) stopCamera();
     if (await _channel.invokeMethod<bool>('setWindowsVirtualCameraInstalled', {
           'enabled': installed,
+          'slot': slot,
         }) !=
         true) {
       throw StateError(
@@ -83,11 +90,10 @@ class WindowsVirtualDevicesService {
   }
 
   void startCamera(int texture, {int fps = 30}) {
-    _setTexture ??= DynamicLibrary.open('flutter_webrtc_plugin.dll')
-        .lookupFunction<_SetTextureNative, _SetTexture>(
-          'LocalistVirtualCameraSetTexture',
-        );
-    if (_setTexture!(texture, fps) != 1) {
+    _setSlot ??= DynamicLibrary.open(
+      'flutter_webrtc_plugin.dll',
+    ).lookupFunction<_SetSlotNative, _SetSlot>('LocalistVirtualCameraSetSlot');
+    if (_setSlot!(slot, texture, fps) != 1) {
       throw StateError('Unable to start virtual camera output.');
     }
     cameraEnabled = true;
@@ -100,14 +106,17 @@ class WindowsVirtualDevicesService {
   }
 
   void stopCamera() {
-    _setTexture?.call(-1, 30);
+    _setSlot?.call(slot, -1, 30);
     cameraEnabled = false;
     _controlsTimer?.cancel();
     _controlsTimer = null;
     unawaited(_syncControls());
   }
 
-  Future<List<MediaDeviceInfo>> audioOutputs() => Helper.audiooutputs;
+  Future<List<MediaDeviceInfo>> audioOutputs() async {
+    await LiveCaptureService.initializeMedia();
+    return Helper.audiooutputs;
+  }
 
   Future<void> routeMicrophone(String deviceId) async {
     final devices = await audioOutputs();

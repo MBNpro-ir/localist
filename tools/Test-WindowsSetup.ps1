@@ -11,8 +11,9 @@ $appId = 'PRS.Localist.Windows.InstallerQA'
 $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${appId}_is1"
 $appKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\Localist-InstallerQA.exe'
 if (Test-Path -LiteralPath $uninstallKey) { throw 'Existing QA installation left untouched.' }
-$relative = 'build/windows-setup-test-' + [guid]::NewGuid().ToString('N')
+$relative = ".runlogs/multicapture-qa/installer-$version-$build"
 $root = Join-Path $project $relative
+if (Test-Path -LiteralPath $root) { throw 'Existing installer QA workspace left untouched.' }
 $payload = Join-Path $root 'payload'
 $destination = Join-Path $root 'نصب آزمایشی با فاصله'
 New-Item -ItemType Directory -Path (Join-Path $payload 'data') -Force | Out-Null
@@ -43,8 +44,14 @@ function Run-Core([string]$Name, [bool]$Success = $true) {
     else { Require ($process.ExitCode -ne 0) "$Name did not reject a downgrade" }
 }
 Write-Fixture (Join-Path $payload $exe) "$version.$build"
-foreach ($file in @('flutter_windows.dll','LocalistUpdater.exe', 'LocalistRemote.exe', 'librustdesk.dll',"LocalistCamera64-$version.$build.dll","LocalistCamera32-$version.$build.dll",'data/app.so','data/icudtl.dat')) {
+foreach ($file in @('flutter_windows.dll','LocalistUpdater.exe', 'librustdesk.dll','data/app.so','data/icudtl.dat')) {
     [IO.File]::WriteAllText((Join-Path $payload $file), 'installer fixture')
+}
+Copy-Item -LiteralPath (Join-Path $payload $exe) -Destination (Join-Path $payload 'LocalistRemote.exe')
+foreach ($arch in @(32, 64)) {
+    foreach ($suffix in @('', '-2', '-3', '-4')) {
+        [IO.File]::WriteAllText((Join-Path $payload "LocalistCamera$arch$suffix-$version.$build.dll"), 'installer fixture')
+    }
 }
 $parameters = @{ Bundle = "$relative/payload"; Output = "$relative/output"; Qa = $true }
 if ($Compiler) { $parameters.Compiler = $Compiler }
@@ -63,6 +70,10 @@ try {
     Wait-Setup $process 'wrapper install'
     Require ($process.ExitCode -eq 0) 'Wrapper installation failed'
     Require (Test-Path -LiteralPath (Join-Path $destination $exe)) 'Executable missing'
+    $helper = Join-Path $destination 'LocalistRemote.exe'
+    Require (Test-Path -LiteralPath $helper) 'Hidden remote helper missing'
+    Require (((Get-Item -LiteralPath $helper -Force).Attributes -band [IO.FileAttributes]::Hidden) -ne 0) 'Remote helper is not hidden'
+    Require ((Get-FileHash -LiteralPath $helper).Hash -eq (Get-FileHash -LiteralPath (Join-Path $destination $exe)).Hash) 'Installed executable pair does not match'
     Require (Test-Path -LiteralPath $uninstallKey) 'Uninstall registration missing'
     Require ((Get-ItemProperty -LiteralPath $uninstallKey).InstallLocation.TrimEnd('\') -eq $destination) 'Install location mismatch'
     $removeUi = Join-Path $destination 'MBNUninstall.exe'

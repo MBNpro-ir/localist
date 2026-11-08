@@ -147,6 +147,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                     ready: _service.ready,
                     online: _service.online,
                     hosting: _service.hosting,
+                    identityReady: _service.localId.isNotEmpty,
                   ),
                   const SizedBox(height: 10),
                   if (_service.localId.isNotEmpty)

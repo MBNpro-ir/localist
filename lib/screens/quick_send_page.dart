@@ -408,6 +408,22 @@ class QuickSendPageState extends State<QuickSendPage> {
                 ),
               ],
             ),
+            if (!service.active && !service.starting) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _startAppleWebTransfer(useHotspot: false),
+                  icon: const Icon(Icons.router_outlined),
+                  label: Text(
+                    _t(
+                      'استفاده از شبکهٔ فعلی (بدون هات‌اسپات)',
+                      'Use current network (no hotspot)',
+                    ),
+                  ),
+                ),
+              ),
+            ],
             if (service.errorMessage.isNotEmpty) ...[
               const SizedBox(height: 10),
               ServiceLockNotice(
@@ -1745,17 +1761,18 @@ class QuickSendPageState extends State<QuickSendPage> {
     );
   }
 
-  Future<void> _startAppleWebTransfer() async {
+  Future<void> _startAppleWebTransfer({bool useHotspot = true}) async {
     try {
       final automaticHotspot = await _appleWebTransfer.start(
         paths: List.of(_selectedPaths),
         offeredNames: Map.of(_selectedFileNames),
         selectedText: _selectedText,
+        useHotspot: useHotspot,
       );
       if (!mounted) {
         return;
       }
-      if (Platform.isWindows) {
+      if (Platform.isWindows || !useHotspot) {
         _notice(
           _t(
             'صفحه انتقال وب آماده است؛ دستگاه اپل را به همان شبکه وصل و QR را اسکن کنید.',
