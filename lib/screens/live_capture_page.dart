@@ -21,6 +21,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   late final _service = widget.service ?? LiveCaptureService();
   late final _renderer = widget.renderer ?? RTCVideoRenderer();
   final _link = TextEditingController();
+  final _scroll = ScrollController();
   final _virtual = WindowsVirtualDevicesService();
   bool _virtualBusy = false, _cameraInstalled = false;
   List<MediaDeviceInfo> _outputs = [];
@@ -228,6 +229,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     _virtual.stopCamera();
     unawaited(_virtual.stopMicrophone().catchError((Object _) {}));
     _link.dispose();
+    _scroll.dispose();
     unawaited(_renderer.dispose());
     super.dispose();
   }
@@ -349,39 +351,355 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     );
   }
 
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 110),
+  Widget _heading(IconData icon, String title, String subtitle) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(
-        t('دوربین و میکروفون', 'Camera & Mic'),
-        style: Theme.of(context).textTheme.headlineMedium,
-      ),
-      const SizedBox(height: 8),
-      Text(
-        t(
-          'انتقال زنده در Wi-Fi یا USB tethering؛ دریافت در Localist، مرورگر و OBS.',
-          'Live over Wi-Fi or USB tethering; receive in Localist, a browser or OBS.',
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primaryContainer,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(
+          icon,
+          color: Theme.of(context).colorScheme.onPrimaryContainer,
         ),
       ),
-      const SizedBox(height: 16),
-      if (_notice.isNotEmpty)
-        Text(
-          _notice,
-          style: TextStyle(color: Theme.of(context).colorScheme.error),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          ],
         ),
-      if (_rendererReady &&
-          (_service.localStream != null || _service.remoteStream != null))
-        Container(
-          height: 320,
-          color: Colors.black,
-          child: RTCVideoView(
-            _renderer,
-            mirror: _mirror,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+      ),
+    ],
+  );
+
+  Widget _settingsGroup(
+    IconData icon,
+    String title,
+    List<Widget> fields,
+  ) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ...fields,
+      ],
+    ),
+  );
+
+  Widget _captureSettings() => LayoutBuilder(
+    builder: (context, constraints) {
+      final video = _settingsGroup(
+        Icons.videocam_outlined,
+        t('تصویر', 'Video'),
+        [
+          _inputSelector('videoinput'),
+          if (_android)
+            SwitchListTile(
+              title: Text(t('دوربین پشت', 'Rear camera')),
+              value: _rear,
+              onChanged: (v) => setState(() => _rear = v),
+            ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            key: ValueKey('capture-resolution-$_width'),
+            isExpanded: true,
+            initialValue: _width,
+            decoration: InputDecoration(
+              labelText: t('وضوح درخواستی', 'Requested resolution'),
+            ),
+            items: [
+              for (final w in [320, 640, 1280, 1920])
+                DropdownMenuItem(
+                  value: w,
+                  child: Text(
+                    w == 320
+                        ? '320 × 240'
+                        : w == 640
+                        ? '640 × 480'
+                        : w == 1280
+                        ? '1280 × 720'
+                        : '1920 × 1080',
+                    textDirection: TextDirection.ltr,
+                  ),
+                ),
+            ],
+            onChanged: (v) => setState(() => _width = v!),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            key: ValueKey('capture-fps-$_fps'),
+            isExpanded: true,
+            initialValue: _fps,
+            decoration: InputDecoration(
+              labelText: t('نرخ فریم درخواستی', 'Requested frame rate'),
+            ),
+            items: [
+              for (final fps in [10, 15, 24, 30, 60])
+                DropdownMenuItem(
+                  value: fps,
+                  child: Text('$fps FPS', textDirection: TextDirection.ltr),
+                ),
+            ],
+            onChanged: (v) => setState(() => _fps = v!),
+          ),
+          const SizedBox(height: 14),
+          Text('${t('سقف بیت‌ریت', 'Maximum bitrate')}: $_bitrate kbps'),
+          Slider(
+            min: 250,
+            max: 8000,
+            divisions: 31,
+            value: _bitrate.toDouble(),
+            onChanged: (v) => setState(() => _bitrate = v.round()),
+          ),
+        ],
+      );
+      final audio = _settingsGroup(Icons.mic_none, t('صدا', 'Audio'), [
+        _inputSelector('audioinput'),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(t('حذف اکو', 'Echo cancellation')),
+          value: _echo,
+          onChanged: (v) => setState(() => _echo = v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(t('کاهش نویز', 'Noise suppression')),
+          value: _noise,
+          onChanged: (v) => setState(() => _noise = v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(t('تنظیم خودکار بلندی صدا', 'Automatic gain')),
+          value: _gain,
+          onChanged: (v) => setState(() => _gain = v),
+        ),
+      ]);
+
+      final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+      if (_camera && _microphone && constraints.maxWidth / scale >= 580) {
+        return Row(
+          key: const ValueKey('capture-settings-columns'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: video),
+            const SizedBox(width: 14),
+            Expanded(child: audio),
+          ],
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_camera) video,
+          if (_camera && _microphone) const SizedBox(height: 14),
+          if (_microphone) audio,
+        ],
+      );
+    },
+  );
+
+  Widget _sendCard() => GlassPanel(
+    key: const ValueKey('capture-send-card'),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _heading(
+          Icons.sensors,
+          t('فرستنده', 'Send'),
+          t(
+            'دوربین و صدای این دستگاه را به اشتراک بگذارید.',
+            'Share this device’s camera and microphone.',
           ),
         ),
-      if (_service.active) ...[
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ActionChip(
+              label: Text(t('کم‌مصرف', 'Battery saver')),
+              onPressed: () => _profile('battery'),
+            ),
+            ActionChip(
+              label: Text(t('متعادل', 'Balanced')),
+              onPressed: () => _profile('balanced'),
+            ),
+            ActionChip(
+              label: Text(t('با کیفیت', 'High quality')),
+              onPressed: () => _profile('quality'),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilterChip(
+              showCheckmark: false,
+              avatar: const Icon(Icons.videocam_outlined, size: 18),
+              label: Text(t('دوربین', 'Camera')),
+              selected: _camera,
+              onSelected: (v) => setState(() => _camera = v),
+            ),
+            FilterChip(
+              showCheckmark: false,
+              avatar: const Icon(Icons.mic_none, size: 18),
+              label: Text(t('میکروفون', 'Microphone')),
+              selected: _microphone,
+              onSelected: (v) => setState(() => _microphone = v),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _captureSettings(),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(
+            t(
+              'کنترل تنظیمات توسط گیرنده / OBS',
+              'Allow receiver / OBS capture controls',
+            ),
+          ),
+          subtitle: Text(
+            t(
+              'با اجازهٔ شما، گیرندهٔ لینک می‌تواند تنظیمات ضبط را تغییر دهد.',
+              'Let a paired viewer adjust the capture settings.',
+            ),
+          ),
+          value: _receiverControls,
+          onChanged: (value) => setState(() => _receiverControls = value),
+        ),
+        if (_android)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              t(
+                'ادامهٔ انتقال در پس‌زمینه با اعلان توقف',
+                'Continue in background with a Stop notification',
+              ),
+            ),
+            value: _background,
+            onChanged: (v) => setState(() => _background = v),
+          ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed:
+              _operationRunning || _service.busy || (!_camera && !_microphone)
+              ? null
+              : () => _run(
+                  () => _service.start(
+                    LiveCaptureOptions(
+                      background: _background,
+                      camera: _camera,
+                      microphone: _microphone,
+                      rearCamera: _rear,
+                      cameraId: _cameraId,
+                      microphoneId: _microphoneId,
+                      width: _width,
+                      height: _width == 320
+                          ? 240
+                          : _width == 640
+                          ? 480
+                          : _width == 1280
+                          ? 720
+                          : 1080,
+                      fps: _fps,
+                      bitrateKbps: _bitrate,
+                      echoCancellation: _echo,
+                      noiseSuppression: _noise,
+                      autoGain: _gain,
+                      receiverControls: _receiverControls,
+                    ),
+                  ),
+                ),
+          icon: const Icon(Icons.sensors),
+          label: Text(t('شروع انتقال زنده', 'Start live capture')),
+        ),
+      ],
+    ),
+  );
+
+  Widget _receiveCard() => GlassPanel(
+    key: const ValueKey('capture-receive-card'),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _heading(
+          Icons.move_to_inbox_outlined,
+          t('گیرنده', 'Receive'),
+          t(
+            'دوربین و صدای گوشی یا دستگاه دیگر را دریافت کنید.',
+            'Receive camera and audio from another device.',
+          ),
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: _link,
+          textDirection: TextDirection.ltr,
+          decoration: InputDecoration(
+            labelText: t(
+              'لینک کامل دستگاه فرستنده',
+              'Full sender connection link',
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: _service.busy
+              ? null
+              : () => _run(() => _service.connect(_link.text)),
+          icon: const Icon(Icons.connected_tv),
+          label: Text(t('اتصال', 'Connect')),
+        ),
+      ],
+    ),
+  );
+
+  Widget _sessionCard() => GlassPanel(
+    key: const ValueKey('capture-session-card'),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _heading(Icons.live_tv, t('انتقال زنده', 'Live session'), _statusLabel),
+        const SizedBox(height: 16),
+        if (_rendererReady &&
+            (_service.localStream != null || _service.remoteStream != null))
+          Container(
+            height: MediaQuery.sizeOf(context).width < 600 ? 240 : 380,
+            color: Colors.black,
+            child: RTCVideoView(
+              _renderer,
+              mirror: _mirror,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+            ),
+          ),
         const SizedBox(height: 12),
         Text(
           '${t('وضعیت', 'Status')}: $_statusLabel • ${t('بیننده', 'Viewers')}: ${_service.viewers}',
@@ -536,378 +854,251 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               'The link contains an access key. Share with intended viewers only; Stop revokes it. For OBS add ?obs=1 before #.',
             ),
           ),
-      ] else ...[
-        GlassPanel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                t('فرستنده', 'Send'),
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  ActionChip(
-                    label: Text(t('کم‌مصرف', 'Battery saver')),
-                    onPressed: () => _profile('battery'),
-                  ),
-                  ActionChip(
-                    label: Text(t('متعادل', 'Balanced')),
-                    onPressed: () => _profile('balanced'),
-                  ),
-                  ActionChip(
-                    label: Text(t('با کیفیت', 'High quality')),
-                    onPressed: () => _profile('quality'),
-                  ),
-                ],
-              ),
-              SwitchListTile(
-                title: Text(t('دوربین', 'Camera')),
-                value: _camera,
-                onChanged: (v) => setState(() => _camera = v),
-              ),
-              SwitchListTile(
-                title: Text(t('میکروفون', 'Microphone')),
-                value: _microphone,
-                onChanged: (v) => setState(() => _microphone = v),
-              ),
-              SwitchListTile(
-                title: Text(
-                  t(
-                    'کنترل تنظیمات توسط گیرنده / OBS',
-                    'Allow receiver / OBS capture controls',
-                  ),
-                ),
-                subtitle: Text(
-                  t(
-                    'با اجازهٔ شما، گیرندهٔ لینک می‌تواند تنظیمات ضبط را تغییر دهد.',
-                    'Let a paired viewer adjust the capture settings.',
-                  ),
-                ),
-                value: _receiverControls,
-                onChanged: (value) => setState(() => _receiverControls = value),
-              ),
-              SwitchListTile(
-                title: Text(
-                  t(
-                    'ادامهٔ انتقال در پس‌زمینه با اعلان توقف',
-                    'Continue in background with a Stop notification',
-                  ),
-                ),
-                value: _background,
-                onChanged: (v) => setState(() => _background = v),
-              ),
-              if (_camera) ...[
-                _inputSelector('videoinput'),
-                SwitchListTile(
-                  title: Text(t('دوربین پشت', 'Rear camera')),
-                  value: _rear,
-                  onChanged: (v) => setState(() => _rear = v),
-                ),
-                DropdownButtonFormField<int>(
-                  key: ValueKey('capture-resolution-$_width'),
-                  isExpanded: true,
-                  initialValue: _width,
-                  decoration: InputDecoration(
-                    labelText: t('وضوح درخواستی', 'Requested resolution'),
-                  ),
-                  items: [
-                    for (final w in [320, 640, 1280, 1920])
-                      DropdownMenuItem(
-                        value: w,
-                        child: Text(
-                          w == 320
-                              ? '320 × 240'
-                              : w == 640
-                              ? '640 × 480'
-                              : w == 1280
-                              ? '1280 × 720'
-                              : '1920 × 1080',
-                        ),
-                      ),
-                  ],
-                  onChanged: (v) => setState(() => _width = v!),
-                ),
-                DropdownButtonFormField<int>(
-                  key: ValueKey('capture-fps-$_fps'),
-                  isExpanded: true,
-                  initialValue: _fps,
-                  decoration: InputDecoration(
-                    labelText: t('نرخ فریم درخواستی', 'Requested frame rate'),
-                  ),
-                  items: [
-                    for (final fps in [10, 15, 24, 30, 60])
-                      DropdownMenuItem(value: fps, child: Text('$fps FPS')),
-                  ],
-                  onChanged: (v) => setState(() => _fps = v!),
-                ),
-                Text('${t('سقف بیت‌ریت', 'Maximum bitrate')}: $_bitrate kbps'),
-                Slider(
-                  min: 250,
-                  max: 8000,
-                  divisions: 31,
-                  value: _bitrate.toDouble(),
-                  onChanged: (v) => setState(() => _bitrate = v.round()),
-                ),
-              ],
-              if (_microphone) ...[
-                _inputSelector('audioinput'),
-                SwitchListTile(
-                  title: Text(t('حذف اکو', 'Echo cancellation')),
-                  value: _echo,
-                  onChanged: (v) => setState(() => _echo = v),
-                ),
-                SwitchListTile(
-                  title: Text(t('کاهش نویز', 'Noise suppression')),
-                  value: _noise,
-                  onChanged: (v) => setState(() => _noise = v),
-                ),
-                SwitchListTile(
-                  title: Text(t('تنظیم خودکار بلندی صدا', 'Automatic gain')),
-                  value: _gain,
-                  onChanged: (v) => setState(() => _gain = v),
-                ),
-              ],
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed:
-                    _operationRunning ||
-                        _service.busy ||
-                        (!_camera && !_microphone)
-                    ? null
-                    : () => _run(
-                        () => _service.start(
-                          LiveCaptureOptions(
-                            background: _background,
-                            camera: _camera,
-                            microphone: _microphone,
-                            rearCamera: _rear,
-                            cameraId: _cameraId,
-                            microphoneId: _microphoneId,
-                            width: _width,
-                            height: _width == 320
-                                ? 240
-                                : _width == 640
-                                ? 480
-                                : _width == 1280
-                                ? 720
-                                : 1080,
-                            fps: _fps,
-                            bitrateKbps: _bitrate,
-                            echoCancellation: _echo,
-                            noiseSuppression: _noise,
-                            autoGain: _gain,
-                            receiverControls: _receiverControls,
-                          ),
-                        ),
-                      ),
-                icon: const Icon(Icons.sensors),
-                label: Text(t('شروع انتقال زنده', 'Start live capture')),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        GlassPanel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                t('گیرنده', 'Receive'),
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              TextField(
-                controller: _link,
-                textDirection: TextDirection.ltr,
-                decoration: InputDecoration(
-                  labelText: t(
-                    'لینک کامل دستگاه فرستنده',
-                    'Full sender connection link',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _service.busy
-                    ? null
-                    : () => _run(() => _service.connect(_link.text)),
-                icon: const Icon(Icons.connected_tv),
-                label: Text(t('اتصال', 'Connect')),
-              ),
-            ],
-          ),
-        ),
       ],
-      const SizedBox(height: 16),
-      if (_windows) ...[
-        GlassPanel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                t(
-                  'وبکم و میکروفون برای نرم‌افزارهای ویندوز',
-                  'Webcam & microphone for Windows apps',
-                ),
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              Text(
-                t(
-                  'در OBS: Sources ← Video Capture Device ← Localist Camera. رزولوشن و FPS خروجی در Properties تنظیم می‌شوند. Configure Video تنظیمات ضبطِ فرستنده را با اجازهٔ او تغییر می‌دهد. در دیگر برنامه‌های سازگار هم Localist Camera را انتخاب کنید.',
-                  'In OBS: Sources → Video Capture Device → Localist Camera. Set output resolution/FPS in Properties. Configure Video adjusts capture on a sender that has allowed receiver controls. Other compatible webcam apps can also select Localist Camera.',
-                ),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(t('خروجی وبکم مجازی', 'Virtual webcam output')),
-                subtitle: Text(
-                  t(
-                    'با توقف انتقال، تصویر خصوصی پاک و تصویر خالی جایگزین می‌شود.',
-                    'Stopping the stream clears the private image and returns a blank frame.',
-                  ),
-                ),
-                value: _virtual.cameraEnabled,
-                onChanged:
-                    _virtualBusy ||
-                        !_rendererReady ||
-                        (_service.localStream ?? _service.remoteStream)
-                                ?.getVideoTracks()
-                                .isEmpty !=
-                            false
-                    ? null
-                    : (enabled) => _virtualWork(() async {
-                        if (enabled) {
-                          if (!_cameraInstalled) {
-                            await _virtual.setCameraInstalled(true);
-                          }
-                          if (!mounted || !_service.active) return;
-                          _virtual.startCamera(_renderer.textureId!, fps: _fps);
-                        } else {
-                          _virtual.stopCamera();
-                        }
-                      }),
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: _virtualBusy
-                        ? null
-                        : () => _virtualWork(
-                            () =>
-                                _virtual.setCameraInstalled(!_cameraInstalled),
-                          ),
-                    icon: Icon(
-                      _cameraInstalled
-                          ? Icons.videocam_off_outlined
-                          : Icons.add_a_photo_outlined,
-                    ),
-                    label: Text(
-                      _cameraInstalled
-                          ? t('حذف وبکم مجازی', 'Remove virtual webcam')
-                          : t('ثبت وبکم Localist', 'Register Localist webcam'),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _virtualBusy ? null : _refreshVirtualDevices,
-                    icon: const Icon(Icons.refresh),
-                    label: Text(t('تازه‌سازی دستگاه‌ها', 'Refresh devices')),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                key: ValueKey(
-                  'virtual-audio-${_virtual.microphoneOutput}-${_outputs.length}',
-                ),
-                isExpanded: true,
-                initialValue:
-                    _outputs.any(
-                      (device) => device.deviceId == _virtual.microphoneOutput,
-                    )
-                    ? _virtual.microphoneOutput
-                    : null,
-                decoration: InputDecoration(
-                  labelText: t(
-                    'ارسال صدای دریافتی به ورودی مجازی',
-                    'Route received audio to a virtual input',
-                  ),
-                ),
-                items: [
-                  for (final device in _outputs)
-                    DropdownMenuItem(
-                      value: device.deviceId,
-                      child: Text(
-                        device.label,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-                onChanged:
-                    _virtualBusy ||
-                        !_service.receiving ||
-                        _service.remoteStream?.getAudioTracks().isEmpty != false
-                    ? null
-                    : (id) => _virtualWork(() async {
-                        if (id != null) {
-                          await _virtual.routeMicrophone(id);
-                          await _service.setPlaybackMuted(false);
-                        }
-                      }),
-              ),
-              Text(
-                t(
-                  'برای میکروفون، اینجا CABLE Input و در برنامهٔ مقصد CABLE Output را انتخاب کنید. صدای گوشی مستقیم ارسال می‌شود؛ OBS لازم نیست.',
-                  'For microphone input, choose CABLE Input here and CABLE Output in the target app. Phone audio is routed directly; OBS is not required.',
-                ),
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  TextButton.icon(
-                    onPressed: _virtualBusy ? null : _installMicrophone,
-                    icon: const Icon(Icons.mic_external_on),
-                    label: Text(
-                      t('نصب درایور میکروفون', 'Install microphone driver'),
-                    ),
-                  ),
-                  if (_virtual.microphoneOutput != null)
-                    TextButton(
-                      onPressed: () => _virtualWork(_virtual.stopMicrophone),
-                      child: Text(
-                        t('توقف خروجی میکروفون', 'Stop microphone output'),
-                      ),
-                    ),
-                ],
-              ),
-              if (_virtualBusy) const LinearProgressIndicator(),
-            ],
-          ),
+    ),
+  );
+
+  Widget _virtualCard() => GlassPanel(
+    key: const ValueKey('capture-outputs-card'),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          t('وبکم و میکروفون ویندوز', 'Windows webcam & microphone'),
+          style: Theme.of(context).textTheme.titleLarge,
         ),
-        const SizedBox(height: 16),
-      ],
-      ExpansionTile(
-        title: Text(
+        Text(
           t(
-            'راهنمای USB، OBS، دوربین و میکروفون مجازی',
-            'USB, OBS & virtual device guide',
+            'به گوشی وصل شوید، خروجی وبکم را روشن کنید و Localist Camera را در OBS یا برنامهٔ مقصد انتخاب کنید.',
+            'Connect to your phone, enable webcam output, then choose Localist Camera in OBS or your destination app.',
           ),
         ),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(t('خروجی وبکم مجازی', 'Virtual webcam output')),
+          subtitle: Text(
+            t(
+              'با توقف انتقال، تصویر خصوصی پاک و تصویر خالی جایگزین می‌شود.',
+              'Stopping the stream clears the private image and returns a blank frame.',
+            ),
+          ),
+          value: _virtual.cameraEnabled,
+          onChanged:
+              _virtualBusy ||
+                  !_rendererReady ||
+                  (_service.localStream ?? _service.remoteStream)
+                          ?.getVideoTracks()
+                          .isEmpty !=
+                      false
+              ? null
+              : (enabled) => _virtualWork(() async {
+                  if (enabled) {
+                    if (!_cameraInstalled) {
+                      await _virtual.setCameraInstalled(true);
+                    }
+                    if (!mounted || !_service.active) return;
+                    _virtual.startCamera(_renderer.textureId!, fps: _fps);
+                  } else {
+                    _virtual.stopCamera();
+                  }
+                }),
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _virtualBusy
+                  ? null
+                  : () => _virtualWork(
+                      () => _virtual.setCameraInstalled(!_cameraInstalled),
+                    ),
+              icon: Icon(
+                _cameraInstalled
+                    ? Icons.videocam_off_outlined
+                    : Icons.add_a_photo_outlined,
+              ),
+              label: Text(
+                _cameraInstalled
+                    ? t('حذف وبکم مجازی', 'Remove virtual webcam')
+                    : t('ثبت وبکم Localist', 'Register Localist webcam'),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: _virtualBusy ? null : _refreshVirtualDevices,
+              icon: const Icon(Icons.refresh),
+              label: Text(t('تازه‌سازی دستگاه‌ها', 'Refresh devices')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        const Divider(),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          key: ValueKey(
+            'virtual-audio-${_virtual.microphoneOutput}-${_outputs.length}',
+          ),
+          isExpanded: true,
+          initialValue:
+              _outputs.any(
+                (device) => device.deviceId == _virtual.microphoneOutput,
+              )
+              ? _virtual.microphoneOutput
+              : null,
+          decoration: InputDecoration(
+            labelText: t(
+              'ارسال صدای دریافتی به ورودی مجازی',
+              'Route received audio to a virtual input',
+            ),
+          ),
+          items: [
+            for (final device in _outputs)
+              DropdownMenuItem(
+                value: device.deviceId,
+                child: Text(device.label, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged:
+              _virtualBusy ||
+                  !_service.receiving ||
+                  _service.remoteStream?.getAudioTracks().isEmpty != false
+              ? null
+              : (id) => _virtualWork(() async {
+                  if (id != null) {
+                    await _virtual.routeMicrophone(id);
+                    await _service.setPlaybackMuted(false);
+                  }
+                }),
+        ),
+        Text(
+          t(
+            'برای میکروفون، اینجا CABLE Input و در برنامهٔ مقصد CABLE Output را انتخاب کنید. صدای گوشی مستقیم به برنامهٔ مقصد می‌رسد.',
+            'For microphone input, choose CABLE Input here and CABLE Output in the target app. Phone audio is routed directly to the destination app.',
+          ),
+        ),
+        Wrap(
+          spacing: 8,
+          children: [
+            TextButton.icon(
+              onPressed: _virtualBusy ? null : _installMicrophone,
+              icon: const Icon(Icons.mic_external_on),
+              label: Text(
+                t('نصب درایور میکروفون', 'Install microphone driver'),
+              ),
+            ),
+            if (_virtual.microphoneOutput != null)
+              TextButton(
+                onPressed: () => _virtualWork(_virtual.stopMicrophone),
+                child: Text(t('توقف خروجی میکروفون', 'Stop microphone output')),
+              ),
+          ],
+        ),
+        if (_virtualBusy) const LinearProgressIndicator(),
+      ],
+    ),
+  );
+
+  Widget _guideCard() => GlassPanel(
+    padding: EdgeInsets.zero,
+    child: ExpansionTile(
+      title: Text(
+        t(
+          'راهنمای USB، OBS، دوربین و میکروفون مجازی',
+          'USB, OBS & virtual device guide',
+        ),
+      ),
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            t(
+              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و لینک همان رابط را در Localist ویندوز باز کنید. اینترنت لازم نیست.\n۲. در ویندوز خروجی وبکم مجازی را روشن و در برنامهٔ مقصد Localist Camera را انتخاب کنید. برای میکروفون، درایور را از همین صفحه نصب و CABLE Input را برای خروجی و CABLE Output را در برنامهٔ مقصد انتخاب کنید.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ فرستنده باید اجازهٔ کنترل داده باشد. دریافت مستقیم در Browser Source هم امکان دارد.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. برای ادامه در پس‌زمینه گزینهٔ مربوط را روشن کنید؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
+              '1. Use the same Wi-Fi, or enable phone USB tethering and open its interface link in Localist for Windows. Internet is not needed.\n2. Enable virtual webcam output on Windows and select Localist Camera in the target app. For microphone input, install the driver from this page, choose CABLE Input for output and CABLE Output in the target app.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls an authorized sender. Direct reception in a Browser Source is also available.\n4. Actual quality/FPS depend on hardware and network. Enable background mode to continue with a silent notification and Stop action.',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+      final available = (constraints.maxWidth - 40).clamp(0.0, 1420.0);
+      final columns = available / scale >= 1040;
+      final width = columns ? available : available.clamp(0.0, 840.0);
+      final side = [
+        if (!_service.active) _receiveCard(),
+        if (_windows) _virtualCard(),
+        _guideCard(),
+      ];
+      Widget stack(List<Widget> cards) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              t(
-                '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و لینک همان رابط را در Localist ویندوز باز کنید. اینترنت لازم نیست.\n۲. در ویندوز خروجی وبکم مجازی را روشن و در برنامهٔ مقصد Localist Camera را انتخاب کنید. برای میکروفون، درایور را از همین صفحه نصب و CABLE Input را برای خروجی و CABLE Output را در برنامهٔ مقصد انتخاب کنید.\n۳. استفاده از مرورگر یا OBS همچنان اختیاری است؛ برای OBS یک Browser Source با لینک بسازید و Control audio via OBS را روشن کنید.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. برای ادامه در پس‌زمینه گزینهٔ مربوط را روشن کنید؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
-                '1. Use the same Wi-Fi, or enable phone USB tethering and open its interface link in Localist for Windows. Internet is not needed.\n2. Enable virtual webcam output on Windows and select Localist Camera in the target app. For microphone input, install the driver from this page, choose CABLE Input for output and CABLE Output in the target app.\n3. Browser and OBS reception remain optional; in OBS add a Browser Source with the link and enable Control audio via OBS.\n4. Actual quality/FPS depend on hardware and network. Enable background mode to continue with a silent notification and Stop action.',
+          for (var i = 0; i < cards.length; i++) ...[
+            if (i > 0) const SizedBox(height: 18),
+            cards[i],
+          ],
+        ],
+      );
+      final primary = _service.active ? _sessionCard() : _sendCard();
+      return Scrollbar(
+        controller: _scroll,
+        thumbVisibility: _windows,
+        child: SingleChildScrollView(
+          controller: _scroll,
+          key: const ValueKey('capture-page-scroll'),
+          padding: EdgeInsets.fromLTRB(20, 24, 20, _android ? 110 : 32),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              width: width,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    t('دوربین و میکروفون', 'Camera & Mic'),
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    t(
+                      'انتقال دوربین و صدا با Wi-Fi یا کابل؛ دریافت در Localist و استفاده در OBS و برنامه‌های دیگر.',
+                      'Share camera and audio over Wi-Fi or USB; receive in Localist and use in OBS or other apps.',
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  if (_notice.isNotEmpty) ...[
+                    Text(
+                      _notice,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (columns)
+                    Row(
+                      key: const ValueKey('capture-desktop-columns'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(flex: 3, child: primary),
+                        const SizedBox(width: 20),
+                        Expanded(flex: 2, child: stack(side)),
+                      ],
+                    )
+                  else
+                    stack([primary, ...side]),
+                ],
               ),
             ),
           ),
-        ],
-      ),
-    ],
+        ),
+      );
+    },
   );
 }

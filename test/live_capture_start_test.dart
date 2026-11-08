@@ -62,7 +62,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('Start live capture'), 300);
+      await tester.ensureVisible(find.text('Start live capture'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Start live capture'));
       await tester.pumpAndSettle();

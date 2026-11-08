@@ -35,6 +35,9 @@ All notable user-facing changes are documented here. Version numbers follow [Sem
   paired sender quality, audio processing, microphone, zoom and torch controls.
   Sender opt-in is required; active connections survive capture reconfiguration.
   Validated actual OBS, Chrome and FFmpeg consumers without changing user profiles.
+- Rework Camera & Mic for desktop: bounded content, adjacent sender/receiver
+  and webcam cards, grouped video/audio settings, adaptive large-text/mobile
+  stacking, RTL numeric formats and Android-only capture controls.
 
 See [local validation](docs/VALIDATION_6.1.0_LOCAL.md) for per-setting checks,
 real media/authentication/VPN regression tests, and remaining hardware limits.

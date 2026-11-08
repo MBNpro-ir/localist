@@ -79,3 +79,22 @@ VB-CABLE در این دور نصب نشد و تست WASAPI با آن انجام 
 - [Microsoft IAMCameraControl](https://learn.microsoft.com/en-us/windows/win32/api/strmif/nn-strmif-iamcameracontrol)
 - [Microsoft filter property pages](https://learn.microsoft.com/en-us/windows/win32/directshow/displaying-a-filters-property-pages)
 - [OBS 32.2.2 DirectShow source](https://github.com/obsproject/obs-studio/blob/32.2.2/plugins/win-dshow/win-dshow.cpp)
+
+## اصلاح چیدمان دوربین و میکروفون در ویندوز
+
+صفحهٔ قبلی تمام کنترل‌ها را در یک ستون با عرض کامل می‌کشید و کارت دریافت و
+خروجی وبکم را پایینِ تنظیمات طولانی فرستنده قرار می‌داد. چیدمان جدید عرض
+خوانا و محدود دارد؛ در پنجرهٔ عریض فرستنده کنار ستون دریافت/خروجی است، و
+تنظیمات تصویر/صدا هم در دو گروه کنار هم هستند. در پنجرهٔ باریک یا متن بزرگ،
+ستون‌ها خودکار زیر هم قرار می‌گیرند. اسکرول مستقل صفحه و ترتیب RTL رعایت
+شده‌اند؛ کنترل‌های دوربین پشت و سرویس پس‌زمینه فقط در اندروید دیده می‌شوند.
+اعداد رزولوشن و FPS در فارسی نیز LTR هستند. نمای جلسهٔ فعال، کنترل‌های اتصال
+و وبکم را کنار هم حفظ می‌کند.
+
+هفت تست جدید، عرض‌های 320، 360، 900، 1290 و 1844، زبان فارسی/انگلیسی، تم
+روشن/تیره، متن تا ۱۵۰٪، ترتیب کارت‌ها، تغییر اندازه، حفظ کیفیت/لینک و شروع
+جلسه را پوشش می‌دهند. مجموعهٔ کامل **۱۷۶ تست موفق** بود و آنالیز بدون ایراد
+انجام شد. تصاویر رندرشدهٔ Flutter در `.runlogs/capture-layout-*.png` بازبینی
+شدند؛ گزارش‌ها در `capture-layout-tests.log`، `capture-layout-all-tests.log`
+و `capture-layout-analyze.log` هستند. این بررسی به کنترل کامپیوتری برنامهٔ
+کاربر نیاز نداشت.
