@@ -19,6 +19,8 @@ class _Discovery extends CaptureDiscoveryService {
   Future<void> announce({bool query = false}) async {}
 }
 
+class _RealHttp extends HttpOverrides {}
+
 class _Capture extends LiveCaptureService {
   bool connected = false;
   final List<String> linksUsed = [];
@@ -58,16 +60,33 @@ class _Renderer extends RTCVideoRenderer {
   MediaStream? get srcObject => source;
 }
 
+class _SocketCapture extends _Capture {
+  @override
+  Future<void> connect(String link) async {
+    linksUsed.add(link);
+    final socket = await connectCaptureSocket(Uri.parse(link));
+    try {
+      expect(await socket.first, 'capture accepted');
+    } finally {
+      await socket.close();
+    }
+    connected = true;
+    error = '';
+    notifyListeners();
+  }
+}
+
 CaptureAdvertisement ad(
   int number, {
   String host = '192.168.1.2',
   int priority = 2,
+  int? port,
 }) => CaptureAdvertisement(
   id: 'device-identity-$number',
   name: 'Phone $number',
   model: 'Device $number',
   host: host,
-  port: 40000 + number,
+  port: port ?? 40000 + number,
   key: List.filled(43, 'a').join(),
   camera: true,
   microphone: true,
@@ -99,6 +118,101 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 10));
     await hub.tick();
     await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+
+  for (final code in [404, 501]) {
+    test(
+      'failed USB endpoint ($code) falls back without heartbeat reconnect loops',
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        final bad = await HttpServer.bind(InternetAddress('127.0.0.2'), 0);
+        var failedRequests = 0;
+        var recovered = false;
+        bad.listen((request) async {
+          failedRequests++;
+          if (recovered) {
+            final socket = await WebSocketTransformer.upgrade(request);
+            socket.add('capture accepted');
+            return;
+          }
+          request.response.statusCode = code;
+          await request.response.close();
+        });
+        final good = CaptureSignalingServer(
+          html: '',
+          accept: (socket) async => socket.add('capture accepted'),
+        );
+        await good.start();
+        final service = CaptureHubService(
+          discovery: _Discovery(),
+          receiverFactory: _SocketCapture.new,
+          rendererFactory: _Renderer.new,
+          windows: false,
+        );
+        await service.start();
+        try {
+          final wifi = CaptureAdvertisement(
+            id: ad(1).id,
+            name: 'phone',
+            model: 'QA',
+            host: '127.0.0.1',
+            port: good.port,
+            key: good.token,
+            camera: true,
+            microphone: true,
+          );
+          final usb = CaptureAdvertisement(
+            id: wifi.id,
+            name: wifi.name,
+            model: wifi.model,
+            host: '127.0.0.2',
+            port: bad.port,
+            key: good.token,
+            camera: true,
+            microphone: true,
+            priority: 0,
+          );
+          service.observe(wifi);
+          await settle(service);
+          service.observe(usb);
+          await settle(service);
+          await settle(service);
+          expect(service.receivers.single.capture.receiving, true);
+          expect(service.receivers.single.advertisement.host, '127.0.0.1');
+          expect(failedRequests, 1);
+          // Expiring a cooldown must not interrupt a healthy fallback session.
+          service.receivers.single.failedRoutes[usb.link] = DateTime.now()
+              .subtract(const Duration(seconds: 1));
+          final count = (service.receivers.single.capture as _SocketCapture)
+              .linksUsed
+              .length;
+          for (var i = 0; i < 3; i++) {
+            service.observe(usb);
+            service.observe(wifi);
+            await settle(service);
+          }
+          expect(
+            (service.receivers.single.capture as _SocketCapture)
+                .linksUsed
+                .length,
+            count,
+          );
+          // A fresh connection can return to the preferred cable once repaired.
+          recovered = true;
+          await service.configure(service.receivers.single, enabled: false);
+          await service.configure(service.receivers.single, enabled: true);
+          await settle(service);
+          expect(service.receivers.single.advertisement.host, usb.host);
+          service.observe(wifi);
+          await settle(service);
+          expect(service.receivers.single.advertisement.host, usb.host);
+          expect(service.receivers.single.capture.receiving, true);
+        } finally {
+          await service.stop();
+          await good.stop();
+          await bad.close(force: true);
+        }
+      }, _RealHttp()),
+    );
   }
 
   test(
@@ -181,6 +295,14 @@ void main() {
           '192.168.42.1',
           24,
           'Remote NDIS USB adapter',
+        ).capturePriority,
+        0,
+      );
+      expect(
+        const LanRoute(
+          '192.168.42.1',
+          24,
+          'Remote NDIS Compatible Device',
         ).capturePriority,
         0,
       );

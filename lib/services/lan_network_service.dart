@@ -9,7 +9,9 @@ class LanRoute {
   final String name;
   int get capturePriority {
     final value = name.toLowerCase();
-    if (RegExp(r'usb|rndis|ncm|tether').hasMatch(value)) return 0;
+    if (RegExp(r'usb|rndis|remote[\s_-]*ndis|ncm|tether').hasMatch(value)) {
+      return 0;
+    }
     if (RegExp(r'ethernet|^eth\d|enp\d').hasMatch(value)) return 1;
     return 2;
   }

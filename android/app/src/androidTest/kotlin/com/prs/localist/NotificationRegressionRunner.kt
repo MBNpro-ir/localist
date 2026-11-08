@@ -22,6 +22,12 @@ class NotificationRegressionRunner : Instrumentation() {
         try {
             // Application.onCreate and the instrumentation thread can overlap.
             main { }
+            if (args.getString("captureRotation") == "true") {
+                CaptureRotationRegression.verify()
+                results.putString("stream", "\nLOCALIST_CAPTURE_ROTATION_OK: pixel rotation, sensor directions, locks, buffer ownership\n")
+                finish(Activity.RESULT_OK, results)
+                return
+            }
             if (args.getString("seedLegacy") == "true") seedLegacy() else verifyLifecycle()
             results.putString("stream", "\nLOCALIST_NOTIFICATIONS_OK\n")
             finish(Activity.RESULT_OK, results)

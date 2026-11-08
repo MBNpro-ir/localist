@@ -3,7 +3,68 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/services/live_capture_service.dart';
 
+class _ProxyOverrides extends HttpOverrides {
+  _ProxyOverrides(this.port);
+  final int port;
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      super.createHttpClient(context)
+        ..findProxy = (_) => 'PROXY 127.0.0.1:$port';
+}
+
 void main() {
+  test(
+    'LAN signaling bypasses a proxy that rejects WebSocket upgrades with 501',
+    () async {
+      var proxyRequests = 0;
+      final proxy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      proxy.listen((request) async {
+        proxyRequests++;
+        request.response.statusCode = 501;
+        await request.response.close();
+      });
+      final server = CaptureSignalingServer(
+        html: '',
+        accept: (socket) async => socket.add('direct connection'),
+      );
+      await server.start();
+      try {
+        await HttpOverrides.runWithHttpOverrides(() async {
+          final uri = Uri(
+            scheme: 'http',
+            host: '127.0.0.1',
+            port: server.port,
+            fragment: server.token,
+          );
+          // Reproduce a client using the same inherited proxy settings.
+          final proxied = HttpClient();
+          await expectLater(
+            WebSocket.connect(
+              uri
+                  .replace(
+                    scheme: 'ws',
+                    path: '/signal',
+                    fragment: '',
+                    queryParameters: {'key': server.token},
+                  )
+                  .toString(),
+              customClient: proxied,
+            ),
+            throwsA(isA<WebSocketException>()),
+          );
+          expect(proxyRequests, 1);
+          proxied.close(force: true);
+          final socket = await connectCaptureSocket(uri);
+          expect(await socket.first, 'direct connection');
+          await socket.close();
+          expect(proxyRequests, 1);
+        }, _ProxyOverrides(proxy.port));
+      } finally {
+        await server.stop();
+        await proxy.close(force: true);
+      }
+    },
+  );
   test('capture controls validate all commands before native or peer use', () {
     for (final command in <Map<String, dynamic>>[
       {},

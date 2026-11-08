@@ -173,10 +173,11 @@ class CaptureSignalingServer {
             await request.response.close();
             return;
           }
+          final remoteHost =
+              request.connectionInfo?.remoteAddress.address ?? '';
           final socket = await WebSocketTransformer.upgrade(request);
           clients.add(socket);
-          clientHosts[socket] =
-              request.connectionInfo?.remoteAddress.address ?? '';
+          clientHosts[socket] = remoteHost;
           socket.pingInterval = const Duration(seconds: 15);
           unawaited(
             socket.done
@@ -221,6 +222,43 @@ class CaptureSignalingServer {
   }
 }
 
+/// Capture signaling stays on the LAN, even if the OS/app has a web proxy.
+/// A proxy accepting discovery but rejecting WebSocket upgrades can return
+/// misleading 404/501 responses. Never send the pairing key through it.
+Future<WebSocket> connectCaptureSocket(Uri uri) async {
+  final client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 8)
+    ..findProxy = (_) => 'DIRECT';
+  try {
+    final socket = await WebSocket.connect(
+      uri
+          .replace(
+            scheme: uri.scheme == 'https' ? 'wss' : 'ws',
+            path: '/signal',
+            fragment: '',
+            queryParameters: {'key': uri.fragment},
+          )
+          .toString(),
+      customClient: client,
+    ).timeout(const Duration(seconds: 10));
+    unawaited(
+      socket.done
+          .whenComplete(() => client.close(force: true))
+          .catchError((Object _) {}),
+    );
+    return socket;
+  } on WebSocketException catch (error) {
+    client.close(force: true);
+    throw WebSocketException(
+      'اتصال محلی دوربین برقرار نشد؛ سرویس فرستنده و مسیر شبکه بررسی شود. / Local capture handshake failed.',
+      error.httpStatusCode,
+    );
+  } catch (_) {
+    client.close(force: true);
+    rethrow;
+  }
+}
+
 class LiveCaptureService extends ChangeNotifier {
   static Future<void>? _mediaInitialization;
   static Future<void> initializeMedia() => _mediaInitialization ??=
@@ -248,6 +286,7 @@ class LiveCaptureService extends ChangeNotifier {
   MediaStream? localStream, remoteStream;
   CaptureSignalingServer? _server;
   WebSocket? _receiver;
+  Timer? _receiverWatchdog;
   final Map<WebSocket, RTCPeerConnection> _peers = {};
   final List<RTCIceCandidate> _pendingCandidates = [];
   List<String> addresses = [];
@@ -377,10 +416,10 @@ class LiveCaptureService extends ChangeNotifier {
         await selectMicrophone(value.microphoneId!);
       }
       localStream = await navigator.mediaDevices.getUserMedia(constraints);
-      await setOrientation(value.orientation);
       activeCameraId =
           localStream?.getVideoTracks().firstOrNull?.getSettings()['deviceId']
               as String?;
+      await setOrientation(value.orientation);
       if (_disposed) {
         await stop();
         return;
@@ -542,32 +581,33 @@ class LiveCaptureService extends ChangeNotifier {
     }
     busy = true;
     error = '';
+    final generation = ++_captureGeneration;
     _changed();
     try {
       await initializeMedia();
-      final socket = await WebSocket.connect(
-        uri
-            .replace(
-              scheme: uri.scheme == 'https' ? 'wss' : 'ws',
-              path: '/signal',
-              fragment: '',
-              queryParameters: {'key': uri.fragment},
-            )
-            .toString(),
-      ).timeout(const Duration(seconds: 12));
+      final socket = await connectCaptureSocket(uri);
+      if (_disposed || generation != _captureGeneration) {
+        await socket.close();
+        return;
+      }
       _receiver = socket;
       if (_disposed) {
         await stop();
         return;
       }
       final peer = await createPeerConnection(_configuration);
-      final preferredAddresses = await _usbAddresses(uri.host);
+      if (_disposed || generation != _captureGeneration) {
+        await peer.close();
+        return;
+      }
       _peers[socket] = peer;
-      if (_disposed) {
-        await stop();
+      final preferredAddresses = await _usbAddresses(uri.host);
+      if (_disposed || generation != _captureGeneration) {
+        if (_receiver == socket) await stop();
         return;
       }
       peer.onTrack = (event) {
+        if (_receiver != socket) return;
         if (event.streams.isNotEmpty) remoteStream = event.streams.first;
         if (event.track.kind == 'audio' && playbackMuted) {
           unawaited(Helper.setVolume(0, event.track));
@@ -581,15 +621,21 @@ class LiveCaptureService extends ChangeNotifier {
         }
       };
       peer.onConnectionState = (state) {
+        if (_receiver != socket) return;
         status = state.name
             .replaceFirst('RTCPeerConnectionState', '')
             .toLowerCase();
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+          _receiverWatchdog?.cancel();
+        } else if (state ==
+            RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+          error = 'ارتباط رسانه برقرار نشد. / Media connection failed.';
           unawaited(stop());
         } else if (state ==
             RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
           Timer(const Duration(seconds: 5), () {
             if (_receiver == socket && status == 'disconnected') {
+              error = 'ارتباط رسانه قطع شد. / Media connection disconnected.';
               unawaited(stop());
             }
           });
@@ -597,10 +643,18 @@ class LiveCaptureService extends ChangeNotifier {
         _changed();
       };
       Future<void> queue = Future.value();
+      _receiverWatchdog?.cancel();
+      _receiverWatchdog = Timer(const Duration(seconds: 15), () {
+        if (_receiver == socket && status != 'connected') {
+          error = 'مهلت اتصال رسانه تمام شد. / Media connection timed out.';
+          unawaited(stop());
+        }
+      });
       socket.listen(
         (message) {
           queue = queue
               .then((_) async {
+                if (_receiver != socket) return;
                 final data = decodeCaptureSignal(message);
                 if (data['type'] == 'offer') {
                   await peer.setRemoteDescription(
@@ -638,12 +692,18 @@ class LiveCaptureService extends ChangeNotifier {
                 }
               })
               .catchError((Object e) {
+                if (_receiver != socket) return;
                 error = '$e';
                 unawaited(stop());
               });
         },
-        onDone: () => unawaited(stop()),
+        onDone: () {
+          if (_receiver != socket) return;
+          error = 'ارتباط با فرستنده قطع شد. / Sender disconnected.';
+          unawaited(stop());
+        },
         onError: (Object e) {
+          if (_receiver != socket) return;
           error = '$e';
           unawaited(stop());
         },
@@ -718,6 +778,8 @@ class LiveCaptureService extends ChangeNotifier {
     if (Platform.isAndroid) {
       await _captureChannel.invokeMethod('orientation', {
         'track': localStream?.getVideoTracks().firstOrNull?.id,
+        'cameraId': activeCameraId ?? options.cameraId,
+        'rear': options.rearCamera,
         'mode': value,
       });
     }
@@ -976,6 +1038,8 @@ class LiveCaptureService extends ChangeNotifier {
       _stopping ??= _stop().whenComplete(() => _stopping = null);
   Future<void> _stop() async {
     ++_captureGeneration;
+    _receiverWatchdog?.cancel();
+    _receiverWatchdog = null;
     for (final pending in _controlRequests.values) {
       pending.completeError(StateError('Capture disconnected.'));
     }

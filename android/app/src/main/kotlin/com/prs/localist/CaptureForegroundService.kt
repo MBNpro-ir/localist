@@ -51,6 +51,7 @@ class CaptureForegroundService : Service() {
         return START_NOT_STICKY
     }
     override fun onDestroy() {
+        CaptureOrientation.clear()
         for (id in pending.keys.toList()) completeStart(id, IllegalStateException("Capture stopped before becoming ready"))
         LocalistNotifications.stop(this)
         if (wake?.isHeld == true) wake?.release()

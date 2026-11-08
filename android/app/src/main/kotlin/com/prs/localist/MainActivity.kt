@@ -102,8 +102,9 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             setMethodCallHandler { call, result ->
                 when (call.method) {
                     "orientation" -> runCatching {
-                        CaptureOrientation.set(call.argument<String>("track"),
-                            call.argument<String>("mode") ?: "auto")
+                        CaptureOrientation.set(this@MainActivity, call.argument<String>("track"),
+                            call.argument<String>("mode") ?: "auto", call.argument<String>("cameraId"),
+                            call.argument<Boolean>("rear") != false)
                     }.onSuccess { result.success(true) }.onFailure {
                         result.error("CAMERA_ORIENTATION", it.message, null)
                     }

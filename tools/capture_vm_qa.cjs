@@ -1,6 +1,6 @@
 const fs=require('node:fs'),path=require('node:path');
 const {WebSocket}=require('../.runlogs/qa-node/node_modules/ws');
-const out=path.resolve(__dirname,'../.runlogs/multicapture-qa');
+const out=process.env.LOCALIST_CAPTURE_QA_ROOT || path.resolve(__dirname,'../.runlogs/multicapture-qa');
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 class VM {
   async start(){const log=fs.readFileSync(path.join(out,'android-attach.log'),'utf8');this.url=log.match(/available at: (http:\/\/\S+)/)[1];

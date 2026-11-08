@@ -32,6 +32,8 @@ class CaptureReceiver {
       working = false,
       ready = false;
   int failures = 0;
+  String? attemptedLink;
+  final Map<String, DateTime> failedRoutes = {};
   String error = '';
   bool get online =>
       DateTime.now().difference(lastSeen) < const Duration(seconds: 12);
@@ -138,6 +140,52 @@ class CaptureHubService extends ChangeNotifier {
     if (!_stopped) notifyListeners();
   }
 
+  CaptureAdvertisement _preferredRoute(
+    String id,
+    CaptureAdvertisement fallback,
+  ) {
+    final receiver = _receivers[id];
+    final now = DateTime.now();
+    final routes =
+        _routes[id]?.values
+            .where((r) => now.difference(r.seen).inSeconds < 12)
+            .toList()
+          ?..sort((a, b) => a.value.priority.compareTo(b.value.priority));
+    if (routes == null || routes.isEmpty) return fallback;
+    return routes
+            .where(
+              (r) =>
+                  !(receiver?.failedRoutes.containsKey(r.value.link) == true &&
+                      (receiver!.capture.active ||
+                          receiver.failedRoutes[r.value.link]!.isAfter(now))),
+            )
+            .firstOrNull
+            ?.value ??
+        receiver?.advertisement ??
+        fallback;
+  }
+
+  void _routeFailed(CaptureReceiver receiver, String link) {
+    receiver.failedRoutes.removeWhere(
+      (_, until) => until.isBefore(DateTime.now()),
+    );
+    receiver.failedRoutes[link] = DateTime.now().add(
+      const Duration(seconds: 30),
+    );
+    final alternative = _preferredRoute(
+      receiver.advertisement.id,
+      receiver.advertisement,
+    );
+    receiver.retryAt = DateTime.now().add(
+      alternative.link != link
+          ? Duration.zero
+          : Duration(seconds: min(30, 2 << min(4, receiver.failures))),
+    );
+    receiver.failures++;
+    receiver.advertisement = alternative;
+    receiver.attemptedLink = null;
+  }
+
   void observe(CaptureAdvertisement advertisement) {
     if (_stopped || advertisement.id == id) return;
     final paths = _routes.putIfAbsent(advertisement.id, () => {});
@@ -148,11 +196,7 @@ class CaptureHubService extends ChangeNotifier {
     );
     if (paths.length >= 4 && !paths.containsKey(advertisement.host)) return;
     paths[advertisement.host] = (value: advertisement, seen: DateTime.now());
-    advertisement =
-        (paths.values.toList()
-              ..sort((a, b) => a.value.priority.compareTo(b.value.priority)))
-            .first
-            .value;
+    advertisement = _preferredRoute(advertisement.id, advertisement);
     if (_routes.length > 32) _routes.remove(_routes.keys.first);
     var receiver = _receivers[advertisement.id];
     if (receiver == null) {
@@ -204,7 +248,11 @@ class CaptureHubService extends ChangeNotifier {
     if (changed) {
       // A restarted sender has a new signaling key. Retire only this session.
       receiver.retryAt = DateTime.fromMillisecondsSinceEpoch(0);
-      unawaited(receiver.capture.stop().then((_) => tick()));
+      // An in-flight handshake checks the new link after it completes. Do not
+      // let an obsolete socket's close callback tear down its replacement.
+      if (!receiver.working) {
+        unawaited(receiver.capture.stop().then((_) => tick()));
+      }
     } else {
       unawaited(tick());
     }
@@ -261,6 +309,18 @@ class CaptureHubService extends ChangeNotifier {
       await Future.wait(
         receivers.map((r) async {
           if (r.working) return;
+          if (!r.capture.active &&
+              r.capture.error.isNotEmpty &&
+              r.attemptedLink != null) {
+            r.error = r.capture.error;
+            _routeFailed(r, r.attemptedLink!);
+          }
+          if (!r.capture.active) {
+            r.advertisement = _preferredRoute(
+              r.advertisement.id,
+              r.advertisement,
+            );
+          }
           if (!enabled || !r.enabled || !r.online) {
             if (r.capture.active) await r.capture.stop();
             await _syncOutput(r);
@@ -283,19 +343,20 @@ class CaptureHubService extends ChangeNotifier {
               r.ready = true;
             }
             final link = r.advertisement.link;
+            r.attemptedLink = link;
             await r.capture.connect(link);
             if (_stopped ||
                 !enabled ||
                 !r.enabled ||
                 link != r.advertisement.link) {
               await r.capture.stop();
+            } else {
+              r.failedRoutes.remove(link);
             }
             r.failures = 0;
           } catch (e) {
             r.error = '$e';
-            r.retryAt = DateTime.now().add(
-              Duration(seconds: min(30, 2 << min(4, r.failures++))),
-            );
+            _routeFailed(r, r.attemptedLink ?? r.advertisement.link);
           } finally {
             r.working = false;
             await _syncOutput(r);
