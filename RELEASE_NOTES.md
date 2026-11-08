@@ -1,5 +1,23 @@
 # Release Notes
 
+## [6.1.0] — Local development build (not published)
+
+Updated RustDesk to the pinned latest source commit checked on 2026-11-08,
+with matching native engines and generated bindings. Local-device filtering,
+inline copy actions, private-server migration, encrypted device passwords,
+Android VPN preservation and transfer batch sounds are improved.
+
+Camera & Mic shares live audio/video over Wi-Fi or USB tethering using local
+WebRTC. Receive in Localist, a browser or an OBS Browser Source. Android capture
+can continue with a visible foreground notification and Stop action. Virtual
+camera/microphone routing to other applications uses OBS and an appropriate
+virtual audio device.
+
+The Windows package now includes a Persian animated Setup and matching removal
+interface with installation discovery, repair/upgrade and downgrade protection.
+Validation and hardware limits are documented in
+[the local validation report](docs/VALIDATION_6.1.0_LOCAL.md).
+
 ## [6.0.9] — Reliable remote passwords and immediate settings synchronization
 
 Permanent passwords now enable the correct authentication policy and apply

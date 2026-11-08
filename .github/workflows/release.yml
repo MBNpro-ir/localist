@@ -216,6 +216,10 @@ jobs:
             --build-name=$env:APP_VERSION `
             --build-number=$env:BUILD_NUMBER
 
+      - name: Build Windows Setup
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-WindowsSetup.ps1 -Output release
+
       - name: Package Windows x64
         shell: pwsh
         run: |

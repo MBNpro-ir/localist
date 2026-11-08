@@ -2,6 +2,26 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [6.1.0] - 2026-11-08 (local development, unpublished)
+
+- Updated the embedded RustDesk source, generated bridge, Windows engine and
+  three Android native architectures to upstream commit `78450f49877fa047b729619c662703ed93bb119a`.
+- Excluded self advertisements by local ID and interface address, placed copy
+  actions beside credentials, and hid the server address from the Ready card.
+- Migrated the former bundled server to `rustdesk.mbnpro.ir` with its explicit
+  relay port and new public key while preserving custom/public configurations.
+- Added encrypted per-device passwords with edit/remove actions and native
+  remembered-password invalidation; repeated discovery initialization is bounded.
+- Removed VPN preparation from passive Android permission/status checks.
+- Play transfer completion once per batch, with a distinct failure cue.
+- Added Camera & Mic over local WebRTC, browser and native receivers, OBS URLs,
+  USB tethering support, capture options and Android foreground capture controls.
+- Added a Persian animated Windows Setup and uninstaller with upgrade/repair
+  detection, downgrade protection and preservation of user-owned files.
+
+See [local validation](docs/VALIDATION_6.1.0_LOCAL.md) for per-setting checks,
+real media/authentication/VPN regression tests, and remaining hardware limits.
+
 ## [6.0.9] - 2026-10-17
 
 - Fixed permanent-password login by synchronizing the password verification
