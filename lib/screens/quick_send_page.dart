@@ -59,35 +59,12 @@ class QuickSendPageState extends State<QuickSendPage> {
 
   Future<void> _initializeQuickSend() async {
     await _service.initialize();
-    await _service.setTransferBlocked(widget.deviceVpnActive);
     if (Platform.isAndroid &&
         _service.settings?.receiveEnabled == true &&
         !_service.storageAccessGranted) {
       await _service.ensureReceiveStorageAccess();
     }
     await _loadExternallySharedFiles();
-    if (!widget.deviceVpnActive) {
-      await _service.refresh();
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant QuickSendPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.deviceVpnActive != widget.deviceVpnActive) {
-      unawaited(_applyVpnTransferState());
-    }
-  }
-
-  Future<void> _applyVpnTransferState() async {
-    final blocked = widget.deviceVpnActive;
-    await _service.setTransferBlocked(blocked);
-    if (blocked) {
-      if (_appleWebTransfer.active || _appleWebTransfer.starting) {
-        await _appleWebTransfer.stop();
-      }
-      return;
-    }
     await _service.refresh();
   }
 
@@ -215,7 +192,7 @@ class QuickSendPageState extends State<QuickSendPage> {
 
   Widget _identityPanel(QuickSendSettings settings) {
     final scheme = Theme.of(context).colorScheme;
-    final ready = _service.serverRunning && !widget.deviceVpnActive;
+    final ready = _service.serverRunning;
     return GlassPanel(
       child: Row(
         children: [
@@ -286,33 +263,33 @@ class QuickSendPageState extends State<QuickSendPage> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colors.errorContainer,
-        border: Border.all(color: colors.error, width: 1.5),
+        color: colors.tertiaryContainer,
+        border: Border.all(color: colors.tertiary, width: 1.5),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.vpn_lock_outlined, color: colors.error),
+          Icon(Icons.warning_amber_outlined, color: colors.onTertiaryContainer),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _t('VPN دستگاه را خاموش کنید', 'Turn off the device VPN'),
+                  _t('VPN روشن است', 'VPN is active'),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: colors.onErrorContainer,
+                    color: colors.onTertiaryContainer,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   _t(
-                    'برای ارسال یا دریافت فایل باید VPN این دستگاه خاموش باشد. تا وقتی VPN روشن است انتقال فایل در Quick Send غیرفعال می‌ماند.',
-                    'Turn off this device VPN before sending or receiving files. Quick Send transfers remain unavailable while VPN is active.',
+                    'VPN ممکن است ارتباط شبکهٔ محلی را محدود کند. ارسال و دریافت همچنان فعال است؛ اگر اتصال مشکل داشت، تنظیمات VPN و دسترسی شبکهٔ محلی آن را بررسی کنید.',
+                    'Your VPN may restrict local-network connections. Sending and receiving remain enabled. If a connection fails, check your VPN settings and local-network access.',
                   ),
-                  style: TextStyle(color: colors.onErrorContainer),
+                  style: TextStyle(color: colors.onTertiaryContainer),
                 ),
               ],
             ),
@@ -325,7 +302,6 @@ class QuickSendPageState extends State<QuickSendPage> {
   Widget _appleWebTransferPanel() {
     final service = _appleWebTransfer;
     final colors = Theme.of(context).colorScheme;
-    final blocked = widget.deviceVpnActive;
     final isWindows = Platform.isWindows;
     return GlassPanel(
       child: Column(
@@ -376,7 +352,7 @@ class QuickSendPageState extends State<QuickSendPage> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: blocked ? null : _startAppleWebTransfer,
+                onPressed: _startAppleWebTransfer,
                 icon: Icon(isWindows ? Icons.qr_code_2 : Icons.wifi_tethering),
                 label: Text(
                   isWindows
@@ -697,17 +673,12 @@ class QuickSendPageState extends State<QuickSendPage> {
               ),
               IconButton(
                 tooltip: _t('افزودن با IP', 'Add by IP'),
-                onPressed: widget.deviceVpnActive
-                    ? null
-                    : _showManualDeviceDialog,
+                onPressed: _showManualDeviceDialog,
                 icon: const Icon(Icons.add_link),
               ),
               IconButton(
                 tooltip: _t('جست‌وجوی دوباره', 'Search again'),
-                onPressed:
-                    widget.deviceVpnActive ||
-                        _service.scanning ||
-                        _service.restarting
+                onPressed: _service.scanning || _service.restarting
                     ? null
                     : _service.refresh,
                 icon: _service.scanning
@@ -791,10 +762,10 @@ class QuickSendPageState extends State<QuickSendPage> {
                       const Icon(Icons.check_circle),
                   ],
                 ),
-                onLongPress: _sending || widget.deviceVpnActive
+                onLongPress: _sending
                     ? null
                     : () => _toggleDeviceSelection(device),
-                onTap: _sending || widget.deviceVpnActive
+                onTap: _sending
                     ? null
                     : _selectedDeviceIds.isEmpty
                     ? () => _sendToDevices([device])
@@ -805,7 +776,7 @@ class QuickSendPageState extends State<QuickSendPage> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _sending || widget.deviceVpnActive
+                onPressed: _sending
                     ? null
                     : () => _sendToDevices(selectedDevices),
                 icon: const Icon(Icons.send_outlined),
@@ -1544,16 +1515,6 @@ class QuickSendPageState extends State<QuickSendPage> {
     if (_sending || devices.isEmpty) {
       return;
     }
-    if (widget.deviceVpnActive) {
-      _notice(
-        _t(
-          'برای انتقال فایل ابتدا VPN دستگاه را خاموش کنید.',
-          'Turn off the device VPN before transferring files.',
-        ),
-        warning: true,
-      );
-      return;
-    }
     if (_selectedPaths.isEmpty && _selectedText.isEmpty) {
       _notice(
         _t(
@@ -1697,8 +1658,8 @@ class QuickSendPageState extends State<QuickSendPage> {
                       Expanded(
                         child: Text(
                           _t(
-                            'در دستگاه مقصد Quick Send را باز کنید. IP زیر عنوان «آدرس اتصال دستی این دستگاه» را کپی کنید. هر دو دستگاه باید روی یک Wi-Fi یا Hotspot باشند و VPN خاموش باشد؛ سپس همان IP، پورت و HTTP/HTTPS را اینجا وارد کنید.',
-                            'On the destination device, open Quick Send and copy an IP shown under “Manual connection address for this device”. Both devices must use the same Wi-Fi or hotspot with VPN off. Enter that IP here and keep the port and HTTP/HTTPS mode identical.',
+                            'در دستگاه مقصد Quick Send را باز کنید. IP زیر عنوان «آدرس اتصال دستی این دستگاه» را کپی کنید. هر دو دستگاه باید روی یک Wi-Fi یا Hotspot باشند؛ سپس همان IP، پورت و HTTP/HTTPS را اینجا وارد کنید. اگر VPN روشن است و اتصال برقرار نمی‌شود، دسترسی شبکهٔ محلی آن را بررسی کنید.',
+                            'On the destination device, open Quick Send and copy an IP shown under “Manual connection address for this device”. Both devices must use the same Wi-Fi or hotspot. Enter that IP here and keep the port and HTTP/HTTPS mode identical. If a VPN is active and the connection fails, check its local-network access.',
                           ),
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
@@ -1785,23 +1746,13 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _startAppleWebTransfer() async {
-    if (widget.deviceVpnActive) {
-      _notice(
-        _t(
-          'برای راه‌اندازی انتقال وب ابتدا VPN دستگاه را خاموش کنید.',
-          'Turn off the device VPN before starting web transfer.',
-        ),
-        warning: true,
-      );
-      return;
-    }
     try {
       final automaticHotspot = await _appleWebTransfer.start(
         paths: List.of(_selectedPaths),
         offeredNames: Map.of(_selectedFileNames),
         selectedText: _selectedText,
       );
-      if (!mounted || widget.deviceVpnActive) {
+      if (!mounted) {
         return;
       }
       if (Platform.isWindows) {
@@ -1939,7 +1890,7 @@ class QuickSendStatusPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = QuickSendService.instance;
-    final running = service.serverRunning && !deviceVpnActive;
+    final running = service.serverRunning;
     final localAddresses = service.localAddresses;
     return GlassPanel(
       child: Column(
@@ -1969,8 +1920,6 @@ class QuickSendStatusPanel extends StatelessWidget {
                 label: Text(
                   running
                       ? _t(context, 'آماده دریافت', 'Ready to receive')
-                      : deviceVpnActive
-                      ? _t(context, 'غیرفعال به‌دلیل VPN', 'Disabled by VPN')
                       : _t(context, 'فقط ارسال', 'Send only'),
                 ),
               ),
@@ -1994,6 +1943,17 @@ class QuickSendStatusPanel extends StatelessWidget {
                 ),
             ],
           ),
+          if (deviceVpnActive) ...[
+            const SizedBox(height: 10),
+            ServiceLockNotice(
+              message: _t(
+                context,
+                'VPN روشن است و ممکن است ارتباط شبکهٔ محلی را محدود کند؛ ارسال و دریافت همچنان فعال است.',
+                'VPN is active and may restrict local-network access; sending and receiving remain enabled.',
+              ),
+              icon: Icons.warning_amber_outlined,
+            ),
+          ],
           if (running) ...[
             const SizedBox(height: 12),
             Text(

@@ -313,7 +313,6 @@ class QuickSendService extends ChangeNotifier {
   Future<void>? _remoteHistoryImport;
   bool _restarting = false;
   bool _scanning = false;
-  bool _transferBlocked = false;
   String _lastError = '';
   _QuickSendSecurity? _security;
   String _deviceAlias = 'Localist device';
@@ -326,7 +325,6 @@ class QuickSendService extends ChangeNotifier {
   bool get serverRunning => _server != null;
   bool get scanning => _scanning;
   bool get restarting => _restarting;
-  bool get transferBlocked => _transferBlocked;
   String get lastError => _lastError;
   bool get storageAccessGranted => _storageAccessGranted;
   List<String> get localAddresses => List.unmodifiable(_localAddresses);
@@ -518,7 +516,7 @@ class QuickSendService extends ChangeNotifier {
         old.profileImagePath != normalized.profileImagePath;
     if (networkChanged) {
       await restart();
-    } else if (profileChanged && !_transferBlocked) {
+    } else if (profileChanged) {
       unawaited(_sendDiscoveryPacket(announce: true));
     }
   }
@@ -569,9 +567,7 @@ class QuickSendService extends ChangeNotifier {
     notifyListeners();
     try {
       await _stopNetwork();
-      if (!_transferBlocked) {
-        await _startNetwork();
-      }
+      await _startNetwork();
     } finally {
       _restarting = false;
       notifyListeners();
@@ -584,33 +580,12 @@ class QuickSendService extends ChangeNotifier {
     await _stopNetwork();
   }
 
-  Future<void> setTransferBlocked(bool blocked) async {
-    await initialize();
-    if (_transferBlocked == blocked) {
-      return;
-    }
-    _transferBlocked = blocked;
-    _devices.clear();
-    if (blocked) {
-      await _stopNetwork();
-    } else {
-      await _startNetwork();
-    }
-    notifyListeners();
-  }
-
   Future<void>? _refreshing;
   Future<void> refresh() => _refreshing ??= _refreshDiscovery().whenComplete(
     () => _refreshing = null,
   );
   Future<void> _refreshDiscovery() async {
     await initialize();
-    if (_transferBlocked) {
-      _devices.clear();
-      _scanning = false;
-      notifyListeners();
-      return;
-    }
     _scanning = true;
     _devices.clear();
     notifyListeners();
@@ -632,13 +607,6 @@ class QuickSendService extends ChangeNotifier {
 
   Future<List<String>> refreshLocalAddresses() async {
     await initialize();
-    if (_transferBlocked) {
-      if (_localAddresses.isNotEmpty) {
-        _localAddresses = const [];
-        notifyListeners();
-      }
-      return const [];
-    }
     final routes = await _networkRoutes();
     final changed = _setLocalAddresses(routes);
     if (changed) {
@@ -696,7 +664,6 @@ class QuickSendService extends ChangeNotifier {
     required bool https,
   }) async {
     await initialize();
-    _ensureTransferAvailable();
     final device = await _discoverTarget(
       host: host,
       port: port,
@@ -860,7 +827,6 @@ class QuickSendService extends ChangeNotifier {
     String? pin,
   }) async {
     await initialize();
-    _ensureTransferAvailable();
     final files = <QuickSendOfferedFile>[];
     final fileById = <String, File>{};
     for (final value in paths) {
@@ -1043,7 +1009,6 @@ class QuickSendService extends ChangeNotifier {
       return;
     }
     await initialize();
-    _ensureTransferAvailable();
     final id = _randomToken();
     final bytes = utf8.encode(clean).length;
     final offer = QuickSendOfferedFile(
@@ -1077,7 +1042,7 @@ class QuickSendService extends ChangeNotifier {
 
   Future<void> _startNetwork() async {
     final current = _settings;
-    if (current == null || _transferBlocked) {
+    if (current == null) {
       return;
     }
     _lastError = '';
@@ -1986,14 +1951,6 @@ class QuickSendService extends ChangeNotifier {
         sha256.convert(utf8.encode('localist.quick-send')).toString();
   }
 
-  void _ensureTransferAvailable() {
-    if (_transferBlocked) {
-      throw StateError(
-        'Turn off the device VPN before sending or receiving files.',
-      );
-    }
-  }
-
   Future<_QuickSendSecurity> _loadSecurity() async {
     final prefs = await SharedPreferences.getInstance();
     final privateKey = prefs.getString(_privateKeyPreference);
@@ -2016,7 +1973,6 @@ class QuickSendService extends ChangeNotifier {
 
   Future<File> createReceivedFile(String unsafeName, String fileType) async {
     await initialize();
-    _ensureTransferAvailable();
     return _destinationFile(unsafeName, fileType);
   }
 

@@ -4,6 +4,9 @@ All notable user-facing changes are documented here. Version numbers follow [Sem
 
 ## [6.1.0] - 2026-11-08 (local development, unpublished)
 
+- Treat an active device VPN as a warning for file transfers. Keep native/web
+  transfers, discovery, manual connections and existing sessions available;
+  VPN state changes no longer stop listeners or clear nearby devices.
 - Updated the embedded RustDesk source, generated bridge, Windows engine and
   three Android native architectures to upstream commit `78450f49877fa047b729619c662703ed93bb119a`.
 - Excluded self advertisements by local ID and interface address, placed copy

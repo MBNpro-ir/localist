@@ -2,6 +2,9 @@
 
 ## [6.1.0] — Local development build (not published)
 
+An active device VPN now displays an advisory warning without disabling file
+transfers, discovery or browser sharing, or interrupting existing sessions.
+
 The Stream web gallery and player have been rebuilt with responsive layouts,
 Persian/English text, light/dark themes, search, media filters, sorting and
 grid/list views. Playback adds a collection sidebar, keyboard controls and
