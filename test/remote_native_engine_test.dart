@@ -14,7 +14,7 @@ void main() {
       final api = RustdeskImpl(library);
       expect(
         await api.mainGetVersion().timeout(const Duration(seconds: 10)),
-        '1.5.0',
+        '1.5.1',
       );
       expect(api.translate(name: 'Connect', locale: 'en'), 'Connect');
       expect(api.translate(name: 'Connect', locale: 'fa'), isNotEmpty);

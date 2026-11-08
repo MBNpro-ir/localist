@@ -1,12 +1,12 @@
 {
   "repository": "https://github.com/rustdesk/rustdesk",
-  "commit": "4411d10f450a514c01c83e4f8af7151836300abb",
-  "version": "1.5.0",
-  "native_and_bridge_workflow_run": 38038914676,
+  "commit": "78450f49877fa047b729619c662703ed93bb119a",
+  "version": "1.5.1",
+  "native_and_bridge_workflow_run": 42449468729,
   "native_sha256": {
-    "arm64-v8a": "c48362391c7824aed5dfbf3a9ef25a550e0150e7af3064a33c11fcda2b52762d",
-    "armeabi-v7a": "0c8afd46a6f945f075eab1c626c47e8ba4d9fa04b21a7a707de15fe1d6678d47",
-    "x86_64": "d9396143a311d71c5696159f2d2d0c173944b55498bc5f1b4bb6f492f7730f77"
+    "arm64-v8a": "beba001007e01c1600f30e0800696ccab618872aef9161ada6fc77efe66c449d",
+    "armeabi-v7a": "91c5bfa7ed2014ff22e33a643fe30ce553696b67661d1b04af4ff10be12eb88f",
+    "x86_64": "2e2da08bd73fa3f4aef2d996bf0df44f27c141d903ffe62da45890fa8497096a"
   },
   "runtime_sha256": {
     "android/maven/rustls/rustls-platform-verifier/0.1.1/rustls-platform-verifier-0.1.1.aar": "667292cadd8fa589229dd0f716541236a761f29b774930868d218175633830fd",
@@ -14,8 +14,8 @@
     "android/src/main/jniLibs/armeabi-v7a/libc++_shared.so": "10ee48131d6742899619f7cfb3b8df150ad787d723c766a3fb80d4bb275711ff",
     "android/src/main/jniLibs/x86_64/libc++_shared.so": "e4cd73c8a3607269f3be58d15c21f78bff112e27f9398d6261e5f965668f8746",
     "LICENSE": "6f1e622c82a380075843bb084a7ec3b1f1d12a4a02526d75e78b0924a860aa75",
-    "native-source.tar.gz": "5657cca7b8a681bb40bce17f9999d9ca3f92496034617381e90c535ea073e0c7",
-    "patches/localist-native-namespace.patch": "e9bb01446a09b30bed1b3902c62ed26eccae650a2bda17e0bce543a4d5ad31ef",
+    "native-source.tar.gz": "27716a5253afea9745bdfa8a4babc53a3865a0a463c0ad3f270b493d8c072c53",
+    "patches/localist-native-namespace.patch": "bfb2490826304e4178da2a541c69c12543597530cec42894e5550079562cbb92",
     "windows/runtime/drivers/RustDeskPrinterDriver/RustDeskPrinterDriver-manifest.ini": "c8f6f96e7a3d2e09703ab8a33271d534903c5c3c8b04049f0e8fe58c9107f6af",
     "windows/runtime/drivers/RustDeskPrinterDriver/rustdeskprinterdriver.cat": "bde22161590885d54155e133c6bb5d8b3cfe86d6a98d4acebd298559a0dacdda",
     "windows/runtime/drivers/RustDeskPrinterDriver/RustDeskPrinterDriver.gpd": "ed48709c194f3d32603c99af0607b566639f0bb198d721a3e43af29ad76630f6",
@@ -23,7 +23,7 @@
     "windows/runtime/drivers/RustDeskPrinterDriver/RustDeskPrinterDriverRenderFilter-PipelineConfig.xml": "435a7f4cf6e2fb449ac34d5b15bca7d77cf7f837752a3389c5d90266f7287d54",
     "windows/runtime/drivers/RustDeskPrinterDriver/RustDeskPrinterDriverRenderFilter.dll": "43ede110ffb779ec6f28339a11945414696ce55253f7826d5dbb64e9633506cd",
     "windows/runtime/dylib_virtual_display.dll": "b9a51a5d639c3dd96883d2ddeb60e1fc3e57ba26ee2cdbc24572f1b3e65dd5cf",
-    "windows/runtime/librustdesk.dll": "6b47092e621a07180fbf164ead93c7d2f88b083de4f2ff5b71066f95d5f77bc0",
+    "windows/runtime/librustdesk.dll": "5f47de4b38d0952cfdde50db074c551980c32ba2cb63d63b6401b5be59353139",
     "windows/runtime/printer_driver_adapter.dll": "929956a8e3340ce11b9b7e03320d2f96a76c869411680fe3ba15af8758d265ad",
     "windows/runtime/usbmmidd_v2/idd_instructions.txt": "4928ad8aca39eec287d5ceaaf13f0e44a29f519821b495898692a62ece97c4c3",
     "windows/runtime/usbmmidd_v2/License.txt": "44c73fc4110979899dbb5054662de581f7d4350939f19bb2d50574f613314ba2",
@@ -32,7 +32,7 @@
     "windows/runtime/usbmmidd_v2/x64/usbmmIdd.dll": "dc135d675127113915a7e5aa9fe57c84edad6be41d0890b265ef124ab26ea9e3",
     "windows/runtime/WindowInjection.dll": "231ea21b53762a1c58d374bc9f650e4b45ea08f62a1b25420309f0a0451598e1"
   },
-  "hbb_common_commit": "229b904508364c8997aad0fb5af57effac859f60",
+  "hbb_common_commit": "fae47e024dd83cef6aaecde0aa7d11731df11649",
   "windows_native": {
     "namespace": "LocalistRemote",
     "rust_version": "1.75.0",
@@ -46,5 +46,10 @@
   "android_cpp_runtime": {
     "ndk": "28.2.13676358 (r28c)"
   },
-  "android_tls_verifier": "rustls-platform-verifier 0.1.1"
+  "android_tls_verifier": "rustls-platform-verifier 0.1.1",
+  "checked_at": "2026-11-08",
+  "bridge_sha256": {
+    "generated_bridge.dart": "ca946acb4d43242a982a0d6f87d77ee3c18699389b1e96efa97f956433bc716a",
+    "generated_bridge.freezed.dart": "c7e9daac122dffffc62b7cbbe6ad4f5013fbc332de3878aa7acb321b13ab9cad"
+  }
 }

@@ -9,16 +9,16 @@ import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-UPSTREAM = ROOT / '.research/rustdesk'
+UPSTREAM = ROOT / '.research/rustdesk-latest'
 DEST = ROOT / 'third_party/localist_remote'
-COMMIT = '4411d10f450a514c01c83e4f8af7151836300abb'
+COMMIT = '78450f49877fa047b729619c662703ed93bb119a'
 if DEST.exists():
     raise SystemExit('Refusing to overwrite the patched remote module.')
 
 shutil.copytree(UPSTREAM / 'flutter/lib', DEST / 'lib')
 shutil.copytree(UPSTREAM / 'flutter/assets', ROOT / 'assets/remote')
 shutil.copyfile(UPSTREAM / 'LICENCE', DEST / 'LICENSE')
-for file in (ROOT / '.research/bridge/flutter/lib').glob('*.dart'):
+for file in (ROOT / '.research/latest-artifacts/bridge/flutter/lib').glob('*.dart'):
     shutil.copyfile(file, DEST / 'lib' / file.name)
 
 for file in (DEST / 'lib').rglob('*.dart'):
@@ -61,7 +61,7 @@ hashes = {}
 for abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']:
     target = native / 'jniLibs' / abi / 'librustdesk.so'
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(ROOT / f'.research/native/{abi}/liblibrustdesk.so', target)
+    shutil.copyfile(ROOT / f'.research/latest-artifacts/{abi}/liblibrustdesk.so', target)
     hashes[abi] = hashlib.sha256(target.read_bytes()).hexdigest()
 
 for file in (native / 'kotlin').rglob('*.kt'):
@@ -73,8 +73,8 @@ strings.write_text(strings.read_text(encoding='utf-8').replace('RustDesk', 'Loca
 (DEST / 'UPSTREAM.json').write_text(json.dumps({
     'repository': 'https://github.com/rustdesk/rustdesk',
     'commit': COMMIT,
-    'version': '1.5.0',
-    'native_and_bridge_workflow_run': 38038914676,
+    'version': '1.5.1',
+    'native_and_bridge_workflow_run': 42449468729,
     'native_sha256': hashes,
 }, indent=2) + '\n', encoding='utf-8')
 print(f'Imported remote client and three native ABIs into {DEST}')

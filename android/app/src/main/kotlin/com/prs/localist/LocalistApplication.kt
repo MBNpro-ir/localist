@@ -1,13 +1,11 @@
 package com.prs.localist
 
-import android.app.Application
-import ffi.FFI
+import com.carriez.flutter_hbb.MainApplication
 
 /** Initializes JNI and certificate verification for both UI and boot services. */
-class LocalistApplication : Application() {
+class LocalistApplication : MainApplication() {
     override fun onCreate() {
         super.onCreate()
-        FFI.onAppStart(applicationContext)
         RemoteReceivedFiles.start(applicationContext)
     }
 }

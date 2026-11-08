@@ -1,8 +1,8 @@
 diff --git a/src/core_main.rs b/src/core_main.rs
-index b5a451e..c208bcc 100644
+index 0f62d1e..9bf4f6a 100644
 --- a/src/core_main.rs
 +++ b/src/core_main.rs
-@@ -74,6 +74,9 @@ pub fn core_main() -> Option<Vec<String>> {
+@@ -88,6 +88,9 @@ pub fn core_main() -> Option<CoreMainAction> {
                  _is_quick_support = true;
              } else if arg == "--no-server" {
                  no_server = true;
@@ -12,21 +12,20 @@ index b5a451e..c208bcc 100644
              } else {
                  args.push(arg);
              }
-@@ -118,7 +121,12 @@ pub fn core_main() -> Option<Vec<String>> {
+@@ -132,7 +135,11 @@ pub fn core_main() -> Option<CoreMainAction> {
      }
      #[cfg(feature = "flutter")]
      if _is_flutter_invoke_new_connection {
--        return core_main_invoke_new_connection(std::env::args());
+-        return core_main_invoke_new_connection(std::env::args()).map(CoreMainAction::StartUi);
 +        let result = core_main_invoke_new_connection(std::env::args());
 +        if result.is_some() {
-+            // A first connection has no existing window/service to forward to.
 +            std::thread::spawn(move || crate::start_server(false, no_server));
 +        }
-+        return result;
++        return result.map(CoreMainAction::StartUi);
      }
      let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
      if click_setup && !config::is_disable_installation() {
-@@ -191,7 +199,10 @@ pub fn core_main() -> Option<Vec<String>> {
+@@ -205,7 +212,10 @@ pub fn core_main() -> Option<CoreMainAction> {
          crate::platform::elevate_or_run_as_system(click_setup, _is_elevate, _is_run_as_system);
          return None;
      }
@@ -38,7 +37,7 @@ index b5a451e..c208bcc 100644
          #[cfg(target_os = "macos")]
          {
              crate::platform::macos::try_remove_temp_update_dir(None);
-@@ -476,6 +487,23 @@ pub fn core_main() -> Option<Vec<String>> {
+@@ -464,6 +474,23 @@ pub fn core_main() -> Option<CoreMainAction> {
          } else if args[0] == "--get-id" {
              println!("{}", crate::ipc::get_id());
              return None;
@@ -62,7 +61,7 @@ index b5a451e..c208bcc 100644
          } else if args[0] == "--set-id" {
              if is_cli_setting_change_disabled() {
                  println!("Settings are disabled!");
-@@ -782,6 +810,7 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
+@@ -770,6 +797,7 @@ fn core_main_invoke_new_connection(mut args: std::env::Args) -> Option<Vec<Strin
              }
              "--password" => {
                  if let Some(password) = args.next() {
@@ -70,8 +69,29 @@ index b5a451e..c208bcc 100644
                      param_array.push(format!("password={password}"));
                  }
              }
+diff --git a/src/flutter.rs b/src/flutter.rs
+index 31e6582..8288da0 100644
+--- a/src/flutter.rs
++++ b/src/flutter.rs
+@@ -223,6 +223,16 @@ pub unsafe extern "C" fn free_c_args(ptr: *mut *mut c_char, len: c_int) {
+     // Afterwards the vector will be dropped and thus freed.
+ }
+ 
++/// Start Localist's host without constructing the companion home/settings UI.
++#[cfg(windows)]
++#[no_mangle]
++pub extern "C" fn localist_start_host() {
++    static START: std::sync::Once = std::sync::Once::new();
++    START.call_once(|| {
++        std::thread::spawn(|| crate::start_server(false, false));
++    });
++}
++
+ #[cfg(windows)]
+ #[no_mangle]
+ pub unsafe extern "C" fn get_rustdesk_app_name(buffer: *mut u16, length: i32) -> i32 {
 diff --git a/src/ipc/auth.rs b/src/ipc/auth.rs
-index 6f40ab1..8828c34 100644
+index 06a9597..cf4cb05 100644
 --- a/src/ipc/auth.rs
 +++ b/src/ipc/auth.rs
 @@ -1,5 +1,5 @@
@@ -180,10 +200,10 @@ index 6f40ab1..8828c34 100644
      #[cfg(any(target_os = "macos", target_os = "linux"))]
      fn test_service_peer_uid_policy() {
 diff --git a/src/platform/windows.rs b/src/platform/windows.rs
-index 438baf7..5d47835 100644
+index 206a88d..62c6eb7 100644
 --- a/src/platform/windows.rs
 +++ b/src/platform/windows.rs
-@@ -2773,7 +2773,7 @@ pub fn send_message_to_hnwd(
+@@ -2825,7 +2825,7 @@ pub fn send_message_to_hnwd(
          let mut data_struct = COPYDATASTRUCT::default();
          data_struct.dwData = dw_data;
          let mut data_zero: String = data.chars().chain(Some('\0').into_iter()).collect();
@@ -193,10 +213,10 @@ index 438baf7..5d47835 100644
          data_struct.lpData = data_zero.as_mut_ptr() as _;
          SendMessageW(
 diff --git a/libs/hbb_common/src/config.rs b/libs/hbb_common/src/config.rs
-index 6fe1004..50133bc 100644
+index 9ee5cac..cce2628 100644
 --- a/libs/hbb_common/src/config.rs
 +++ b/libs/hbb_common/src/config.rs
-@@ -69,7 +69,8 @@ lazy_static::lazy_static! {
+@@ -68,7 +68,8 @@ lazy_static::lazy_static! {
      static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
      pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
      pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();

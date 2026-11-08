@@ -10,7 +10,7 @@ source = Path(sys.argv[1]) if len(sys.argv) > 1 else root / '.research/rustdesk'
 package = root / 'third_party/localist_remote'
 excluded = {'.git', 'target', '.dart_tool', 'build', '.gradle', '__pycache__'}
 patches = [subprocess.check_output([
-    'git', '-C', str(source), 'diff', '--', 'src/core_main.rs', 'src/ipc/auth.rs', 'src/platform/windows.rs',
+    'git', '-C', str(source), 'diff', '--', 'src/core_main.rs', 'src/flutter.rs', 'src/ipc/auth.rs', 'src/platform/windows.rs',
 ])]
 patches.append(subprocess.check_output([
     'git', '-C', str(source / 'libs/hbb_common'), 'diff',

@@ -15,7 +15,7 @@ manifest['runtime_sha256'] = {
     p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
     for p in sorted(files)
 }
-manifest['hbb_common_commit'] = '229b904508364c8997aad0fb5af57effac859f60'
+# The caller records the matching submodule revision in UPSTREAM.json.
 manifest['windows_native'] = {
     'namespace': 'LocalistRemote',
     'rust_version': '1.75.0',

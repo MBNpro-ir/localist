@@ -443,7 +443,11 @@ Future<void> _applyProfile() async {
           await bind.mainSetLocalOption(key: setting.key, value: effective);
           if (setting.key == 'lang') {
             await bind.mainChangeLanguage(lang: effective);
-            await engine.reloadAllWindows();
+            if (Platform.isWindows) {
+              await engine.reloadAllWindows();
+            } else {
+              engine.reloadCurrentWindow();
+            }
           }
         }
       case RemoteOptionScope.display:

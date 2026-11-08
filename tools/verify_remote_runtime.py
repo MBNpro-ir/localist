@@ -6,6 +6,7 @@ import json
 root = Path(__file__).resolve().parent.parent / 'third_party' / 'localist_remote'
 manifest = json.loads((root / 'UPSTREAM.json').read_text(encoding='utf-8'))
 checks = dict(manifest.get('runtime_sha256', {}))
+checks.update({f'lib/{name}': digest for name, digest in manifest.get('bridge_sha256', {}).items()})
 for abi, expected in manifest['native_sha256'].items():
     checks[f'android/src/main/jniLibs/{abi}/librustdesk.so'] = expected
 if not manifest.get('runtime_sha256'):

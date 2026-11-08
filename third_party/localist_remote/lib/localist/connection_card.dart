@@ -48,26 +48,28 @@ class _LocalistConnectionCardState extends State<LocalistConnectionCard> {
         decoration: BoxDecoration(
             color: colors.primaryContainer,
             borderRadius: BorderRadius.circular(16)),
-        child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: SelectableText(
-                widget.id.isEmpty
-                    ? '—'
-                    : RemoteConnectionInfo.displayId(widget.id),
-                textDirection: TextDirection.ltr,
-                style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                    color: colors.onPrimaryContainer))),
+        child: Row(children: [
+          Expanded(
+              child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: SelectableText(
+                      widget.id.isEmpty
+                          ? '—'
+                          : RemoteConnectionInfo.displayId(widget.id),
+                      textDirection: TextDirection.ltr,
+                      style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                          color: colors.onPrimaryContainer)))),
+          IconButton(
+            tooltip: t('کپی شناسه', 'Copy ID'),
+            onPressed: widget.onCopyId,
+            icon: const Icon(Icons.content_copy_rounded),
+          ),
+        ]),
       ),
-      Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: TextButton.icon(
-              onPressed: widget.onCopyId,
-              icon: const Icon(Icons.content_copy_rounded, size: 18),
-              label: Text(t('کپی شناسه', 'Copy ID')))),
       const SizedBox(height: 4),
       Text(t('رمز یک‌بارمصرف', 'One-time password')),
       Row(children: [
@@ -81,6 +83,10 @@ class _LocalistConnectionCardState extends State<LocalistConnectionCard> {
                 textDirection: TextDirection.ltr,
                 style: Theme.of(context).textTheme.titleLarge)),
         IconButton(
+            tooltip: t('کپی رمز', 'Copy password'),
+            onPressed: widget.onCopyPassword,
+            icon: const Icon(Icons.content_copy_rounded)),
+        IconButton(
             onPressed: widget.password.isEmpty
                 ? null
                 : () => setState(() => _reveal = !_reveal),
@@ -91,12 +97,6 @@ class _LocalistConnectionCardState extends State<LocalistConnectionCard> {
                 ? Icons.visibility_off_outlined
                 : Icons.visibility_outlined)),
       ]),
-      Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: TextButton.icon(
-              onPressed: widget.onCopyPassword,
-              icon: const Icon(Icons.content_copy_rounded, size: 18),
-              label: Text(t('کپی رمز', 'Copy password')))),
       const SizedBox(height: 8),
       FilledButton.icon(
           onPressed: widget.onCopyConnection,

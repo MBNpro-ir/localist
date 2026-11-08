@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.provider.Settings
 import android.os.Build
-import android.net.VpnService
 import android.net.Uri
 import ffi.FFI
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -26,7 +25,8 @@ class LocalistRemotePlugin : FlutterPlugin, ActivityAware {
                 "features" -> result.success(mapOf(
                     "input" to InputService.isOpen,
                     "capture" to MainService.isReady,
-                    "vpn" to (activity?.let { VpnService.prepare(it) == null } ?: false),
+                    // Passive checks must not prepare/revoke another VPN.
+                    "vpn" to (activity?.getSharedPreferences("localist-vpn-consent", 0)?.getBoolean("granted", false) ?: false),
                 ))
                 "shareConnection" -> {
                     val values = call.arguments as? Map<*, *>
