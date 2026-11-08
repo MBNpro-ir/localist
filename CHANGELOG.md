@@ -38,6 +38,11 @@ All notable user-facing changes are documented here. Version numbers follow [Sem
 - Rework Camera & Mic for desktop: bounded content, adjacent sender/receiver
   and webcam cards, grouped video/audio settings, adaptive large-text/mobile
   stacking, RTL numeric formats and Android-only capture controls.
+- Rebuild the Stream web gallery and player with responsive Persian/English
+  layouts, light/dark themes, searchable media filters, sorting, grid/list views,
+  a collection sidebar, accessible playback controls and image zoom/pan.
+  Serve all assets locally, retain native playback without JavaScript and
+  preserve the short IP:port URL and byte-range media streaming.
 
 See [local validation](docs/VALIDATION_6.1.0_LOCAL.md) for per-setting checks,
 real media/authentication/VPN regression tests, and remaining hardware limits.

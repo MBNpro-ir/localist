@@ -114,6 +114,7 @@ flutter:
     - assets/sounds/
     - assets/live_capture.html
     - assets/web_transfer.html
+    - assets/stream_web/
     - assets/remote/
 
   fonts:

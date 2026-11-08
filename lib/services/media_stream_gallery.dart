@@ -1,61 +1,48 @@
-import 'dart:convert';
+import 'media_stream_web.dart';
 
-/// Only generated relative routes reach this renderer. Local paths and file
-/// names are never used as URLs, and metadata is escaped as HTML text.
+/// Filenames are text, and only generated relative routes reach media tags.
 String buildMediaGalleryHtml({
-  required List<
-    ({String name, String mime, String playerPath, String mediaPath})
-  >
-  items,
+  required List<StreamWebItem> items,
   bool persian = false,
 }) {
-  String escape(String value) =>
-      const HtmlEscape(HtmlEscapeMode.attribute).convert(value);
-  final title = persian ? 'گالری استریم لوکالیست' : 'Localist Stream gallery';
-  final hint = persian
-      ? 'برای تماشا یا پخش، یکی از رسانه‌ها را انتخاب کنید.'
-      : 'Choose a photo, video or song to open its player.';
-  final cards = items.map((item) {
-    final name = escape(item.name);
-    final path = escape(item.mediaPath);
-    final image = item.mime.startsWith('image/');
-    final video = item.mime.startsWith('video/');
-    final type = image
-        ? (persian ? 'عکس' : 'Photo')
-        : video
-        ? (persian ? 'فیلم' : 'Video')
-        : (persian ? 'موسیقی' : 'Audio');
-    final preview = image
-        ? '<img src="$path" alt="$name" loading="lazy" decoding="async">'
-        : video
-        ? '<video data-src="$path" preload="none" muted playsinline aria-label="$name"></video><span class="play" aria-hidden="true">▶</span>'
-        : '<span class="music" aria-hidden="true">♫</span>';
-    return '<a class="card" href="${escape(item.playerPath)}"><div class="preview">$preview</div><div class="caption"><span class="type">$type</span><strong>$name</strong></div></a>';
-  }).join();
-  return '''<!doctype html>
-<html lang="${persian ? 'fa" dir="rtl' : 'en'}"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#17131e"><title>$title</title>
-<style>
-:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#17131e;color:#f7f3ff}
-body{margin:0;min-height:100vh;background:radial-gradient(circle at 15% 0,#3a2757 0,#17131e 42%,#0d0b12 100%)}
-main{max-width:1200px;margin:auto;padding:clamp(16px,4vw,42px)}h1{font-size:clamp(1.4rem,3vw,2.2rem);margin:0 0 8px}.hint{color:#cfc6dc;margin:0 0 24px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:18px}
-.card{display:block;min-width:0;color:inherit;text-decoration:none;border:1px solid #544565;border-radius:16px;background:#211a2b;overflow:hidden;transition:transform .15s,border-color .15s}
-.card:hover{transform:translateY(-3px);border-color:#bd82f6}.card:focus-visible{outline:3px solid #dcb8ff;outline-offset:3px}
-.preview{position:relative;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center;background:#09080c;overflow:hidden}
-.preview img,.preview video{width:100%;height:100%;object-fit:cover}.play{position:absolute;font-size:28px;background:#0009;padding:8px 14px;border-radius:50%}.music{font-size:64px;color:#bd82f6}
-.caption{padding:14px}.type{display:block;color:#c8a4eb;font-size:.85rem;margin-bottom:6px}strong{display:block;overflow-wrap:anywhere;line-height:1.4}
-@media(prefers-reduced-motion:reduce){.card{transition:none}}
-</style></head><body><main><h1>$title</h1><p class="hint">${items.length} ${persian ? 'رسانه' : 'items'} · $hint</p><div class="grid">$cards</div></main>
-<script>
-(function(){
-  const videos=document.querySelectorAll('video[data-src]');
-  const load=v=>{v.src=v.dataset.src;v.preload='metadata';delete v.dataset.src;};
-  if('IntersectionObserver' in window){
-    const observer=new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){load(entry.target);observer.unobserve(entry.target);}}},{rootMargin:'100px'});
-    videos.forEach(v=>observer.observe(v));
-  }else{videos.forEach(load);}
-})();
-</script></body></html>''';
+  String t(String fa, String en) => persian ? fa : en;
+  final counts = {'video': 0, 'image': 0, 'audio': 0};
+  for (final item in items) {
+    final kind = streamWebKind(item.mime);
+    counts[kind] = counts[kind]! + 1;
+  }
+  final cards = [
+    for (var i = 0; i < items.length; i++)
+      () {
+        final item = items[i], kind = streamWebKind(items[i].mime);
+        final name = streamWebEscape(item.name),
+            path = streamWebPath(item.mediaPath);
+        final preview = kind == 'image'
+            ? '<img src="$path" alt="" loading="lazy" decoding="async">'
+            : kind == 'video'
+            ? '<video data-src="$path" preload="none" muted playsinline aria-hidden="true"></video>'
+            : '';
+        return '''<a class="card" href="${streamWebPath(item.playerPath)}" data-kind="$kind" data-name="$name" data-order="$i" title="$name">
+      <div class="preview $kind-preview"><span class="preview-placeholder">${streamWebIcon(kind)}</span>$preview<span class="type-badge">${streamWebIcon(kind)}${streamWebType(kind, persian)}</span><span class="card-open" aria-hidden="true">${streamWebIcon(kind == 'image' ? 'plus' : 'play')}</span></div>
+      <div class="card-caption"><span class="card-number">${'${i + 1}'.padLeft(2, '0')}</span><div><h2 dir="auto">$name</h2><p>${streamWebType(kind, persian)}${streamWebFormat(item.name).isEmpty ? '' : ' <span>·</span> <bdi>${streamWebFormat(item.name)}</bdi>'}</p></div>${streamWebIcon(persian ? 'left' : 'right')}</div></a>''';
+      }(),
+  ].join();
+  String filter(String kind, String title, int count) =>
+      '<button class="filter" type="button" data-filter="$kind" aria-pressed="${kind == 'all'}">$title<span>$count</span></button>';
+  return streamWebPage(
+    title: t('گالری استریم لوکالیست', 'Localist Stream gallery'),
+    persian: persian,
+    page: 'gallery',
+    body:
+        '''
+    <section class="library-heading"><div><p class="eyebrow">${t('مجموعهٔ اشتراک‌گذاشته‌شده', 'SHARED COLLECTION')}</p><h1>${t('یک مجموعه، هر صفحه‌نمایش.', 'One collection. Any screen.')}</h1><p class="intro">${t('رسانه‌ای را انتخاب کنید و همین‌جا تماشا کنید.', 'Choose something to watch, listen to, or explore.')}</p></div><div class="library-stat"><strong>${items.length}</strong><span>${t('رسانه در مجموعه', 'items to explore')}</span></div></section>
+    <section class="library-tools" id="library-tools" hidden aria-label="${t('جست‌وجو و فیلتر', 'Search and filters')}">
+      <label class="search-box">${streamWebIcon('search')}<input id="search" type="search" placeholder="${t('جست‌وجو در مجموعه…', 'Search this collection…')}" aria-label="${t('جست‌وجوی رسانه', 'Search media')}" aria-controls="media-grid" autocomplete="off"></label>
+      <div class="library-options"><label class="sort-label"><span>${t('مرتب‌سازی', 'Sort by')}</span><select id="sort"><option value="original">${t('ترتیب انتخاب', 'Collection order')}</option><option value="name">${t('نام فایل', 'File name')}</option><option value="type">${t('نوع رسانه', 'Media type')}</option></select></label><div class="view-switch" role="group" aria-label="${t('نمایش مجموعه', 'Collection view')}">${streamWebButton('grid-view', 'grid', t('نمای شبکه‌ای', 'Grid view'), extra: 'aria-pressed="true"')}${streamWebButton('list-view', 'list', t('نمای فهرستی', 'List view'), extra: 'aria-pressed="false"')}</div></div>
+    </section>
+    <div class="collection-toolbar"><div class="filters" id="filters" hidden role="group" aria-label="${t('نوع رسانه', 'Media type')}">${filter('all', t('همه', 'All media'), items.length)}${filter('video', t('ویدیو', 'Videos'), counts['video']!)}${filter('image', t('عکس', 'Photos'), counts['image']!)}${filter('audio', t('موسیقی', 'Audio'), counts['audio']!)}</div><p id="result-count" aria-live="polite">${items.length} ${t('رسانه', 'items')}</p></div>
+    <div id="media-grid" class="media-grid">$cards</div>
+    <section class="empty-state" id="empty-state" hidden>${streamWebIcon('search')}<h2>${t('رسانه‌ای پیدا نشد', 'Nothing found')}</h2><p>${t('عبارت جست‌وجو یا فیلتر را تغییر دهید.', 'Try another search or filter.')}</p><button id="reset-filters" class="button" type="button">${t('نمایش همه', 'Show all media')}</button></section>
+  ''',
+  );
 }

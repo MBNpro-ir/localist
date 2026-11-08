@@ -1,5 +1,15 @@
 # Third-party notices
 
+## Vazirmatn
+
+The Stream web interface bundles Vazirmatn Regular for Persian text.
+Copyright 2015 The Vazirmatn Project Authors.
+
+Source: https://github.com/rastikerdar/vazirmatn
+
+License: SIL Open Font License 1.1. The complete notice and license are included
+in `assets/stream_web/Vazirmatn-OFL.txt`.
+
 ## Kenney Interface Sounds
 
 Localist's optional transfer sound effects are adapted from Interface Sounds

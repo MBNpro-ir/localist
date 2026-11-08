@@ -8,6 +8,9 @@ import 'package:localist/services/media_stream_service.dart';
 import 'package:localist/services/media_stream_gallery.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  // This suite exercises real loopback HTTP in addition to bundled web assets.
+  HttpOverrides.global = null;
   test('DLNA metadata includes MIME resource and the correct media class', () {
     for (final entry in {
       'song.mp3': 'audioItem.musicTrack',
@@ -108,13 +111,73 @@ void main() {
         'id="speed"',
         'id="pip"',
         'id="fullscreen"',
-        'media.playbackRate',
-        'requestPictureInPicture',
       ]) {
         expect(html, contains(control));
       }
+      final script = File('assets/stream_web/stream.js').readAsStringSync();
+      expect(script, contains('media.playbackRate'));
+      expect(script, contains('requestPictureInPicture'));
+      expect(html, contains('controls preload="metadata"'));
+      expect(html, contains('src="/_localist/stream.js?v=3"'));
     },
   );
+  test('web pages keep hostile filenames as escaped text', () {
+    const name = '" onerror="alert(1)"><script>alert(2)</script>&.mp4';
+    final pages = [
+      buildMediaPlayerHtml(
+        name: name,
+        mime: 'video/mp4',
+        mediaPath: '/token/items/0/media',
+      ),
+      buildMediaGalleryHtml(
+        items: [
+          (
+            name: name,
+            mime: 'video/mp4',
+            playerPath: '/token/items/0',
+            mediaPath: '/token/items/0/media',
+          ),
+        ],
+      ),
+    ];
+    for (final page in pages) {
+      expect(page, isNot(contains('<script>alert(2)</script>')));
+      expect(page, isNot(contains(' onerror="')));
+      expect(page, contains('&lt;script&gt;alert(2)&lt;/script&gt;'));
+      expect(page, contains('&quot;'));
+      expect(page, contains('&amp;'));
+    }
+  });
+  test('web pages reject external or browser-normalized remote routes', () {
+    for (final route in [
+      'https://example.com/media',
+      '//example.com/media',
+      '/\\example.com/media',
+      '/\n/example.com/media',
+    ]) {
+      expect(
+        () => buildMediaPlayerHtml(
+          name: 'movie.mp4',
+          mime: 'video/mp4',
+          mediaPath: route,
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => buildMediaGalleryHtml(
+          items: [
+            (
+              name: 'movie.mp4',
+              mime: 'video/mp4',
+              playerPath: route,
+              mediaPath: '/token/items/0/media',
+            ),
+          ],
+        ),
+        throwsFormatException,
+      );
+    }
+  });
   test('stream root URL serves Persian controls and range endpoint', () async {
     final dir = await Directory.systemTemp.createTemp('localist-player-root');
     final file = await File(
@@ -136,7 +199,31 @@ void main() {
       final html = await utf8.decoder.bind(response).join();
       expect(html, contains('lang="fa" dir="rtl"'));
       expect(html, contains('>پخش<'));
-      expect(html, contains("media.paused?'پخش':'توقف'"));
+      expect(html, contains('aria-label="پخش"'));
+      expect(
+        response.headers.value('Content-Security-Policy'),
+        contains("script-src 'self'"),
+      );
+      for (final entry in {
+        'stream.css': 'text/css',
+        'stream.js': 'text/javascript',
+        'Vazirmatn-Regular.ttf': 'font/ttf',
+      }.entries) {
+        final asset = await (await client.getUrl(
+          Uri.parse('http://127.0.0.1:${service.port}/_localist/${entry.key}'),
+        )).close();
+        expect(asset.statusCode, 200);
+        expect(asset.headers.contentType!.mimeType, entry.value);
+        expect(asset.contentLength, greaterThan(100));
+        await asset.drain<void>();
+      }
+      final unavailable = await (await client.getUrl(
+        Uri.parse(
+          'http://127.0.0.1:${service.port}/_localist/../../pubspec.yaml',
+        ),
+      )).close();
+      expect(unavailable.statusCode, 404);
+      await unavailable.drain<void>();
       final path = RegExp(r'src="([^" ]+/media)"').firstMatch(html)!.group(1)!;
       final request = await client.getUrl(
         Uri.parse('http://127.0.0.1:${service.port}$path'),
@@ -192,7 +279,10 @@ void main() {
     expect(html, isNot(contains('<script>alert(1)')));
     expect(html, contains('loading="lazy"'));
     expect(html, contains('preload="none"'));
-    expect(html, contains('IntersectionObserver'));
+    expect(
+      File('assets/stream_web/stream.js').readAsStringSync(),
+      contains('IntersectionObserver'),
+    );
     expect(html, isNot(contains('autoplay')));
   });
 
@@ -241,11 +331,11 @@ void main() {
           final player = await get(links[i]);
           expect(player.statusCode, 200);
           final page = await utf8.decoder.bind(player).join();
-          expect(page, contains('href="/">گالری</a>'));
+          expect(page, contains('class="back-link" href="/"'));
           expect(page, contains('${links[i]}/media'));
           expect(page, contains(i == 0 ? 'id="zoomIn"' : 'id="seek"'));
           if (i < 2) {
-            expect(page, contains('href="${links[i + 1]}">بعدی</a>'));
+            expect(page, contains('rel="next" href="${links[i + 1]}"'));
           }
         }
         final range = await get('${links[1]}/media', range: 'bytes=5-9');

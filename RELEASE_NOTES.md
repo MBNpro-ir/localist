@@ -2,6 +2,14 @@
 
 ## [6.1.0] — Local development build (not published)
 
+The Stream web gallery and player have been rebuilt with responsive layouts,
+Persian/English text, light/dark themes, search, media filters, sorting and
+grid/list views. Playback adds a collection sidebar, keyboard controls and
+image zoom/pan. All assets load from Localist itself; native media controls
+remain available without JavaScript. The sharing address stays IP:port.
+See [Stream web validation](docs/VALIDATION_6.1.0_STREAM_WEB.md) for browser,
+HTTP and packaging checks.
+
 Updated RustDesk to the pinned latest source commit checked on 2026-11-08,
 with matching native engines and generated bindings. Local-device filtering,
 inline copy actions, private-server migration, encrypted device passwords,
