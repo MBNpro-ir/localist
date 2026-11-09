@@ -326,10 +326,30 @@ void MarkLocalistCleanExit() { DeleteRunMarker(); }
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+#ifdef LOCALIST_CAPTURE_QA_RUNNER
+  ::SetCurrentDirectoryW(ExeDirectory().c_str());
+  ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  flutter::DartProject qa_project(JoinPath(ExeDirectory(), L"data"));
+  qa_project.set_dart_entrypoint_arguments(GetCommandLineArguments());
+  FlutterWindow qa_window(qa_project, false);
+  if (!qa_window.Create(L"LocalistCaptureReceiverQA", Win32Window::Point(0, 0), Win32Window::Size(160, 120))) return EXIT_FAILURE;
+  qa_window.SetQuitOnClose(true);
+  MSG qa_message;
+  while (::GetMessage(&qa_message, nullptr, 0, 0)) {
+    ::TranslateMessage(&qa_message); ::DispatchMessage(&qa_message);
+  }
+  ::CoUninitialize();
+  return EXIT_SUCCESS;
+#endif
   if (IsEmbeddedRemoteExecutable()) return RunEmbeddedRemote(instance);
   // Explorer's sign-in Run key starts applications in an arbitrary directory.
   ::SetCurrentDirectoryW(ExeDirectory().c_str());
   const auto arguments = GetCommandLineArguments();
+  if (std::find(arguments.begin(), arguments.end(), "--install-windows-integration") != arguments.end()) {
+    if (!InstallLocalistCameras(ExeDirectory())) return EXIT_FAILURE;
+    if (!ConfigureLocalistLanAccess(ExeDirectory(), true)) return EXIT_FAILURE;
+    return MigrateLegacyLocalistStartup(JoinPath(ExeDirectory(), L"Localist.exe")) ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
   if (std::find(arguments.begin(), arguments.end(), "--repair-elevated-startup") != arguments.end()) {
     return MigrateLegacyLocalistStartup(JoinPath(ExeDirectory(), L"Localist.exe")) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
@@ -339,7 +359,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     bool camera = true;
     for (int slot = 0; slot < 4; ++slot)
       camera = ConfigureLocalistCamera(ExeDirectory(), false, slot) && camera;
-    return task && camera ? EXIT_SUCCESS : EXIT_FAILURE;
+    const bool firewall = ConfigureLocalistLanAccess(ExeDirectory(), false);
+    return task && camera && firewall ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   bool startup = false;
   for (const auto& argument : arguments) {

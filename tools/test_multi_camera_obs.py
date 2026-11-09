@@ -72,15 +72,17 @@ def main():
     started = False
     producer = None
     report = {}
+    external = os.environ.get('LOCALIST_CAPTURE_EXTERNAL') == '1'
     try:
-        for slot in range(4):
-            dll = probe.parent / ('LocalistCamera64' + (f'-{slot+1}' if slot else '') + '.dll')
-            subprocess.run([str(probe),f'--register{slot+1}',str(dll)],check=True,**hidden)
-            registered.append((slot,dll))
-        subprocess.run([str(probe),'--controls-four',str(config/'controls.json')],check=True,**hidden)
-        report['nativeConfigureVideo'] = json.loads((config/'controls.json').read_text())
-        producer = subprocess.Popen([str(probe),'--produce-four',str(config/'producer.json')],**hidden)
-        time.sleep(.5)
+        if not external:
+            for slot in range(4):
+                dll = probe.parent / ('LocalistCamera64' + (f'-{slot+1}' if slot else '') + '.dll')
+                subprocess.run([str(probe),f'--register{slot+1}',str(dll)],check=True,**hidden)
+                registered.append((slot,dll))
+            subprocess.run([str(probe),'--controls-four',str(config/'controls.json')],check=True,**hidden)
+            report['nativeConfigureVideo'] = json.loads((config/'controls.json').read_text())
+            producer = subprocess.Popen([str(probe),'--produce-four',str(config/'producer.json')],**hidden)
+            time.sleep(.5)
         assert startup(b'en-US', str(config).encode(), None)
         started = True
         add_data(((OBS / 'data/libobs').as_posix() + '/').encode())
@@ -126,11 +128,15 @@ def main():
                                     f = frame.contents
                                     assert (f.width, f.height) == (width, height), (f.width, f.height)
                                     timestamps.add(f.timestamp)
-                                    if f.data[0]: luma = c.string_at(f.data[0], 1)[0]
+                                    if f.data[0]:
+                                        luma = c.string_at(f.data[0], 1)[0]
+                                        if external:
+                                            samples = c.string_at(f.data[0], f.linesize[0]*f.height)[::257]
+                                            assert max(samples)-min(samples)>20, 'OBS received blank placeholder video'
                                 finally: release_frame(source, frame)
                             time.sleep(.02)
                         assert len(timestamps) >= 8, (width, height, len(timestamps))
-                        assert abs(luma-[81,145,41,235][index])<20,luma
+                        if not external: assert abs(luma-[81,145,41,235][index])<20,luma
                         captures.append({'width': width, 'height': height, 'fps': fps, 'frames': len(timestamps), 'luma': luma})
                     finally:
                         hide_source(source)

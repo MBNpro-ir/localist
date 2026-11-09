@@ -48,7 +48,8 @@ Name: "fa"; MessagesFile: "{#SourcePath}Farsi.isl"
 Name: "desktopicon"; Description: "ساخت میان‌بر روی دسکتاپ"; GroupDescription: "میان‌برها:"
 
 [Files]
-Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "LocalistRemote.exe"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "LocalistRemote.exe,LocalistCamera*.dll"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\LocalistCamera*-{#Version}.{#BuildNumber}.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BundleDir}\LocalistRemote.exe"; DestDir: "{app}"; Attribs: hidden; Flags: ignoreversion
 Source: "{#SourcePath}Vazirmatn-OFL.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "{#UninstallShell}"; DestDir: "{app}"; DestName: "MBNUninstall.exe"; Flags: ignoreversion
@@ -58,9 +59,6 @@ Name: "{group}\{#DisplayName}"; Filename: "{app}\{#Executable}"; WorkingDir: "{a
 Name: "{autodesktop}\{#DisplayName}"; Filename: "{app}\{#Executable}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 #if Int(IsQa) == 0
-[Run]
-Filename: "{app}\{#Executable}"; Parameters: "--repair-elevated-startup"; Flags: runhidden waituntilterminated
-
 [UninstallRun]
 Filename: "{app}\{#Executable}"; Parameters: "--remove-windows-integration"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveLocalistIntegration"
 #endif
@@ -71,8 +69,16 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#Regis
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
-var Key: String;
+var Key: String; ResultCode: Integer;
 begin
+#if Int(IsQa) == 0
+  if CurStep = ssPostInstall then
+    if not Exec(ExpandConstant('{app}\{#Executable}'), '--install-windows-integration',
+       ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      RaiseException('ثبت وبکم‌های Localist اجرا نشد. نصب را دوباره انجام دهید.')
+    else if ResultCode <> 0 then
+      RaiseException('ثبت وبکم‌های Localist کامل نشد. دسترسی ادمین و برنامه‌های استفاده‌کننده از دوربین را بررسی کنید.');
+#endif
   if CurStep <> ssDone then Exit;
   Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1';
   RegWriteStringValue(HKCU, Key, 'MBNUninstallCore', ExpandConstant('{uninstallexe}'));

@@ -1,5 +1,38 @@
 # Release Notes
 
+## [7.2.1] — Windows webcam reception and Setup-only distribution
+
+- Fixed Windows Unified Plan reception: register incoming OnTrack streams before
+  native renderer lookup. Prevent audio-first binding and asynchronous detach
+  from leaving a reconnected video source blank while RTP still decodes.
+- Windows is distributed only as Setup. Setup registers all four x86/x64 virtual
+  webcams and an executable-scoped local-subnet firewall rule, including USB
+  networks classified as Public. The app updater verifies and runs this Setup
+  after restart confirmation. Removal cleans this installation's integration.
+- **Migration:** versions through 7.2.0 used a ZIP-only updater. Install this
+  Setup manually once; later updates use Setup automatically.
+- Removed camera sharing links, copy-link controls and browser/OBS URL
+  instructions. Localist discovers receivers automatically; OBS and desktop
+  programs select the installed Localist Camera device.
+- Camera orientation now uses the actual WebRTC frame metadata rather than
+  reconstructing raw camera sensor rotation. Locked landscape/portrait rotate
+  the image itself instead of letterboxing a portrait image into landscape.
+  Preview rebinding is serialized, including screen-off/resume transitions.
+- Support camera format enumeration when Android falls back to Camera1.
+  Optional encoder rate-control rejection no longer drops a negotiated peer.
+  Stalled viewer handshakes release their slots. Capture state and errors are
+  exported in logs with pairing credentials redacted.
+
+Validation: Flutter suite and clean analysis; device-side asymmetric-pixel
+rotation tests; real Android WebRTC to four Windows receivers, forced reconnect,
+RTP audio/video counters, four real DirectShow webcam consumers and libobs at
+four output formats; actual Setup install/update/repair/native-updater handoff,
+downgrade rejection and uninstall with user data retained.
+
+Android source hardware was the API 30 emulator; Windows receive ran on this
+workstation. The reported physical phone and Windows 10 PC were not available
+for direct acceptance. Independent virtual microphone endpoints are unchanged.
+
 ## [7.2.0] — Hardware capture settings, linked preview rotation and remote privileges
 
 - **Camera and microphone selection:** concrete available inputs are selected

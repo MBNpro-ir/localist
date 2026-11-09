@@ -36,6 +36,22 @@ class AppUpdateService {
   final HttpClient Function()? clientFactory;
 
   Future<String> prepareWindowsUpdate(File archive, AppVersion version) async {
+    if (archive.path.toLowerCase().endsWith('.exe')) {
+      if (p.basename(archive.path).toLowerCase() !=
+          'localist-windows-setup-x64-${version.displayName}.exe') {
+        throw const FormatException('Unexpected Windows Setup package.');
+      }
+      final input = await archive.open();
+      try {
+        final header = await input.read(2);
+        if (header.length != 2 || header[0] != 0x4d || header[1] != 0x5a) {
+          throw const FormatException('The Windows Setup package is invalid.');
+        }
+      } finally {
+        await input.close();
+      }
+      return archive.path;
+    }
     final marker = File('${archive.path}.ready.json');
     if (await marker.exists()) {
       try {
@@ -626,7 +642,7 @@ class AppRelease {
           .where(
             (asset) =>
                 asset.name.toLowerCase().endsWith('.apk') ||
-                asset.name.toLowerCase().endsWith('.zip'),
+                asset.name.toLowerCase().endsWith('.exe'),
           )
           .where((asset) => asset.downloadUrl.isNotEmpty)
           .toList(growable: false),
@@ -670,9 +686,7 @@ class AppRelease {
   UpdateAsset? pickWindowsAsset() {
     for (final asset in assets) {
       final name = asset.name.toLowerCase();
-      if (name.endsWith('.zip') &&
-          !name.contains('symbols') &&
-          (name.contains('windows-64bit') || name.contains('windows-x64'))) {
+      if (name == 'localist-windows-setup-x64-${version.displayName}.exe') {
         return asset;
       }
     }

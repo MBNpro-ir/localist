@@ -182,7 +182,7 @@ void main() {
           downloadUrl: 'https://example.com/android-64.apk',
         ),
         UpdateAsset(
-          name: 'localist-v3.7.1-windows-64bit.zip',
+          name: 'Localist-Windows-Setup-x64-3.7.1.exe',
           downloadUrl: 'https://example.com/windows.zip',
         ),
         UpdateAsset(
@@ -200,7 +200,10 @@ void main() {
       release.pickAndroidAsset(['arm64-v8a'])?.name,
       contains('android-arm64-v8a'),
     );
-    expect(release.pickWindowsAsset()?.name, contains('windows-64bit.zip'));
+    expect(
+      release.pickWindowsAsset()?.name,
+      equals('Localist-Windows-Setup-x64-3.7.1.exe'),
+    );
   });
 
   test('update asset picker normalizes Android ABI aliases', () {

@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
 project(runner LANGUAGES CXX)
+option(LOCALIST_CAPTURE_QA_RUNNER "Build a hidden isolated receive acceptance host" OFF)
+set(LOCALIST_EXECUTION_LEVEL "requireAdministrator")
+if(LOCALIST_CAPTURE_QA_RUNNER)
+  set(LOCALIST_EXECUTION_LEVEL "asInvoker")
+endif()
 
 configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/runner.exe.manifest.in"
@@ -35,12 +40,15 @@ apply_standard_settings(${BINARY_NAME})
 
 # The logon task starts the admin manifest without prompting at every sign-in.
 set_target_properties(${BINARY_NAME} PROPERTIES
-  VS_GLOBAL_UACExecutionLevel "RequireAdministrator"
+  VS_GLOBAL_UACExecutionLevel "${LOCALIST_EXECUTION_LEVEL}"
   VS_GLOBAL_UACUIAccess "false"
 )
 target_link_options(${BINARY_NAME} PRIVATE
-  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+  "/MANIFESTUAC:level='${LOCALIST_EXECUTION_LEVEL}' uiAccess='false'"
 )
+if(LOCALIST_CAPTURE_QA_RUNNER)
+  target_compile_definitions(${BINARY_NAME} PRIVATE LOCALIST_CAPTURE_QA_RUNNER=1 LOCALIST_CAMERA_TEST_IDENTITY=1)
+endif()
 
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")

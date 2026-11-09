@@ -223,24 +223,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows package verification failed.' }
           powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-WindowsSetup.ps1 -Output release
 
-      - name: Package Windows x64
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force release | Out-Null
-          $archive = "release\localist-v${env:APP_VERSION}-windows-64bit.zip"
-          if (Test-Path $archive) { Remove-Item -LiteralPath $archive -Force }
-          # ZipFile includes the hidden helper that Compress-Archive omits.
-          [System.IO.Compression.ZipFile]::CreateFromDirectory(
-            (Resolve-Path .\build\windows\x64\runner\Release).Path,
-            [System.IO.Path]::GetFullPath($archive),
-            [System.IO.Compression.CompressionLevel]::Optimal,
-            $false)
-
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
         with:
           name: localist-windows-x64
-          path: release/*
+          path: |
+            release/*-Windows-Setup-x64-*.exe
+            release/*-Windows-Setup-x64-*.exe.sha256
           if-no-files-found: error
           compression-level: 9
 

@@ -145,7 +145,7 @@ std::wstring SystemExecutable(const wchar_t* relative_path) {
 }
 
 bool RunAndWait(const std::wstring& executable, const std::wstring& arguments,
-                DWORD* exit_code) {
+                DWORD* exit_code, DWORD timeout = 120000) {
   std::wstring command_line = QuoteArgument(executable) + L" " + arguments;
   std::vector<wchar_t> buffer(command_line.begin(), command_line.end());
   buffer.push_back(L'\0');
@@ -158,7 +158,7 @@ bool RunAndWait(const std::wstring& executable, const std::wstring& arguments,
     return false;
   }
   CloseHandle(process_info.hThread);
-  const DWORD wait_result = WaitForSingleObject(process_info.hProcess, 120000);
+  const DWORD wait_result = WaitForSingleObject(process_info.hProcess, timeout);
   if (wait_result == WAIT_OBJECT_0) {
     GetExitCodeProcess(process_info.hProcess, exit_code);
   } else {
@@ -253,6 +253,23 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     return Fail(L"Localist did not close in time. Please close it and try the update again.");
   }
   CloseBundledRemoteProcesses(arguments.target);
+
+  // Setup owns the installation manifest, camera registration and shortcuts.
+  // It runs only after the user confirms restart and the app exits normally.
+  if (arguments.archive.size() > 4 &&
+      _wcsicmp(arguments.archive.substr(arguments.archive.size() - 4).c_str(), L".exe") == 0) {
+    DWORD result = 1;
+    const bool installed = RunAndWait(arguments.archive,
+        L"--silent-update --path " + QuoteArgument(arguments.target), &result, 600000) &&
+        (result == 0 || result == 3010);
+    if (!installed) {
+      LaunchUpdatedApplication(arguments.launch, L"");
+      return Fail(L"Windows Setup could not complete the update. Run the downloaded Setup to repair this installation.");
+    }
+    DeleteFileW(arguments.archive.c_str());
+    return LaunchUpdatedApplication(arguments.launch, arguments.version) ? 0 :
+        Fail(L"The update was installed, but Localist could not be restarted.");
+  }
 
   wchar_t temp_path[MAX_PATH];
   const DWORD temp_length = GetTempPathW(MAX_PATH, temp_path);

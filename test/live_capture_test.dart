@@ -13,6 +13,15 @@ class _ProxyOverrides extends HttpOverrides {
 }
 
 void main() {
+  test('capture diagnostic errors redact automatic pairing credentials', () {
+    final key = List.filled(43, 'x').join();
+    final message = redactCaptureError(
+      'ws://192.168.1.3:123/signal?key=$key http://192.168.1.3/#$key',
+    );
+    expect(message, isNot(contains(key)));
+    expect(message, contains('192.168.1.3'));
+  });
+
   test(
     'LAN signaling bypasses a proxy that rejects WebSocket upgrades with 501',
     () async {

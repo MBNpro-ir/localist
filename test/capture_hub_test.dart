@@ -49,15 +49,39 @@ class _Capture extends LiveCaptureService {
 
 class _Renderer extends RTCVideoRenderer {
   MediaStream? source;
+  int bindings = 0;
   @override
   Future<void> initialize() async {}
   @override
   set srcObject(MediaStream? value) {
+    bindings++;
     source = value;
   }
 
   @override
   MediaStream? get srcObject => source;
+  @override
+  Future<void> setSrcObject({MediaStream? stream, String? trackId}) async {
+    srcObject = stream;
+  }
+}
+
+class _MutableStream extends Fake implements MediaStream {
+  final videos = <MediaStreamTrack>[];
+  @override
+  List<MediaStreamTrack> getVideoTracks() => videos;
+}
+
+class _VideoTrack extends Fake implements MediaStreamTrack {
+  @override
+  String get id => 'late-video';
+}
+
+class _HeldCapture extends _Capture {
+  final released = Completer<void>();
+  @override
+  Future<void> setPlaybackMuted(bool mute) => released.future;
+  void changed() => notifyListeners();
 }
 
 class _SocketCapture extends _Capture {
@@ -119,6 +143,43 @@ void main() {
     await hub.tick();
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
+
+  test(
+    'a video track arriving during audio/output sync is rebound to the same stream',
+    () async {
+      final capture = _HeldCapture();
+      final stream = _MutableStream();
+      capture.remoteStream = stream;
+      final renderer = _Renderer();
+      final service = CaptureHubService(
+        discovery: _Discovery(),
+        receiverFactory: () => capture,
+        rendererFactory: () => renderer,
+        windows: false,
+      );
+      await service.start();
+      try {
+        service.observe(ad(99));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(renderer.source, isNull);
+        final initialBindings = renderer.bindings;
+        stream.videos.add(_VideoTrack());
+        capture.changed();
+        capture.released.complete();
+        await settle(service);
+        expect(renderer.source, same(stream));
+        expect(
+          renderer.bindings,
+          greaterThan(initialBindings),
+          reason: 'Video must bind after the initial audio-only stream',
+        );
+        expect(service.receivers.single.renderedVideoTrack, 'late-video');
+      } finally {
+        if (!capture.released.isCompleted) capture.released.complete();
+        await service.stop();
+      }
+    },
+  );
 
   for (final code in [404, 501]) {
     test(

@@ -5,7 +5,7 @@
     <security>
       <requestedPrivileges>
         <!-- Logon uses the elevated per-user Scheduled Task configured by the app. -->
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+        <requestedExecutionLevel level="@LOCALIST_EXECUTION_LEVEL@" uiAccess="false"/>
       </requestedPrivileges>
     </security>
   </trustInfo>

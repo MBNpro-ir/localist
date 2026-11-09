@@ -35,6 +35,8 @@ class _Preview extends RTCVideoRenderer {
   Future<void> initialize() async {}
   @override
   set srcObject(MediaStream? stream) {}
+  @override
+  Future<void> setSrcObject({MediaStream? stream, String? trackId}) async {}
 }
 
 void main() {

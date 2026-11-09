@@ -7,6 +7,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.MediaCodecList
 import org.webrtc.Camera2Enumerator
+import org.webrtc.Camera1Enumerator
 import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
@@ -24,7 +25,11 @@ object CaptureDeviceControls {
                 if (rear) CameraCharacteristics.LENS_FACING_BACK else CameraCharacteristics.LENS_FACING_FRONT
         } ?: ids.firstOrNull() ?: return mapOf("maxZoom" to 1.0, "torch" to false)
         val camera = manager.getCameraCharacteristics(id)
-        val modes = Camera2Enumerator(context).getSupportedFormats(id).orEmpty().map { format ->
+        val enumerator = if (Camera2Enumerator.isSupported(context)) Camera2Enumerator(context) else Camera1Enumerator(false)
+        val inputId = enumerator.deviceNames.firstOrNull { it == id || it == cameraId }
+            ?: enumerator.deviceNames.firstOrNull { it.startsWith("Camera $id,") }
+            ?: enumerator.deviceNames.firstOrNull { enumerator.isBackFacing(it) == rear }
+        val modes = inputId?.let { enumerator.getSupportedFormats(it) }.orEmpty().map { format ->
             mapOf("width" to format.width, "height" to format.height,
                 "minFps" to maxOf(1, format.framerate.min / 1000), "maxFps" to maxOf(1, format.framerate.max / 1000))
         }

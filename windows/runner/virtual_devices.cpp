@@ -21,11 +21,8 @@ std::wstring RegisteredPath(bool x64, int slot) {
   RegCloseKey(key);
   return status == ERROR_SUCCESS ? path : L"";
 }
-bool Register(const std::wstring& dll, bool x64, bool install) {
-  wchar_t windows[32768] = {};
-  if (!GetWindowsDirectoryW(windows, 32768)) return false;
-  const std::wstring executable = std::wstring(windows) + (x64 ? L"\\System32\\regsvr32.exe" : L"\\SysWOW64\\regsvr32.exe");
-  const std::wstring command = L"\"" + executable + L"\" /s " + (install ? L"" : L"/u ") + L"\"" + dll + L"\"";
+bool RunHidden(const std::wstring& executable, const std::wstring& parameters) {
+  const std::wstring command = L"\"" + executable + L"\" " + parameters;
   std::vector<wchar_t> arguments(command.begin(), command.end()); arguments.push_back(0);
   STARTUPINFOW startup{}; startup.cb = sizeof(startup);
   PROCESS_INFORMATION process{};
@@ -34,9 +31,30 @@ bool Register(const std::wstring& dll, bool x64, bool install) {
   const DWORD wait = WaitForSingleObject(process.hProcess, 30000);
   DWORD result = 1;
   if (wait == WAIT_OBJECT_0) GetExitCodeProcess(process.hProcess, &result);
+  else if (wait == WAIT_TIMEOUT) {
+    TerminateProcess(process.hProcess, 1);
+    WaitForSingleObject(process.hProcess, 5000);
+  }
   CloseHandle(process.hThread); CloseHandle(process.hProcess);
   return wait == WAIT_OBJECT_0 && result == 0;
 }
+bool Register(const std::wstring& dll, bool x64, bool install) {
+  wchar_t windows[32768] = {};
+  if (!GetWindowsDirectoryW(windows, 32768)) return false;
+  const std::wstring executable = std::wstring(windows) + (x64 ? L"\\System32\\regsvr32.exe" : L"\\SysWOW64\\regsvr32.exe");
+  return RunHidden(executable, L"/s " + std::wstring(install ? L"" : L"/u ") + L"\"" + dll + L"\"");
+}
+}
+bool ConfigureLocalistLanAccess(const std::wstring& directory, bool install) {
+  wchar_t windows[32768] = {};
+  if (!GetWindowsDirectoryW(windows, 32768)) return false;
+  const auto executable = std::wstring(windows) + L"\\System32\\netsh.exe";
+  const auto selector = L" name=\"Localist LAN\" program=\"" + directory + L"\\Localist.exe\"";
+  // Scope the rule to this executable and local subnets, also on USB networks
+  // Windows classifies as Public. Never disable or reconfigure the firewall.
+  RunHidden(executable, L"advfirewall firewall delete rule" + selector);
+  return !install || RunHidden(executable, L"advfirewall firewall add rule" + selector +
+      L" dir=in action=allow enable=yes profile=any protocol=any remoteip=localsubnet");
 }
 std::wstring LocalistCameraFileName(bool x64, int slot) {
   return std::wstring(x64 ? L"LocalistCamera64" : L"LocalistCamera32") + (slot > 0 ? L"-" + std::to_wstring(slot + 1) : L"") + L"-" + LOCALIST_CAMERA_VERSION + L".dll";
@@ -62,6 +80,26 @@ bool ConfigureLocalistCamera(const std::wstring& directory, bool install, int sl
     if (!Register(dll, x64, install)) success = false;
   }
   return success && (!install || IsLocalistCameraInstalled(directory, slot));
+}
+
+bool InstallLocalistCameras(const std::wstring& directory) {
+  std::vector<std::wstring> previous;
+  for (int slot = 0; slot < 4; ++slot)
+    for (bool x64 : {true, false}) previous.push_back(RegisteredPath(x64, slot));
+  for (int slot = 0; slot < 4; ++slot) {
+    if (ConfigureLocalistCamera(directory, true, slot)) continue;
+    // Roll back only our camera identities if registration is incomplete.
+    for (int restore = 0; restore < 4; ++restore) {
+      ConfigureLocalistCamera(directory, false, restore);
+      for (int arch = 0; arch < 2; ++arch) {
+        const auto& path = previous[restore * 2 + arch];
+        if (!path.empty() && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES)
+          Register(path, arch == 0, true);
+      }
+    }
+    return false;
+  }
+  return true;
 }
 
 bool LaunchSignedMicrophoneInstaller(const std::wstring& path) {

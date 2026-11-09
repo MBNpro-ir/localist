@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/live_capture_service.dart';
@@ -42,6 +41,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   List<MediaDeviceInfo> _inputs = [];
   String? _cameraId, _microphoneId;
   bool _operationRunning = false, _previewSuspended = false;
+  Future<void>? _previewBinding;
+  bool _previewDirty = false, _previewDisposed = false;
+  String? _previewTrack;
   double? _zoomDraft;
   bool _rendererReady = false, _camera = true, _microphone = true;
   bool _echo = true, _noise = true, _gain = true, _mirror = false;
@@ -61,13 +63,32 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   }
 
   void _changed() {
-    if (_rendererReady) {
-      final stream = _android && _previewSuspended && _service.broadcasting
-          ? null
-          : _service.localStream ?? _service.remoteStream;
-      if (_renderer.srcObject != stream) _renderer.srcObject = stream;
+    if (_rendererReady && !_previewDisposed) {
+      _previewDirty = true;
+      _previewBinding ??= _bindPreview().whenComplete(
+        () => _previewBinding = null,
+      );
     }
     if (mounted) setState(() {});
+  }
+
+  Future<void> _bindPreview() async {
+    try {
+      do {
+        _previewDirty = false;
+        final stream = _android && _previewSuspended && _service.broadcasting
+            ? null
+            : _service.localStream ?? _service.remoteStream;
+        final track = stream?.getVideoTracks().firstOrNull?.id;
+        final source = track == null ? null : stream;
+        if (_renderer.srcObject != source || _previewTrack != track) {
+          await _renderer.setSrcObject(stream: source, trackId: track);
+          _previewTrack = track;
+        }
+      } while (_previewDirty && !_previewDisposed);
+    } catch (error) {
+      if (mounted && !_previewDisposed) setState(() => _notice = '$error');
+    }
   }
 
   @override
@@ -300,6 +321,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
 
   @override
   void dispose() {
+    _previewDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _service.removeListener(_changed);
     if (widget.service != null) _service.dispose();
@@ -307,18 +329,12 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     _virtual.stopCamera();
     unawaited(_virtual.stopMicrophone().catchError((Object _) {}));
     _scroll.dispose();
-    unawaited(_renderer.dispose());
+    unawaited(
+      (_previewBinding ?? Future<void>.value()).then(
+        (_) => _renderer.dispose(),
+      ),
+    );
     super.dispose();
-  }
-
-  Future<void> _copy(String link) async {
-    await Clipboard.setData(ClipboardData(text: link));
-    if (mounted) {
-      showLocalistNotice(
-        context,
-        message: t('لینک اتصال کپی شد', 'Connection link copied'),
-      );
-    }
   }
 
   String get _statusLabel => switch (_service.status) {
@@ -887,45 +903,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                     : (value) => _run(() => _service.setTorch(value)),
               ),
           ],
-          Text(
-            t(
-              'انتقال در پس‌زمینه ادامه دارد. اگر صفحه خودکار قفل نشد، دکمهٔ پاور گوشی را بزنید. برای مصرف کمتر، پیش از شروع پروفایل کم‌مصرف را انتخاب کنید. محدودیت باتری سازنده هم باید اجازهٔ فعالیت پس‌زمینه بدهد.',
-              'Sharing continues in the background. If the screen does not lock automatically, press the phone power button. Choose the battery saver profile before starting; allow background activity in the device battery settings.',
-            ),
-          ),
-          TextButton(
-            onPressed: () => FeaturePermissionService.instance.ensure(
-              [FeatureAccess.battery],
-              reason: t(
-                'برای انتقال پیوسته با صفحهٔ خاموش، محدودیت فعالیت پس‌زمینه را بررسی کنید.',
-                'Check background battery restrictions for uninterrupted screen-off sharing.',
-              ),
-            ),
-            child: Text(
-              t(
-                'بررسی دسترسی پس‌زمینه و باتری',
-                'Check background battery access',
-              ),
-            ),
-          ),
         ],
-        for (final link in _service.links)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: SelectableText(link, textDirection: TextDirection.ltr),
-            trailing: IconButton(
-              tooltip: t('کپی لینک', 'Copy link'),
-              onPressed: () => _copy(link),
-              icon: const Icon(Icons.copy),
-            ),
-          ),
-        if (_service.broadcasting)
-          Text(
-            t(
-              'لینک، کلید دسترسی دارد؛ فقط با شخص موردنظر به اشتراک بگذارید. با توقف، لینک باطل می‌شود. برای OBS گزینهٔ ?obs=1 را قبل از # اضافه کنید.',
-              'The link contains an access key. Share with intended viewers only; Stop revokes it. For OBS add ?obs=1 before #.',
-            ),
-          ),
       ],
     ),
   );
@@ -1018,8 +996,8 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           padding: const EdgeInsets.all(16),
           child: Text(
             t(
-              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای میکروفون، درایور را از همین صفحه نصب و CABLE Input را برای خروجی و CABLE Output را در برنامهٔ مقصد انتخاب کنید.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ کنترل تنظیمات فرستنده در دسترس است. دریافت مستقیم در Browser Source هم امکان دارد.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. انتقال در پس‌زمینه ادامه دارد؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
-              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For microphone input, install the driver from this page, choose CABLE Input for output and CABLE Output in the target app.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls the paired sender. Direct reception in a Browser Source is also available.\n4. Actual quality/FPS depend on hardware and network. Background sharing stays active with a silent notification and Stop action.',
+              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای میکروفون، درایور را از همین صفحه نصب و CABLE Input را برای خروجی و CABLE Output را در برنامهٔ مقصد انتخاب کنید.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ کنترل تنظیمات فرستنده در دسترس است.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. انتقال در پس‌زمینه ادامه دارد؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
+              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For microphone input, install the driver from this page, choose CABLE Input for output and CABLE Output in the target app.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls the paired sender.\n4. Actual quality/FPS depend on hardware and network. Background sharing stays active with a silent notification and Stop action.',
             ),
           ),
         ),

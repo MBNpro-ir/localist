@@ -26,8 +26,12 @@ manual launches still follow Windows UAC policy. Uninstall removes only this
 installation's task and virtual camera registration. The camera's x86/x64 DLLs
 carry a version in their names so other camera consumers cannot lock updates.
 
-The release pipeline retains the ZIP asset for the existing Windows updater and
-adds `*-Windows-Setup-x64-<version>.exe` plus its SHA-256 file for new installs.
+Windows releases contain only `*-Windows-Setup-x64-<version>.exe` plus its
+SHA-256 file. The app updater downloads and verifies this Setup, waits for the
+confirmed application exit, then invokes its maintenance mode in the existing
+installation directory. Setup registers all four x86/x64 virtual cameras before
+reporting success. Removal unregisters only this installation's cameras.
+Older ZIP-only updaters require one manual Setup upgrade to migrate.
 These executables are not Authenticode-signed unless a signing stage is supplied;
 the checksum verifies file integrity and does not establish a trusted publisher.
 

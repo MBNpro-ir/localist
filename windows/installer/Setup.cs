@@ -44,6 +44,7 @@ namespace MbnSetup {
             using (var mutex = new Mutex(true, "Local\\" + Config.AppId + (verification ? ".Verify" : ".Maintenance"), out created)) {
                 if (!created) { MessageBox.Show("یک پنجرهٔ نصب یا حذف دیگر باز است.", Config.Product); return 2; }
                 try {
+                    if (!Config.IsUninstaller && args.Contains("--silent-update")) return SilentUpdate(args);
                     var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
                     var shell = new SetupWindow(args);
                     if (Config.IsQa && args.Contains("--verify-ui")) return shell.VerifyUi() ? 0 : 3;
@@ -51,6 +52,7 @@ namespace MbnSetup {
                     if (Config.IsQa && Config.IsUninstaller && args.Contains("--verify-uninstall")) shell.Window.Loaded += async (s, e) => app.Shutdown(await shell.VerifyUninstall() ? 0 : 5);
                     return app.Run(shell.Window);
                 } catch (Exception error) {
+                    if (args.Contains("--silent-update")) return 1;
                     if (verification) {
                         File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "verification-error.txt"), error.ToString());
                         return 1;
@@ -58,6 +60,37 @@ namespace MbnSetup {
                     MessageBox.Show((Config.IsUninstaller ? "حذف‌کننده اجرا نشد.\n" : "ستاپ اجرا نشد. فایل را دوباره دریافت کن.\n") + error.Message, Config.Product);
                     return 1;
                 }
+            }
+        }
+
+        private static int SilentUpdate(string[] args) {
+            var index = Array.IndexOf(args, "--path");
+            if (index < 0 || index + 1 >= args.Length) return 6;
+            var destination = Path.GetFullPath(args[index + 1]);
+            if (!Path.IsPathRooted(args[index + 1]) || destination.Contains("\"")
+                || !File.Exists(Path.Combine(destination, Config.Executable))) return 6;
+            var temporary = Path.Combine(Path.GetTempPath(), "MBNSetup-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(temporary);
+            var core = Path.Combine(temporary, "install-core.exe");
+            var log = Path.Combine(temporary, "install.log");
+            try {
+                using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream("MBN.Payload"))
+                using (var output = File.Create(core)) input.CopyTo(output);
+                using (var sha = SHA256.Create()) using (var input = File.OpenRead(core)) {
+                    if (BitConverter.ToString(sha.ComputeHash(input)).Replace("-", "").ToLowerInvariant() != Config.PayloadHash)
+                        return 7;
+                }
+                var command = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR=\""
+                    + destination.TrimEnd('\\') + "\" /LOG=\"" + log + "\"";
+                using (var process = Process.Start(new ProcessStartInfo(core, command) { UseShellExecute = false, CreateNoWindow = true })) {
+                    process.WaitForExit();
+                    var result = process.ExitCode;
+                    if (result == 0 || result == 3010) File.Delete(log);
+                    return result;
+                }
+            } finally {
+                if (File.Exists(core)) File.Delete(core);
+                if (Directory.GetFileSystemEntries(temporary).Length == 0) Directory.Delete(temporary);
             }
         }
     }

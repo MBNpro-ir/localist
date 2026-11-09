@@ -9,6 +9,7 @@ bundle = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'build/windows/x64/r
 spec = (root/'pubspec.yaml').read_text(encoding='utf-8')
 version,build = re.search(r'^version:\s*(\d+\.\d+\.\d+)\+(\d+)',spec,re.M).groups()
 app,helper = bundle/'Localist.exe',bundle/'LocalistRemote.exe'
+assert 'LocalistCaptureReceiverQA'.encode('utf-16-le') not in app.read_bytes(), 'Never package an isolated capture QA host'
 assert hashlib.sha256(app.read_bytes()).digest() == hashlib.sha256(helper.read_bytes()).digest(), \
     'Localist.exe and LocalistRemote.exe must be byte-identical for authenticated native IPC'
 for arch in (32,64):

@@ -32,6 +32,8 @@ class _Preview extends RTCVideoRenderer {
   @override
   set srcObject(MediaStream? stream) {}
   @override
+  Future<void> setSrcObject({MediaStream? stream, String? trackId}) async {}
+  @override
   set muted(bool value) =>
       throw StateError('Preview must never mute the capture microphone');
 }

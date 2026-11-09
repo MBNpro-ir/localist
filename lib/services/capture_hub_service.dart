@@ -10,6 +10,7 @@ import 'feature_activity_service.dart';
 import 'live_capture_service.dart';
 import 'native_bridge_service.dart';
 import 'windows_virtual_devices_service.dart';
+import 'log_service.dart';
 
 class CaptureReceiver {
   CaptureReceiver(
@@ -35,6 +36,7 @@ class CaptureReceiver {
   String? attemptedLink;
   final Map<String, DateTime> failedRoutes = {};
   String error = '';
+  String? renderedVideoTrack;
   bool get online =>
       DateTime.now().difference(lastSeen) < const Duration(seconds: 12);
 }
@@ -344,6 +346,9 @@ class CaptureHubService extends ChangeNotifier {
               r.ready = true;
             }
             final link = r.advertisement.link;
+            LogService.instance.info(
+              'Camera receiver ${r.slot + 1}: connecting to ${r.advertisement.host}:${r.advertisement.port}',
+            );
             r.attemptedLink = link;
             await r.capture.connect(link);
             if (_stopped ||
@@ -374,12 +379,27 @@ class CaptureHubService extends ChangeNotifier {
   }
 
   final Set<CaptureReceiver> _syncing = {};
+  final Set<CaptureReceiver> _resync = {};
   Future<void> _syncOutput(CaptureReceiver receiver) async {
-    if (_stopped || !_syncing.add(receiver)) return;
+    if (_stopped) return;
+    if (!_syncing.add(receiver)) {
+      _resync.add(receiver);
+      return;
+    }
     try {
       final stream = receiver.capture.remoteStream;
-      if (receiver.ready && receiver.renderer.srcObject != stream) {
-        receiver.renderer.srcObject = stream;
+      final videoTrack = stream?.getVideoTracks().firstOrNull?.id;
+      final renderStream = videoTrack == null ? null : stream;
+      if (receiver.ready &&
+          (receiver.renderer.srcObject != renderStream ||
+              receiver.renderedVideoTrack != videoTrack)) {
+        // Await native detachment/rebinding. A late null-source completion can
+        // otherwise clear a new stream's dimensions after its first frame.
+        await receiver.renderer.setSrcObject(
+          stream: renderStream,
+          trackId: videoTrack,
+        );
+        receiver.renderedVideoTrack = videoTrack;
       }
       await receiver.capture.setPlaybackMuted(
         !receiver.audio || !receiver.enabled || !enabled,
@@ -396,15 +416,24 @@ class CaptureHubService extends ChangeNotifier {
             receiver.renderer.textureId != null) {
           await receiver.output.setCameraInstalled(true);
           receiver.output.startCamera(receiver.renderer.textureId!);
+          LogService.instance.info(
+            'Camera receiver ${receiver.slot + 1}: virtual webcam output started',
+          );
         } else if (!show && receiver.output.cameraEnabled) {
           receiver.output.stopCamera();
         }
       }
     } catch (e) {
       receiver.error = '$e';
+      LogService.instance.warning(
+        'Camera receiver ${receiver.slot + 1} output: ${redactCaptureError('$e')}',
+      );
     } finally {
       _syncing.remove(receiver);
       _changed();
+      if (_resync.remove(receiver) && !_stopped) {
+        unawaited(_syncOutput(receiver));
+      }
     }
   }
 

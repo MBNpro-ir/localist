@@ -9,6 +9,7 @@ import 'feature_activity_service.dart';
 import 'feature_permission_service.dart';
 import 'lan_network_service.dart';
 import 'capture_capabilities.dart';
+import 'log_service.dart';
 
 class LiveCaptureOptions {
   const LiveCaptureOptions({
@@ -330,7 +331,15 @@ class LiveCaptureService extends ChangeNotifier {
   bool hasTorch = false;
   String? activeCameraId;
   CaptureCapabilities capabilities = const CaptureCapabilities();
-  String error = '', status = '';
+  String _error = '', status = '', _lastLoggedState = '';
+  String get error => _error;
+  set error(String value) {
+    if (value.isNotEmpty && value != _error) {
+      LogService.instance.warning('Camera & Mic: ${redactCaptureError(value)}');
+    }
+    _error = value;
+  }
+
   Map<String, dynamic> _remoteControls = {};
   List<MediaDeviceInfo> _controlMicrophones = [];
   final Map<int, Completer<void>> _controlRequests = {};
@@ -358,6 +367,24 @@ class LiveCaptureService extends ChangeNotifier {
   bool get broadcasting => _server != null;
   bool get receiving => _receiver != null;
   bool get active => broadcasting || receiving;
+  Future<List<Map<String, dynamic>>> connectionDiagnostics() async => [
+    for (final peer in _peers.values.toList())
+      for (final report in await peer.getStats())
+        if (report.type == 'inbound-rtp')
+          {
+            'type': report.type,
+            for (final key in [
+              'kind',
+              'mediaType',
+              'bytesReceived',
+              'packetsReceived',
+              'framesDecoded',
+              'frameWidth',
+              'frameHeight',
+            ])
+              if (report.values[key] != null) key: report.values[key],
+          },
+  ];
   int get viewers => _peers.length;
   int get signalingPort => _server?.port ?? 0;
   String get signalingKey => _server?.token ?? '';
@@ -374,6 +401,12 @@ class LiveCaptureService extends ChangeNotifier {
   bool _disposed = false;
   void _changed() {
     if (!_disposed) {
+      final state =
+          'sending=$broadcasting receiving=$receiving status=$status viewers=$viewers';
+      if (state != _lastLoggedState) {
+        _lastLoggedState = state;
+        LogService.instance.info('Camera & Mic: $state');
+      }
       notifyListeners();
       if (broadcasting) {
         final message = jsonEncode({
@@ -474,6 +507,9 @@ class LiveCaptureService extends ChangeNotifier {
       await initializeMedia();
       if (Platform.isAndroid && value.background) {
         _captureChannel.setMethodCallHandler((call) async {
+          if (call.method == 'captureDiagnostics') {
+            LogService.instance.info('${call.arguments}');
+          }
           if (call.method == 'stopCapture') await stop();
           if (call.method == 'captureError') {
             error = '${call.arguments}';
@@ -572,6 +608,15 @@ class LiveCaptureService extends ChangeNotifier {
       _server?.clientHosts[socket] ?? '',
     );
     _peers[socket] = peer;
+    var mediaConnected = false;
+    final handshakeDeadline = Timer(const Duration(seconds: 20), () {
+      if (_peers[socket] == peer && !mediaConnected) {
+        LogService.instance.warning(
+          'Camera sender: media handshake timed out; releasing viewer slot.',
+        );
+        unawaited(socket.close(WebSocketStatus.goingAway));
+      }
+    });
     final candidates = <RTCIceCandidate>[];
     peer.onIceCandidate = (candidate) {
       if (socket.readyState == WebSocket.open &&
@@ -580,6 +625,11 @@ class LiveCaptureService extends ChangeNotifier {
       }
     };
     peer.onConnectionState = (state) {
+      if (_peers[socket] != peer) return;
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        mediaConnected = true;
+        handshakeDeadline.cancel();
+      }
       status = state.name
           .replaceFirst('RTCPeerConnectionState', '')
           .toLowerCase();
@@ -633,17 +683,25 @@ class LiveCaptureService extends ChangeNotifier {
                 }
               }
             })
-            .catchError((Object _) {
+            .catchError((Object e) {
+              LogService.instance.warning(
+                'Camera sender signaling: ${redactCaptureError('$e')}',
+              );
               unawaited(socket.close(WebSocketStatus.invalidFramePayloadData));
             });
       },
       onDone: () {
+        handshakeDeadline.cancel();
         _peers.remove(socket);
         if (_peers.isEmpty && broadcasting) status = 'waiting';
         unawaited(peer.close());
         _changed();
       },
-      onError: (Object _) {
+      onError: (Object e) {
+        handshakeDeadline.cancel();
+        LogService.instance.warning(
+          'Camera sender socket: ${redactCaptureError('$e')}',
+        );
         unawaited(socket.close());
       },
     );
@@ -654,17 +712,26 @@ class LiveCaptureService extends ChangeNotifier {
       final offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
       socket.add(jsonEncode({'type': 'offer', 'sdp': offer.sdp}));
-      for (final sender in await peer.getSenders()) {
-        if (sender.track?.kind != 'video') continue;
-        final parameters = sender.parameters;
-        for (final encoding in parameters.encodings ?? <RTCRtpEncoding>[]) {
-          encoding.maxBitrate = options.bitrateKbps * 1000;
-          encoding.maxFramerate = options.fps;
+      try {
+        for (final sender in await peer.getSenders()) {
+          if (sender.track?.kind != 'video') continue;
+          final parameters = sender.parameters;
+          for (final encoding in parameters.encodings ?? <RTCRtpEncoding>[]) {
+            encoding.maxBitrate = options.bitrateKbps * 1000;
+            encoding.maxFramerate = options.fps;
+          }
+          await sender.setParameters(parameters);
         }
-        await sender.setParameters(parameters);
+      } catch (e) {
+        // Some OEM encoders reject live rate controls. Keep negotiated media
+        // flowing at the encoder's supported rate instead of dropping the peer.
+        LogService.instance.warning(
+          'Camera rate control unavailable: ${redactCaptureError('$e')}',
+        );
       }
       _changed();
-    } catch (_) {
+    } catch (e) {
+      error = 'Camera sender negotiation: ${redactCaptureError('$e')}';
       await socket.close();
       rethrow;
     }
@@ -678,7 +745,7 @@ class LiveCaptureService extends ChangeNotifier {
         uri.host.isEmpty ||
         !RegExp(r'^[A-Za-z0-9_=-]{40,64}$').hasMatch(uri.fragment)) {
       throw const FormatException(
-        'لینک کامل اتصال را وارد کنید. / Enter the complete connection link.',
+        'اطلاعات دستگاه فرستنده معتبر نیست. / Invalid sender discovery information.',
       );
     }
     if (!FeatureActivityService.instance.reserve(
@@ -1275,6 +1342,10 @@ class LiveCaptureService extends ChangeNotifier {
     super.dispose();
   }
 }
+
+String redactCaptureError(String value) => value
+    .replaceAll(RegExp(r'#[A-Za-z0-9_=-]{32,}'), '#[REDACTED]')
+    .replaceAll(RegExp(r'key=[A-Za-z0-9_=-]{32,}'), 'key=[REDACTED]');
 
 bool captureCandidateAllowed(
   String? candidate,

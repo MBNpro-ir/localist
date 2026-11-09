@@ -77,6 +77,51 @@ void main() {
     await directory.delete(recursive: true);
   });
   test(
+    'Windows Setup is staged directly and rejects a mismatched or corrupt package',
+    () async {
+      final service = AppUpdateService();
+      final version = AppVersion.tryParse('7.2.1')!;
+      final setup = File(
+        '${directory.path}/Localist-Windows-Setup-x64-7.2.1.exe',
+      );
+      await setup.writeAsBytes([0x4d, 0x5a, 1, 2]);
+      expect(await service.prepareWindowsUpdate(setup, version), setup.path);
+      expect(directory.listSync().whereType<Directory>(), isEmpty);
+      await expectLater(
+        service.prepareWindowsUpdate(setup, AppVersion.tryParse('7.2.2')!),
+        throwsFormatException,
+      );
+      await setup.writeAsBytes([1, 2, 3, 4]);
+      await expectLater(
+        service.prepareWindowsUpdate(setup, version),
+        throwsFormatException,
+      );
+    },
+  );
+  test(
+    'Windows release parsing selects Setup and never a portable ZIP or unrelated EXE',
+    () {
+      final release = AppRelease.fromJson({
+        'tag_name': 'v7.2.1',
+        'assets': [
+          for (final name in [
+            'localist-v7.2.1-windows-64bit.zip',
+            'malware.exe',
+            'Localist-Windows-Setup-x64-7.2.0.exe',
+            'Localist-Windows-Setup-x64-7.2.1.exe',
+            'Localist-Windows-Setup-x64-7.2.1.exe.sha256',
+          ])
+            {'name': name, 'browser_download_url': 'https://example.com/$name'},
+        ],
+      });
+      expect(
+        release.pickWindowsAsset()?.name,
+        'Localist-Windows-Setup-x64-7.2.1.exe',
+      );
+      expect(release.assets.any((a) => a.name.endsWith('.zip')), false);
+    },
+  );
+  test(
     'startup and settings share a single preparation; download is reused',
     () async {
       final backend = FakeUpdates(File('${directory.path}/update.zip'));

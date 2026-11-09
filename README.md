@@ -59,7 +59,7 @@ Windows offers **Create fallback local network** using the hosted WLAN API. A Wi
 Download the latest package from [GitHub Releases](https://github.com/MBNpro-ir/localist/releases/latest).
 
 - Android: install the `armeabi-v7a` APK on 32-bit ARM devices or the `arm64-v8a` APK on 64-bit ARM devices. The release filenames use the exact Android ABI so the architecture is unambiguous.
-- Windows: extract the complete 64-bit ZIP before running `Localist.exe`. Keep all DLL, tool, and `LocalistUpdater.exe` files beside the executable. Windows updates download and apply automatically from Settings, then restart Localist.
+- Windows: install the x64 Setup. It registers all four x86/x64 Localist webcams and local-subnet firewall access. The updater downloads and verifies Setup and applies it after restart confirmation. Versions with the older ZIP-only updater need one manual Setup upgrade.
 - Put both devices on the same Wi-Fi, Ethernet, or hotspot network. Client isolation on guest Wi-Fi can prevent local discovery and connections.
 
 ### Share VPN or proxy access
@@ -220,7 +220,7 @@ Published assets include:
 
 - Android `armeabi-v7a` APK (32-bit ARM).
 - Android `arm64-v8a` APK (64-bit ARM).
-- Windows 64-bit ZIP.
+- Windows x64 Setup and its SHA-256 checksum. Portable ZIP distributions are no longer produced.
 
 Start a tag-based release:
 

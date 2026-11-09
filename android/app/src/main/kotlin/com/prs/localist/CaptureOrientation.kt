@@ -39,7 +39,16 @@ object CaptureOrientation {
         val sensor = characteristics?.get(CameraCharacteristics.SENSOR_ORIENTATION)
         @Suppress("DEPRECATION")
         val initial = (360 - context.getSystemService(WindowManager::class.java).defaultDisplay.rotation * 90) % 360
-        val transform = FrameRotation(mode, sensor, front, initial) { message ->
+        val displayPhysical = {
+            @Suppress("DEPRECATION")
+            (360 - context.getSystemService(WindowManager::class.java).defaultDisplay.rotation * 90) % 360
+        }
+        val transform = FrameRotation(mode, front, initial, displayPhysical, diagnostics = { detail ->
+            Handler(Looper.getMainLooper()).post {
+                if (track === local) CaptureForegroundService.channel?.invokeMethod("captureDiagnostics",
+                    "Camera orientation: id=$id sensor=$sensor front=$front $detail")
+            }
+        }) { message ->
             Handler(Looper.getMainLooper()).post {
                 if (track === local) CaptureForegroundService.channel?.invokeMethod("captureError", message)
             }
@@ -47,7 +56,7 @@ object CaptureOrientation {
         local.addProcessor(transform)
         track = local
         processor = transform
-        if (sensor != null) {
+        run {
             listener = object : OrientationEventListener(context.applicationContext, SensorManager.SENSOR_DELAY_NORMAL) {
                 override fun onOrientationChanged(orientation: Int) {
                     if (orientation != ORIENTATION_UNKNOWN) transform.update(orientation)
@@ -66,20 +75,27 @@ object CaptureOrientation {
 
     internal class FrameRotation(
         private val mode: String,
-        private val sensor: Int?,
         private val front: Boolean,
         initial: Int,
+        private val displayPhysical: () -> Int = { initial },
+        private val diagnostics: ((String) -> Unit)? = null,
         private val failure: ((String) -> Unit)? = null,
     ) : LocalVideoTrack.ExternalVideoFrameProcessing {
         @Volatile private var physical = initial
-        private var blackY = ByteArray(0)
-        private var blackUV = ByteArray(0)
+        @Volatile private var lockedPhysical = if (mode == "landscape") 270 else 0
+        private var awaitingPose = true
+        private var logged = false
         private var reported = false
 
         fun update(degrees: Int) {
             // Hysteresis prevents jitter at the portrait/landscape boundary.
             val distance = abs(degrees - physical).let { minOf(it, 360 - it) }
             if (distance >= 60) physical = ((degrees + 45) / 90 * 90) % 360
+            if (awaitingPose) {
+                val landscape = mode == "landscape"
+                if ((physical % 180 != 0) == landscape) lockedPhysical = physical
+                awaitingPose = false
+            }
         }
 
         override fun onFrame(frame: VideoFrame): VideoFrame = try {
@@ -100,52 +116,23 @@ object CaptureOrientation {
         }
 
         private fun process(frame: VideoFrame): VideoFrame {
-            val rotation = sensor?.let { (it + (if (front) -physical else physical) + 360) % 360 }
-                ?: frame.rotation
-            val rotated = rotatePixels(frame, rotation)
-            if (mode == "auto") return rotated
-            val wide = maxOf(frame.buffer.width, frame.buffer.height) and -2
-            val narrow = minOf(frame.buffer.width, frame.buffer.height) and -2
-            val width = if (mode == "landscape") wide else narrow
-            val height = if (mode == "landscape") narrow else wide
-            if (rotated.buffer.width == width && rotated.buffer.height == height) return rotated
-            try {
-            if (blackY.size != width * height) {
-                blackY = ByteArray(width * height) { 16 }
-                blackUV = ByteArray(width * height / 4) { 128.toByte() }
+            // The capturer's metadata is authoritative: Camera1, Camera2 and
+            // vendor texture transforms need not share raw sensor coordinates.
+            // Only compensate for the difference between screen and physical pose.
+            val target = if (mode == "auto") physical else lockedPhysical
+            val delta = target - displayPhysical()
+            var rotation = (frame.rotation + (if (front) -delta else delta) + 720) % 360
+            if (mode != "auto") {
+                val rotatedWide = if (rotation % 180 == 0)
+                    frame.buffer.width >= frame.buffer.height else frame.buffer.height >= frame.buffer.width
+                if (rotatedWide != (mode == "landscape")) rotation = (rotation + 90) % 360
             }
-            val fitted = fitPixels(rotated, width, height, blackY, blackUV)
-            if (rotated !== frame && fitted !== rotated) rotated.release()
-            return fitted
-            } catch (error: Throwable) {
-                if (rotated !== frame) rotated.release()
-                throw error
+            if (!logged) {
+                logged = true
+                diagnostics?.invoke("mode=$mode native=${frame.rotation} physical=$physical target=$target rotation=$rotation size=${frame.buffer.width}x${frame.buffer.height}")
             }
+            return rotatePixels(frame, rotation)
         }
-    }
-
-    /** Upright portrait content is letterboxed into a stable landscape canvas. */
-    internal fun fitPixels(frame: VideoFrame, width: Int, height: Int, blackY: ByteArray, blackUV: ByteArray): VideoFrame {
-        val scale = minOf(width.toDouble() / frame.buffer.width, height.toDouble() / frame.buffer.height)
-        val innerWidth = maxOf(2, (frame.buffer.width * scale).toInt() and -2)
-        val innerHeight = maxOf(2, (frame.buffer.height * scale).toInt() and -2)
-        val scaled = frame.buffer.cropAndScale(0, 0, frame.buffer.width, frame.buffer.height, innerWidth, innerHeight)
-        val input = scaled.toI420() ?: run { scaled.release(); return frame }
-        try {
-            val output = JavaI420Buffer.allocate(width, height)
-            try {
-                output.dataY.put(blackY); output.dataU.put(blackUV); output.dataV.put(blackUV)
-                val left = ((width - innerWidth) / 2) and -2
-                val top = ((height - innerHeight) / 2) and -2
-                val y = output.dataY; y.position(top * output.strideY + left)
-                val u = output.dataU; u.position(top / 2 * output.strideU + left / 2)
-                val v = output.dataV; v.position(top / 2 * output.strideV + left / 2)
-                YuvHelper.I420Copy(input.dataY, input.strideY, input.dataU, input.strideU,
-                    input.dataV, input.strideV, y.slice(), output.strideY, u.slice(), output.strideU,
-                    v.slice(), output.strideV, innerWidth, innerHeight)
-                return VideoFrame(output, 0, frame.timestampNs)
-            } catch (error: Throwable) { output.release(); throw error }
-        } finally { input.release(); scaled.release() }
     }
 
     /** Bake rotation into pixels for webcam/encoder consumers, without stretching. */
