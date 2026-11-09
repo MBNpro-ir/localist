@@ -107,6 +107,21 @@ namespace MbnSetup {
         private static string Persian(string text) {
             return string.Concat(text.Select(c => c >= '0' && c <= '9' ? (char)('۰' + c - '0') : c));
         }
+        private static int InstalledCableCount() {
+            var identities=new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            using(var root=Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Enum\ROOT")) {
+                if(root==null)return 0;
+                foreach(var name in root.GetSubKeyNames())using(var category=root.OpenSubKey(name)){
+                    if(category==null)continue;
+                    foreach(var instance in category.GetSubKeyNames())using(var device=category.OpenSubKey(instance)){
+                        var ids=device==null?null:device.GetValue("HardwareID") as string[];
+                        if(ids!=null)foreach(var id in ids)
+                            if(System.Text.RegularExpressions.Regex.IsMatch(id,@"^VBAudioVACWDM(?:_[ABCD])?$",System.Text.RegularExpressions.RegexOptions.IgnoreCase))identities.Add(id);
+                    }
+                }
+            }
+            return identities.Count;
+        }
 
         public SetupWindow(string[] args) {
             preview = Config.IsQa && args.Contains("--preview");
@@ -123,7 +138,7 @@ namespace MbnSetup {
             Window.Language = XmlLanguage.GetLanguage("fa-IR");
             var workArea = SystemParameters.WorkArea;
             Window.Width = workArea.Width > 0 ? Math.Min(900, Math.Max(320, workArea.Width - 24)) : 900;
-            Window.Height = workArea.Height > 0 ? Math.Min(610, Math.Max(380, workArea.Height - 24)) : 610;
+            Window.Height = workArea.Height > 0 ? Math.Min(720, Math.Max(380, workArea.Height - 24)) : 720;
             // Border.CornerRadius only paints the WPF border. Clip the native
             // HWND as well so its background and child content cannot fill the
             // corners on Windows 10 or 11, including after a DPI change.
@@ -151,11 +166,28 @@ namespace MbnSetup {
             }
             Get<Image>("Logo").Source = image;
             Get<TextBox>("InstallPath").Text = FindInstallation();
+            var devices=Path.Combine(Get<TextBox>("InstallPath").Text,"capture-devices.ini");
+            if(File.Exists(devices))foreach(var line in File.ReadAllLines(devices)){
+                var parts=line.Split('=');int value;
+                if(parts.Length!=2||!int.TryParse(parts[1],out value)||value<1||value>4)continue;
+                if(parts[0].Trim()=="Cameras")Get<ComboBox>("CameraCount").SelectedIndex=value-1;
+                if(parts[0].Trim()=="Microphones")Get<ComboBox>("MicrophoneCount").SelectedIndex=value-1;
+            }
             if (Config.IsQa) {
                 var at = Array.IndexOf(args, "--path");
                 if (at >= 0 && at + 1 < args.Length) Get<TextBox>("InstallPath").Text = args[at + 1];
             }
             Get<TextBox>("InstallPath").TextChanged += (s, e) => Detect();
+            Get<ComboBox>("MicrophoneCount").SelectionChanged += (s,e) => {
+                Get<StackPanel>("ExtraCables").Visibility = Get<ComboBox>("MicrophoneCount").SelectedIndex > 0 ? Visibility.Visible : Visibility.Collapsed;
+            };
+            Get<StackPanel>("ExtraCables").Visibility=Get<ComboBox>("MicrophoneCount").SelectedIndex>0?Visibility.Visible:Visibility.Collapsed;
+            Get<Button>("BrowseCables").Click += (s,e) => {
+                using(var dialog=new System.Windows.Forms.FolderBrowserDialog()) {
+                    dialog.Description="پوشهٔ بسته‌های اصلی و استخراج‌شدهٔ VB-CABLE A/B/C/D";
+                    if(dialog.ShowDialog()==System.Windows.Forms.DialogResult.OK)Get<TextBox>("CablePackages").Text=dialog.SelectedPath;
+                }
+            };
             Get<Button>("BrowseButton").Click += Browse;
             Get<Button>("PrimaryButton").Click += Primary;
             Get<Button>("CloseButton").Click += (s, e) => Window.Close();
@@ -191,8 +223,32 @@ namespace MbnSetup {
                     && NativeCorners.PtInRegion(region, (bounds.Right - bounds.Left) / 2, (bounds.Bottom - bounds.Top) / 2);
             } finally { NativeCorners.DeleteObject(region); }
             valid = valid && VerifyProgressLayout();
+            if(!Config.IsUninstaller){
+                var cameras=Get<ComboBox>("CameraCount");var microphones=Get<ComboBox>("MicrophoneCount");
+                valid=valid&&cameras.Items.Count==4&&microphones.Items.Count==4;
+                for(var i=0;i<4;i++){
+                    cameras.SelectedIndex=i;microphones.SelectedIndex=i;
+                    valid=valid&&(Get<StackPanel>("ExtraCables").Visibility==(i>0?Visibility.Visible:Visibility.Collapsed));
+                    valid=valid&&VerifyOptionsLayout();
+                }
+                cameras.SelectedIndex=0;microphones.SelectedIndex=0;
+            }
             CleanFont();
             return valid;
+        }
+
+        private bool VerifyOptionsLayout() {
+            var root = (FrameworkElement)Window.Content;
+            foreach (var size in new[] { new Size(900, 720), new Size(640, 480) }) {
+                root.Measure(size); root.Arrange(new Rect(size)); root.UpdateLayout();
+                var options = Get<StackPanel>("InstallOptions");
+                var primary = Get<Button>("PrimaryButton");
+                var optionBounds = options.TransformToAncestor(root).TransformBounds(new Rect(options.RenderSize));
+                var buttonBounds = primary.TransformToAncestor(root).TransformBounds(new Rect(primary.RenderSize));
+                if (optionBounds.Bottom > buttonBounds.Top || buttonBounds.Bottom > size.Height
+                    || optionBounds.Top < 0 || optionBounds.Right > size.Width) return false;
+            }
+            return true;
         }
 
         private bool VerifyProgressLayout() {
@@ -201,7 +257,7 @@ namespace MbnSetup {
             panel.Visibility = Visibility.Visible;
             var root = (FrameworkElement)Window.Content;
             bool valid = true;
-            foreach (var size in new[] { new Size(900, 610), new Size(640, 480) }) {
+            foreach (var size in new[] { new Size(900, 720), new Size(640, 480) }) {
                 foreach (var percent in new[] { 0.0, 7.0, 88.0, 100.0 }) {
                     Progress(percent);
                     root.Measure(size); root.Arrange(new Rect(size)); root.UpdateLayout();
@@ -252,7 +308,7 @@ namespace MbnSetup {
             var width = bounds.Right - bounds.Left;
             var height = bounds.Bottom - bounds.Top;
             if (width < 1 || height < 1) return;
-            var diameter = Math.Max(2, (int)Math.Round(36 * Math.Min(width / 900.0, height / 610.0)));
+            var diameter = Math.Max(2, (int)Math.Round(36 * Math.Min(width / 900.0, height / 720.0)));
             var region = NativeCorners.CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter);
             if (region != IntPtr.Zero && NativeCorners.SetWindowRgn(handle, region, true) == 0) NativeCorners.DeleteObject(region);
         }
@@ -283,6 +339,9 @@ namespace MbnSetup {
 
         private void Detect() {
             if (Config.IsUninstaller) {
+                Get<WrapPanel>("DeviceCounts").Visibility=Visibility.Collapsed;
+                Get<StackPanel>("ExtraCables").Visibility=Visibility.Collapsed;
+                Text("CableNotice").Visibility=Visibility.Collapsed;
                 Text("Eyebrow").Text = "تا دیدار بعدی";
                 Text("Headline").Text = "حذف " + Config.Product;
                 Text("Description").Text = "فایل‌های نصب و میان‌برهای این برنامه حذف می‌شوند. تنظیمات و فایل‌های شخصی‌ات محفوظ می‌مانند.";
@@ -299,7 +358,7 @@ namespace MbnSetup {
             state = installed != null && installed > incoming ? "newer" : "welcome";
             Text("Headline").Text = installed == null ? "شروع یک تجربهٔ تازه" : state == "newer" ? "یک قدم جلوتر هستی" : "نسخهٔ تازه، همان تنظیمات";
             Text("Description").Text = installed == null ? "چند لحظه تا اتصال دستگاه‌ها. مسیر نصب را انتخاب کنید." : state == "newer" ? "نسخهٔ نصب‌شده از این ستاپ جدیدتر است؛ آن را نگه می‌داریم." : "نصب قبلی پیدا شد. تنظیمات و فایل‌های دریافتی‌ات باقی می‌مانند.";
-            Text("Detection").Text = installed == null ? "نصب برای همین حساب ویندوز؛ بدون نیاز به مدیر سیستم" : "نسخهٔ فعلی: " + Persian(installed.ToString(3)) + "  ←  " + Persian(Config.Version);
+            Text("Detection").Text = installed == null ? "نصب وبکم و میکروفون با دسترسی مدیر سیستم؛ تعداد را انتخاب کنید." : "نسخهٔ فعلی: " + Persian(installed.ToString(3)) + "  ←  " + Persian(Config.Version);
             Get<Button>("PrimaryButton").Content = state == "newer" ? "بازکردن برنامه  ←" : installed == null ? "نصب برنامه  ←" : installed == incoming ? "ترمیم نصب  ←" : "بروزرسانی برنامه  ←";
         }
 
@@ -356,12 +415,17 @@ namespace MbnSetup {
 
         private async Task Install() {
             if (Config.IsUninstaller) { await Uninstall(); return; }
+            var wanted=Get<ComboBox>("MicrophoneCount").SelectedIndex+1;
+            var supplied=Get<TextBox>("CablePackages").Text.Trim();
+            if(!Config.IsQa&&!preview&&wanted>Math.Max(1,InstalledCableCount()) &&
+                (string.IsNullOrEmpty(supplied)||!Directory.Exists(supplied)))
+                throw new IOException("برای این تعداد میکروفون مستقل، پوشهٔ بسته‌های دارای مجوز و استخراج‌شدهٔ VB-CABLE A/B/C/D را انتخاب کنید یا تعداد میکروفون را کم کنید.");
             state = "installing";
             Text("ErrorLabel").Text = "";
             Get<StackPanel>("InstallOptions").Visibility = Visibility.Collapsed;
             Get<StackPanel>("ProgressPanel").Visibility = Visibility.Visible;
             Text("Headline").Text = "داریم آماده‌اش می‌کنیم";
-            Text("Description").Text = "همهٔ فایل‌های لازم همراه ستاپ است؛ این مرحله به اینترنت نیاز ندارد.";
+            Text("Description").Text = "وبکم‌ها و میکروفون‌ها طبق تعداد انتخابی نصب می‌شوند؛ کابل‌های اضافی از بسته‌های دارای مجوز شما نصب می‌شوند.";
             Get<Button>("PrimaryButton").IsEnabled = false;
             Get<Button>("PrimaryButton").Content = "در حال نصب…";
             Get<Button>("SecondaryButton").IsEnabled = false;
@@ -383,7 +447,10 @@ namespace MbnSetup {
             Progress(7);
             var destination = Destination();
             var tasks = Get<CheckBox>("DesktopShortcut").IsChecked == true ? "desktopicon" : "!desktopicon";
-            var command = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR=" + Quote(destination) + " /TASKS=" + tasks + " /MBNProgressFile=" + Quote(progressFile) + " /LOG=" + Quote(Path.Combine(temporary, "install.log"));
+            var command = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR=" + Quote(destination) + " /TASKS=" + tasks + " /MBNProgressFile=" + Quote(progressFile) + " /LOG=" + Quote(Path.Combine(temporary, "install.log"))
+                + " /CameraCount=" + (Get<ComboBox>("CameraCount").SelectedIndex+1)
+                + " /MicrophoneCount=" + (Get<ComboBox>("MicrophoneCount").SelectedIndex+1)
+                + " /CablePackages=" + Quote(Get<TextBox>("CablePackages").Text);
             installer = Process.Start(new ProcessStartInfo(core, command) { UseShellExecute = false, CreateNoWindow = true });
             timer.Start();
             await Task.Run(() => installer.WaitForExit());

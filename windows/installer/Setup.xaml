@@ -1,6 +1,6 @@
 ﻿<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
- Title="نصب برنامه" Width="900" Height="610" WindowStartupLocation="CenterScreen"
+ Title="نصب برنامه" Width="900" Height="720" WindowStartupLocation="CenterScreen"
  ResizeMode="NoResize" WindowStyle="None" Background="#0B0F1B" Foreground="#F4F5FC"
  FlowDirection="RightToLeft" TextOptions.TextFormattingMode="Display">
  <Window.Resources>
@@ -34,7 +34,7 @@
   </Style>
  </Window.Resources>
  <Viewbox Stretch="Uniform">
- <Border Width="900" Height="610" Background="#0B0F1B" BorderBrush="#303A4E" BorderThickness="1" CornerRadius="18" ClipToBounds="True">
+ <Border Width="900" Height="720" Background="#0B0F1B" BorderBrush="#303A4E" BorderThickness="1" CornerRadius="18" ClipToBounds="True">
  <Grid FlowDirection="LeftToRight">
   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="294"/></Grid.ColumnDefinitions>
   <Grid.RowDefinitions><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="34"/></Grid.RowDefinitions>
@@ -82,7 +82,16 @@
       <DockPanel FlowDirection="LeftToRight"><Button x:Name="BrowseButton" DockPanel.Dock="Right" Content="انتخاب" Padding="13,8" FontSize="12"/><TextBox x:Name="InstallPath" Background="Transparent" BorderThickness="0" Foreground="#E4E9F4" FontSize="12" VerticalContentAlignment="Center" Padding="10,3" FlowDirection="LeftToRight"/></DockPanel>
      </Border>
      <TextBlock x:Name="Detection" FontSize="12" Foreground="{DynamicResource Accent}" TextWrapping="Wrap" Margin="0,10,0,0"/>
-     <CheckBox x:Name="DesktopShortcut" Content="میان‌بر روی دسکتاپ ساخته شود" IsChecked="True" FontSize="12" Foreground="#D0D8E8" Margin="0,18,0,0" VerticalContentAlignment="Center"/>
+     <WrapPanel x:Name="DeviceCounts" Margin="0,12,0,0" VerticalAlignment="Center">
+      <TextBlock Text="تعداد وبکم" Margin="8,4"/><ComboBox x:Name="CameraCount" Width="64" SelectedIndex="0"><ComboBoxItem Content="۱"/><ComboBoxItem Content="۲"/><ComboBoxItem Content="۳"/><ComboBoxItem Content="۴"/></ComboBox>
+      <TextBlock Text="تعداد میکروفون مستقل" Margin="18,4,8,4"/><ComboBox x:Name="MicrophoneCount" Width="64" SelectedIndex="0"><ComboBoxItem Content="۱"/><ComboBoxItem Content="۲"/><ComboBoxItem Content="۳"/><ComboBoxItem Content="۴"/></ComboBox>
+     </WrapPanel>
+     <StackPanel x:Name="ExtraCables" Visibility="Collapsed" Margin="0,8,0,0">
+      <TextBlock Text="برای بیش از یک میکروفون، کابل‌های A/B/C/D باید نصب باشند یا پوشهٔ بسته‌های خریداری‌شده و استخراج‌شده را انتخاب کنید." TextWrapping="Wrap" FontSize="11" Foreground="#B2BDD1"/>
+      <DockPanel FlowDirection="LeftToRight"><Button x:Name="BrowseCables" Content="بسته‌های دارای مجوز" DockPanel.Dock="Right" Padding="8,5"/><TextBox x:Name="CablePackages" Foreground="#E4E9F4" Background="#131B2A" FontSize="11" VerticalContentAlignment="Center"/></DockPanel>
+     </StackPanel>
+     <TextBlock x:Name="CableNotice" Text="VB-CABLE محصول VB-Audio و Donationware است؛ حمایت از سازنده: vb-cable.com" TextWrapping="Wrap" FontSize="10" Foreground="#9FACC2" Margin="0,8,0,0"/>
+     <CheckBox x:Name="DesktopShortcut" Content="میان‌بر روی دسکتاپ ساخته شود" IsChecked="True" FontSize="12" Foreground="#D0D8E8" Margin="0,12,0,0" VerticalContentAlignment="Center"/>
     </StackPanel>
     <StackPanel x:Name="ProgressPanel" Grid.Row="1" Visibility="Collapsed" Margin="0,38,0,0">
      <Grid x:Name="ProgressHeader" FlowDirection="LeftToRight">

@@ -1,5 +1,10 @@
 # Dedicated Localist microphones — pending public signing
 
+Historical/experimental route: the current application instead uses the
+unmodified signed VB-CABLE driver through WASAPI, as described in
+`WINDOWS_VB_CABLE.md`. The dedicated unsigned WaveRT driver below is not installed
+by current Setup. Its signing limitations do not block VB-CABLE builds.
+
 This integration is preproduction. Four `Localist Microphone 1–4` capture
 endpoints are defined by the Localist WaveRT driver. Each received WebRTC audio
 track feeds the corresponding endpoint through a versioned PCM IOCTL; no virtual

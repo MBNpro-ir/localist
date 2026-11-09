@@ -98,6 +98,20 @@ class _MissingMicrophone extends WindowsVirtualDevicesService {
   }
 }
 
+class _MissingCamera extends WindowsVirtualDevicesService {
+  _MissingCamera(int slot) : super(slot: slot);
+  int audioBindings = 0;
+  @override
+  Future<void> setCameraInstalled(bool installed) async {
+    throw StateError('Camera count is lower than this slot');
+  }
+
+  @override
+  Future<void> setMicrophoneSource(MediaStream? stream) async {
+    audioBindings++;
+  }
+}
+
 class _VideoTrack extends Fake implements MediaStreamTrack {
   @override
   String get id => 'late-video';
@@ -236,6 +250,42 @@ void main() {
         expect(service.receivers.single.renderedVideoTrack, 'late-video');
       } finally {
         if (!capture.released.isCompleted) capture.released.complete();
+        await service.stop();
+      }
+    },
+  );
+
+  test(
+    'Setup camera count does not prevent an independent audio output',
+    () async {
+      final capture = _Capture()
+        ..remoteStream = (_MutableStream()..videos.add(_VideoTrack()));
+      final output = _MissingCamera(0);
+      final service = CaptureHubService(
+        discovery: _Discovery(),
+        receiverFactory: () => capture,
+        rendererFactory: _OutputRenderer.new,
+        outputFactory: (_) => output,
+        windows: true,
+      );
+      await service.start();
+      try {
+        service.observe(ad(97));
+        await settle(service);
+        expect(output.audioBindings, greaterThan(0));
+        final attempts = output.audioBindings;
+        await service.tick();
+        expect(
+          output.audioBindings,
+          greaterThan(attempts),
+          reason: 'A healthy RTC session must retry unavailable outputs',
+        );
+        expect(capture.receiving, isTrue);
+        expect(
+          service.receivers.single.outputError,
+          contains('Camera count is lower'),
+        );
+      } finally {
         await service.stop();
       }
     },
@@ -479,7 +529,11 @@ void main() {
     first.observe(ad(1));
     first.observe(ad(2));
     await settle(first);
-    await first.configure(first.receivers.first, audio: false);
+    await first.configure(
+      first.receivers.first,
+      audio: false,
+      audioEndpoint: 'saved-cable',
+    );
     await first.stop();
     final next = hub();
     await next.start();
@@ -489,6 +543,7 @@ void main() {
     await settle(next);
     expect(next.receivers.first.advertisement.id, ad(1).id);
     expect(next.receivers.first.audio, false);
+    expect(next.receivers.first.output.microphoneEndpoint, 'saved-cable');
     expect(next.receivers.last.advertisement.id, ad(2).id);
   });
   test('USB media candidates stay on the selected cable interface', () {

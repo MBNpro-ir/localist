@@ -2,6 +2,7 @@
 #include "../windows/virtual_audio/audio_protocol.h"
 #include "../windows/virtual_audio/pcm_ring.h"
 #include "../windows/virtual_audio/pcm_converter.h"
+#include "../windows/virtual_audio/cable_assignment.h"
 #include "virtual_audio_kernel_shim.h"
 #include <algorithm>
 #include <array>
@@ -55,6 +56,15 @@ void TestTransport() {
 }
 
 int main() {
+  const std::vector<std::string> cables={"base","a","b","c"};
+  std::vector<std::string> allocated;
+  for(int i=0;i<4;++i){const int index=SelectLocalistCable(cables,allocated,"");assert(index==i);allocated.push_back(cables[index]);}
+  assert(SelectLocalistCable(cables,allocated,"")==-1);
+  allocated.erase(allocated.begin()+1);
+  assert(SelectLocalistCable(cables,allocated,"")==1);
+  assert(SelectLocalistCable(cables,allocated,"base")==-1);
+  assert(SelectLocalistCable(cables,allocated,"missing")==-1);
+  assert(SelectLocalistCable(cables,allocated,"a")==1);
   TestTransport();
   LocalistAudioPacket packet{};
   packet.header = {LOCALIST_AUDIO_MAGIC, 1, 0, 480, 48000, 1, 16, 0};

@@ -1,0 +1,24 @@
+VB-CABLE Virtual Audio Device by VB-Audio Software / Vincent Burel.
+Official origin: https://www.vb-cable.com/ and https://vb-audio.com/Cable/
+VB-CABLE is donationware. Contributions and license purchases are welcome:
+https://vb-audio.com/Services/licensing.htm
+
+Localist forwards received Wi-Fi/USB network audio to the existing CABLE Input
+playback endpoint. Select CABLE Output as the microphone in the destination app.
+Each enabled sender reserves a separate, unused cable; Localist never combines
+senders into one microphone. The ordinary package provides one independent cable.
+Additional A/B/C/D cables require separately licensed vendor packages supplied by
+the user; those packages are not included here.
+
+The official base driver package is redistributed unchanged, including its
+original readme/license. Its SYS/INF/CAT are not renamed or modified. Current
+vendor distribution terms explicitly permit including the base VB-CABLE package
+and silent installation while preserving its origin and donationware model.
+Professional/organizational deployments must observe the vendor's paid licensing
+requirements. VB-CABLE A+B and C+D are not bundled.
+
+Localist does not uninstall the shared VB-CABLE driver when Localist is removed:
+other applications or the user may rely on it. Use the official VB-CABLE installer
+to remove the driver deliberately. No system default audio endpoint is changed.
+
+Copyright and all rights to VB-CABLE remain with its original author.

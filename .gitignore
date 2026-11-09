@@ -13,6 +13,7 @@
 migrate_working_dir/
 .runlogs/
 .research/
+/.ci-cache/build-tools/
 
 # IntelliJ related
 *.iml

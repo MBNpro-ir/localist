@@ -106,9 +106,12 @@ Future<void> main(List<String> args) async {
                   ),
             ),
           );
-          if (states.every(
-            (s) => (s?['frames'] as int? ?? 0) >= 48000 && s?['error'] == 0,
-          )) {
+          final working = states
+              .where(
+                (s) => (s?['frames'] as int? ?? 0) >= 48000 && s?['error'] == 0,
+              )
+              .length;
+          if (working == (session['expectedMicrophones'] as int? ?? 4)) {
             ok = true;
             break;
           }
@@ -122,6 +125,45 @@ Future<void> main(List<String> args) async {
         );
         await Future.wait(
           hub.receivers.map((r) => hub.configure(r, enabled: true)),
+        );
+      }
+    }
+    if (ok && session['expectedMicrophones'] == 1) {
+      final states = await Future.wait(
+        hub.receivers.map(
+          (r) => const MethodChannel('FlutterWebRTC.Method')
+              .invokeMapMethod<String, dynamic>(
+                'localistVirtualMicrophoneStatus',
+                {'slot': r.slot},
+              ),
+        ),
+      );
+      final active = states.indexWhere(
+        (s) => (s?['microphone'] as String? ?? '').isNotEmpty,
+      );
+      if (active < 0) throw StateError('No independent microphone owner');
+      await hub.configure(hub.receivers[active], audio: false);
+      ok = false;
+      final deadline = DateTime.now().add(const Duration(seconds: 15));
+      while (DateTime.now().isBefore(deadline)) {
+        for (final r in hub.receivers.where((r) => r.audio)) {
+          final state = await const MethodChannel('FlutterWebRTC.Method')
+              .invokeMapMethod<String, dynamic>(
+                'localistVirtualMicrophoneStatus',
+                {'slot': r.slot},
+              );
+          if ((state?['microphone'] as String? ?? '').isNotEmpty &&
+              (state?['frames'] as int? ?? 0) >= 48000 &&
+              state?['error'] == 0) {
+            ok = true;
+          }
+        }
+        if (ok) break;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      if (!ok) {
+        throw StateError(
+          'A waiting receiver did not acquire the released cable',
         );
       }
     }

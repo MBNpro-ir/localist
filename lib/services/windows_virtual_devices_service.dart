@@ -20,7 +20,16 @@ class WindowsVirtualDevicesService {
   _SetSlot? _setSlot;
   bool cameraEnabled = false;
   String? _microphoneTrack;
-  String get microphoneName => 'Localist Microphone ${slot + 1}';
+  String microphoneName = '';
+  String _microphoneEndpoint = '';
+  String get microphoneEndpoint => _microphoneEndpoint;
+  set microphoneEndpoint(String value) {
+    if (value == _microphoneEndpoint) return;
+    _microphoneEndpoint = value;
+    _microphoneFailure = null;
+    _microphoneRetry = DateTime(1970);
+  }
+
   DateTime _microphoneRetry = DateTime(1970);
   DateTime _microphoneCheck = DateTime(1970);
   String? _microphoneFailure;
@@ -72,15 +81,14 @@ class WindowsVirtualDevicesService {
       );
 
   Future<void> setCameraInstalled(bool installed) async {
-    if (!installed) stopCamera();
-    if (await _channel.invokeMethod<bool>('setWindowsVirtualCameraInstalled', {
-          'enabled': installed,
-          'slot': slot,
-        }) !=
-        true) {
+    if (!installed) {
+      stopCamera();
+      return;
+    }
+    if ((await cameraStatus())['installed'] != true) {
       throw StateError(
-        'ثبت وبکم مجازی انجام نشد. Localist را با دسترسی ادمین اجرا کنید. / '
-        'Virtual camera registration failed. Run Localist as administrator.',
+        'این وبکم با Setup نصب نشده است؛ برای افزایش تعداد وبکم‌ها Setup را اجرا کنید. / '
+        'This camera is not installed. Run Setup to change the camera count.',
       );
     }
   }
@@ -119,7 +127,9 @@ class WindowsVirtualDevicesService {
 
   Future<void> setMicrophoneSource(MediaStream? stream) async {
     final track = stream?.getAudioTracks().firstOrNull;
-    final identity = track == null ? null : '${stream!.ownerTag}/${track.id}';
+    final identity = track == null
+        ? null
+        : '${stream!.ownerTag}/${track.id}/$_microphoneEndpoint';
     if (identity == _microphoneTrack) {
       if (identity == null || DateTime.now().isBefore(_microphoneCheck)) return;
       _microphoneCheck = DateTime.now().add(const Duration(seconds: 2));
@@ -127,6 +137,7 @@ class WindowsVirtualDevicesService {
         'localistVirtualMicrophoneStatus',
         {'slot': slot},
       );
+      microphoneName = state?['microphone'] as String? ?? microphoneName;
       if (state?['error'] == 0) return;
       // Reopen a removed/restarted driver handle while retaining the RTC session.
       _microphoneTrack = null;
@@ -142,17 +153,27 @@ class WindowsVirtualDevicesService {
     try {
       final bound = await _media.invokeMethod<bool>(
         'localistVirtualMicrophone',
-        {'slot': slot, 'ownerTag': stream!.ownerTag, 'trackId': track!.id},
+        {
+          'slot': slot,
+          'ownerTag': stream!.ownerTag,
+          'trackId': track!.id,
+          if (_microphoneEndpoint.isNotEmpty) 'endpointId': _microphoneEndpoint,
+        },
       );
       if (bound != true) throw StateError('Native microphone binding failed.');
       _microphoneTrack = identity;
       _microphoneCheck = DateTime.now().add(const Duration(seconds: 2));
       _microphoneFailure = null;
+      final state = await _media.invokeMapMethod<String, dynamic>(
+        'localistVirtualMicrophoneStatus',
+        {'slot': slot},
+      );
+      microphoneName = state?['microphone'] as String? ?? '';
     } catch (error) {
       _microphoneTrack = null;
       _microphoneRetry = DateTime.now().add(const Duration(seconds: 5));
       _microphoneFailure =
-          'میکروفون اختصاصی Localist در دسترس نیست؛ درایور امضاشده را با Setup نصب یا ترمیم کنید. / $error';
+          'کابل مستقل خالی در دسترس نیست؛ Setup را برای نصب کابل‌های بیشتر اجرا کنید یا صدای یک گیرنده را خاموش کنید. / $error';
       rethrow;
     }
   }
@@ -160,6 +181,7 @@ class WindowsVirtualDevicesService {
   Future<void> stopMicrophone() async {
     final hadTrack = _microphoneTrack != null;
     _microphoneTrack = null;
+    microphoneName = '';
     if (hadTrack) {
       await _media.invokeMethod<bool>('localistVirtualMicrophone', {
         'slot': slot,

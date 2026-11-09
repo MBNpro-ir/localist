@@ -44,6 +44,9 @@ SetupLogging=yes
 [Languages]
 Name: "fa"; MessagesFile: "{#SourcePath}Farsi.isl"
 
+[Messages]
+WelcomeLabel2=این Setup وبکم‌های Localist و درایور صوتی VB-CABLE را نصب می‌کند.%n%nVB-CABLE محصول VB-Audio و Donationware است. برای حمایت از سازنده: www.vb-cable.com%n%nبرای استفادهٔ حرفه‌ای و سازمانی، شرایط مجوز VB-Audio را رعایت کنید.
+
 [Tasks]
 Name: "desktopicon"; Description: "ساخت میان‌بر روی دسکتاپ"; GroupDescription: "میان‌برها:"
 
@@ -79,7 +82,8 @@ var Key: String; ResultCode: Integer;
 begin
 #if Int(IsQa) == 0
   if CurStep = ssPostInstall then
-    if not Exec(ExpandConstant('{app}\{#Executable}'), '--install-windows-integration',
+    if not Exec(ExpandConstant('{app}\{#Executable}'),
+       '--install-windows-integration --camera-count={param:CameraCount|0} --microphone-count={param:MicrophoneCount|0} --cable-packages="{param:CablePackages|}"',
        ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       RaiseException('نصب وبکم و میکروفون‌های Localist اجرا نشد. نصب را دوباره انجام دهید.')
     else if ResultCode = 3010 then

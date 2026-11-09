@@ -28,6 +28,7 @@ add_executable(${BINARY_NAME} WIN32
   "elevated_startup.cpp"
   "virtual_devices.cpp"
   "virtual_audio_driver.cpp"
+  "../virtual_audio/cable_output.cpp"
   "capture_capabilities.cpp"
   "../virtual_camera/capture_controls_bus.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
@@ -70,6 +71,7 @@ target_link_libraries(${BINARY_NAME} PRIVATE "wlanapi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "taskschd.lib" "comsuppw.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "wintrust.lib" "bcrypt.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE setupapi newdev crypt32)
+target_link_libraries(${BINARY_NAME} PRIVATE avrt)
 target_link_libraries(${BINARY_NAME} PRIVATE strmiids oleaut32)
 target_link_libraries(${BINARY_NAME} PRIVATE "windowscodecs.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "comdlg32.lib" "wininet.lib" "mf.lib" "mfplat.lib" "mfuuid.lib")

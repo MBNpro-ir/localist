@@ -29,16 +29,19 @@ carry a version in their names so other camera consumers cannot lock updates.
 Windows releases contain only `*-Windows-Setup-x64-<version>.exe` plus its
 SHA-256 file. The app updater downloads and verifies this Setup, waits for the
 confirmed application exit, then invokes its maintenance mode in the existing
-installation directory. Setup registers all four x86/x64 virtual cameras before
-reporting success. Removal unregisters only this installation's cameras.
+installation directory. Setup registers the selected x86/x64 virtual cameras
+before reporting success. Removal unregisters only this installation's cameras.
 Older ZIP-only updaters require one manual Setup upgrade to migrate.
-The pending dedicated microphone integration requires the signed
-`drivers/LocalistAudio/{LocalistAudio.inf,LocalistAudio.sys,localistaudio.cat}`
-package. Production packaging runs `Verify-LocalistAudioPackage.ps1`, checks
-catalog membership and Microsoft kernel signing policy, and fails before creating
-Setup if verification fails. `-Qa` only bypasses this for isolated installer
-fixtures; QA Setup never installs system drivers. See
-`docs/LOCALIST_VIRTUAL_MICROPHONE.md` for the signing and acceptance requirements.
+Setup now asks for independent camera and microphone counts (1–4). It installs
+only the selected camera registrations and stores counts in capture-devices.ini;
+silent updates retain those values. Microphone output uses the official base
+VB-CABLE package, verified by `Verify-VbCablePackage.ps1` against pinned hashes
+and Microsoft kernel-policy catalog membership. A/B/C/D packages are not bundled:
+users selecting multiple microphones supply their licensed extracted packages,
+or use already installed independent cables. The app never installs devices.
+Shared VB-CABLE drivers remain installed when Localist is removed.
+`-Qa` only bypasses machine-wide integration for isolated installer fixtures.
+See `docs/WINDOWS_VB_CABLE.md` for routing, licensing and validation limits.
 These executables are not Authenticode-signed unless a signing stage is supplied;
 the checksum verifies file integrity and does not establish a trusted publisher.
 

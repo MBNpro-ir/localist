@@ -3,6 +3,7 @@
 #include "elevated_startup.h"
 #include "virtual_devices.h"
 #include "virtual_audio_driver.h"
+#include "../virtual_audio/cable_output.h"
 #include "capture_capabilities.h"
 #include "../virtual_camera/capture_controls.h"
 
@@ -902,11 +903,21 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
   }
 
   if (method == "getWindowsVirtualMicrophoneStatus") {
-    const auto state = GetLocalistMicrophoneStatus();
+    const auto outputs = LocalistConfiguredCableEndpoints();
+    const auto inputs = LocalistCableEndpoints(true);
+    EncodableList endpoints;
+    for(const auto& endpoint:outputs){
+      auto microphone=endpoint.name;const auto pos=microphone.find(L"Input");if(pos!=std::wstring::npos)microphone.replace(pos,5,L"Output");
+      endpoints.emplace_back(EncodableMap{
+        {EncodableValue("id"),EncodableValue(WideToUtf8(endpoint.id))},
+        {EncodableValue("name"),EncodableValue(WideToUtf8(microphone))}});
+    }
     result->Success(EncodableValue(EncodableMap{
-      {EncodableValue("installed"), EncodableValue(state.installed)},
-      {EncodableValue("available"), EncodableValue(state.available)},
-      {EncodableValue("error"), EncodableValue(static_cast<int32_t>(state.error))},
+      {EncodableValue("installed"), EncodableValue(!outputs.empty())},
+      {EncodableValue("available"), EncodableValue(!outputs.empty() && !inputs.empty())},
+      {EncodableValue("backend"), EncodableValue("vb-cable")},
+      {EncodableValue("endpoints"),EncodableValue(endpoints)},
+      {EncodableValue("microphone"), EncodableValue("CABLE Output (VB-Audio Virtual Cable)")},
     }));
     return;
   }
@@ -961,11 +972,6 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     PublishLocalistCaptureState(state, slot);
     char command[1024] = {};
     result->Success(EncodableValue(TakeLocalistCaptureCommand(command, sizeof(command), slot) ? command : ""));
-    return;
-  }
-  if (method == "setWindowsVirtualCameraInstalled") {
-    result->Success(EncodableValue(ConfigureLocalistCamera(ParentDirectory(GetModulePath()),
-        GetBoolArgument(call.arguments(), "enabled"), static_cast<int>(GetIntegerArgument(arguments, "slot")))));
     return;
   }
   if (method == "setWindowsLaunchAtStartup") {

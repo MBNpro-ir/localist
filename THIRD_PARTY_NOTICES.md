@@ -239,4 +239,15 @@ under MIT, including Microsoft SimpleAudioSample portions under MS-PL.
 The original notices are retained in `third_party/virtual_audio/upstream`.
 Both license texts and the pinned source manifest are in `third_party/virtual_audio`.
 Localist identities, four-slot PCM transport, validation and native WebRTC routing
-are maintained in `windows/virtual_audio`. No VB-CABLE binary is distributed.
+are maintained in `windows/virtual_audio`. This unsigned experimental driver is
+not installed by the current Setup.
+
+# VB-CABLE audio output
+
+Localist redistributes the unmodified official base VB-CABLE driver package by
+VB-Audio / Vincent Burel, including its original readme and license. VB-CABLE is
+donationware; contributions and license purchases are welcome at
+https://www.vb-cable.com/ and https://vb-audio.com/Services/licensing.htm.
+Professional/organizational deployments must observe the vendor's paid-license
+conditions. A/B/C/D packages are not redistributed; users may supply their own
+licensed originals in Setup. Hashes and attribution are in `third_party/vb_cable`.

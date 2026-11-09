@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <vector>
+#include <filesystem>
 
 namespace {
 std::wstring CameraKey(int slot) {
@@ -69,20 +70,27 @@ bool ConfigureLocalistCamera(const std::wstring& directory, bool install, int sl
   if (install && IsLocalistCameraInstalled(directory, slot)) return true;
   bool success = true;
   for (bool x64 : {true, false}) {
-    const auto dll = directory + L"\\" + LocalistCameraFileName(x64, slot);
+    auto dll = directory + L"\\" + LocalistCameraFileName(x64, slot);
     // An old portable copy must never uninstall the active copy's registration.
-    if (!install && _wcsicmp(RegisteredPath(x64, slot).c_str(), dll.c_str()) != 0) continue;
+    if (!install) {
+      const auto registered=RegisteredPath(x64,slot);
+      const std::filesystem::path path(registered);
+      const auto prefix=std::wstring(x64?L"LocalistCamera64":L"LocalistCamera32")+(slot>0?L"-"+std::to_wstring(slot+1):L"")+L"-";
+      if(_wcsicmp(path.parent_path().c_str(),directory.c_str())!=0 || path.filename().wstring().rfind(prefix,0)!=0)continue;
+      dll=registered;
+    }
     const DWORD attributes = GetFileAttributesW(dll.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) { success = false; continue; }
     if (!Register(dll, x64, install)) success = false;
   }
   return success && (!install || IsLocalistCameraInstalled(directory, slot));
 }
-bool InstallLocalistCameras(const std::wstring& directory) {
+bool InstallLocalistCameras(const std::wstring& directory, int count) {
+  if (count < 1 || count > 4) return false;
   std::vector<std::wstring> previous;
   for (int slot = 0; slot < 4; ++slot)
     for (bool x64 : {true, false}) previous.push_back(RegisteredPath(x64, slot));
-  for (int slot = 0; slot < 4; ++slot) {
+  for (int slot = 0; slot < count; ++slot) {
     if (ConfigureLocalistCamera(directory, true, slot)) continue;
     // Roll back only our camera identities if registration is incomplete.
     for (int restore = 0; restore < 4; ++restore) {
@@ -95,5 +103,7 @@ bool InstallLocalistCameras(const std::wstring& directory) {
     }
     return false;
   }
+  for (int slot = count; slot < 4; ++slot)
+    if (!ConfigureLocalistCamera(directory, false, slot)) return false;
   return true;
 }

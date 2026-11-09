@@ -4,7 +4,9 @@ const fs = require('node:fs'), path = require('node:path'), http = require('node
 const {spawn} = require('node:child_process');
 const {chromium} = require('../.runlogs/qa-node/node_modules/playwright');
 const {WebSocketServer, WebSocket} = require('../.runlogs/qa-node/node_modules/ws');
-const root = path.resolve(__dirname, '..'), qa = path.join(root, '.runlogs/localist-microphone');
+const root = path.resolve(__dirname, '..');
+const realCable = process.env.LOCALIST_AUDIO_REAL_CABLE === '1';
+const qa = path.join(root, '.runlogs/localist-microphone', ...(realCable?['vbcable']:[]));
 const delay = ms => new Promise(r => setTimeout(r, ms));
 const bundle = path.join(root, 'build/windows-capture-receiver-qa/runner/Release');
 
@@ -12,10 +14,17 @@ const bundle = path.join(root, 'build/windows-capture-receiver-qa/runner/Release
   const browser = await chromium.launch({executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true,
     args: ['--autoplay-policy=no-user-gesture-required', '--disable-features=WebRtcHideLocalIpsWithMdns']});
   const servers = [], signals = [], pipes = [], sockets = new Set(), samples = [[],[],[],[]], resets = [0,0,0,0];
-  let receiver;
+  let receiver, recorder;
   const ready = path.join(qa, 'windows-receive-ready.json'), stop = path.join(qa, 'receiver-consumed');
   fs.rmSync(ready, {force:true}); fs.rmSync(stop, {force:true});
   try {
+    if(realCable){
+      const endRecord=path.join(qa,'stop-recording');fs.rmSync(endRecord,{force:true});
+      recorder=spawn(path.join(root,'build/windows/x64/virtual_audio/Release/localist_vbcable_probe.exe'),
+        ['--record',path.join(qa,'microphone.f32'),endRecord],{windowsHide:true,stdio:['ignore','pipe','pipe']});
+      await new Promise((resolve,reject)=>{let log='';recorder.stdout.on('data',d=>{log+=d.toString();if(log.includes('CAPTURE_READY'))resolve();});
+        recorder.once('exit',code=>reject(Error('WASAPI consumer exited '+code+' '+log)));setTimeout(()=>reject(Error('WASAPI consumer startup timed out')),10000).unref();});
+    }
     const senders = [];
     for (let slot = 0; slot < 4; slot++) {
       const server = http.createServer((req,res) => res.end('<!doctype html><canvas width="320" height="240"></canvas>'));
@@ -52,9 +61,9 @@ const bundle = path.join(root, 'build/windows-capture-receiver-qa/runner/Release
       });
       senders.push({port:server.address().port,key:'a'.repeat(43)});
     }
-    fs.writeFileSync(path.join(qa,'sender-session.json'),JSON.stringify({senders,requireMicrophones:true}));
+    fs.writeFileSync(path.join(qa,'sender-session.json'),JSON.stringify({senders,requireMicrophones:true,expectedMicrophones:realCable?1:4}));
     receiver = spawn(path.join(bundle,'Localist.exe'),[qa],{cwd:bundle,windowsHide:true,stdio:'ignore'});
-    for (let slot=0;slot<4;slot++) {
+    for (let slot=0;slot<4 && !realCable;slot++) {
       const pipe = net.createServer(socket => {
         sockets.add(socket);let pending=Buffer.alloc(0);
         socket.on('close',()=>sockets.delete(socket));
@@ -78,6 +87,27 @@ const bundle = path.join(root, 'build/windows-capture-receiver-qa/runner/Release
     while(!fs.existsSync(ready)&&Date.now()<end){if(receiver.exitCode!==null)throw Error('Receiver exited '+receiver.exitCode);await delay(200);}
     const report=JSON.parse(fs.readFileSync(ready,'utf8'));
     if(!report.ok)throw Error(JSON.stringify(report));
+    if(realCable){
+      await delay(2500);fs.writeFileSync(path.join(qa,'stop-recording'),'done');
+      if(recorder.exitCode===null)await new Promise(r=>recorder.once('exit',r));
+      if(recorder.exitCode!==0)throw Error('WASAPI consumer failed '+recorder.exitCode);
+      const {rate}=JSON.parse(fs.readFileSync(path.join(qa,'microphone.f32.json'),'utf8'));
+      const raw=fs.readFileSync(path.join(qa,'microphone.f32'));const count=Math.min(rate*2,raw.length/4);
+      const data=Array.from({length:count},(_,i)=>raw.readFloatLE(raw.length-count*4+i*4));
+      const active=report.receivers.filter(r=>r.microphone.microphone&&r.microphone.frames>=48000&&r.microphone.error===0);
+      if(active.length!==1)throw Error('A single installed cable must belong to exactly one receiver: '+JSON.stringify(report.receivers));
+      const expected=220+active[0].slot*110;
+      const tones=[220,330,440,550].map(frequency=>{
+        let re=0,im=0;for(let i=0;i<count;i++){const phase=2*Math.PI*frequency*i/rate;re+=data[i]*Math.cos(phase);im+=data[i]*Math.sin(phase);}
+        const amplitude=2*Math.hypot(re,im)/count;
+        if(frequency===expected&&amplitude<0.025)throw Error('Missing independent microphone tone '+frequency+' amplitude='+amplitude);
+        if(frequency!==expected&&amplitude>0.015)throw Error('Another sender leaked into this microphone '+frequency+' amplitude='+amplitude);
+        return {frequency,amplitude};
+      });
+      fs.writeFileSync(path.join(qa,'wasapi-results.json'),JSON.stringify({ok:true,rate,tones,receivers:report.receivers},null,2));
+      console.log('FOUR_WEBRTC_SENDERS_SINGLE_CABLE_ISOLATION_OK',JSON.stringify(tones));
+      return;
+    }
     const tones=samples.map((pcm,slot)=>{
       if(pcm.length<48000)throw Error(`Insufficient native PCM in slot ${slot}: ${pcm.length}`);
       // Ignore codec startup/reconnect transients and measure a one-second window.
@@ -91,6 +121,7 @@ const bundle = path.join(root, 'build/windows-capture-receiver-qa/runner/Release
     fs.writeFileSync(path.join(qa,'runtime-results.json'),JSON.stringify({ok:true,tones,receivers:report.receivers},null,2));
     console.log('FOUR_WINDOWS_NATIVE_MICROPHONES_WEBRTC_QA_OK',JSON.stringify(tones));
   } finally {
+    if(recorder&&recorder.exitCode===null){fs.writeFileSync(path.join(qa,'stop-recording'),'done');await delay(250);if(recorder.exitCode===null)recorder.kill();}
     fs.writeFileSync(stop,'done');
     if(receiver){for(let i=0;i<100&&receiver.exitCode===null;i++)await delay(100);if(receiver.exitCode===null)receiver.kill();}
     for(const socket of sockets)socket.destroy();

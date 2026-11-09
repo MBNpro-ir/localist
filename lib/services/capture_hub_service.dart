@@ -239,6 +239,8 @@ class CaptureHubService extends ChangeNotifier {
         receiver.enabled = saved['enabled'] != false;
         receiver.video = saved['video'] != false;
         receiver.audio = saved['audio'] != false;
+        receiver.output.microphoneEndpoint =
+            saved['audioEndpoint'] as String? ?? '';
       } catch (_) {}
       _receivers[advertisement.id] = receiver;
       final target = receiver;
@@ -274,16 +276,21 @@ class CaptureHubService extends ChangeNotifier {
     bool? enabled,
     bool? video,
     bool? audio,
+    String? audioEndpoint,
   }) async {
     if (enabled != null) receiver.enabled = enabled;
     if (video != null) receiver.video = video;
     if (audio != null) receiver.audio = audio;
+    if (audioEndpoint != null) {
+      receiver.output.microphoneEndpoint = audioEndpoint;
+    }
     await _prefs?.setString(
       'capture.receiver.${receiver.advertisement.id}',
       jsonEncode({
         'enabled': receiver.enabled,
         'video': receiver.video,
         'audio': receiver.audio,
+        'audioEndpoint': receiver.output.microphoneEndpoint,
       }),
     );
     await tick();
@@ -329,8 +336,13 @@ class CaptureHubService extends ChangeNotifier {
             await _syncOutput(r);
             return;
           }
-          if (r.capture.active ||
-              r.capture.busy ||
+          if (r.capture.active) {
+            // Output failures (e.g. a cable occupied by another receiver) must
+            // retry even while signaling and video remain healthy.
+            await _syncOutput(r);
+            return;
+          }
+          if (r.capture.busy ||
               DateTime.now().isBefore(r.retryAt) ||
               !FeatureActivityService.instance.allows(
                 LocalistFeature.capture,
@@ -411,20 +423,30 @@ class CaptureHubService extends ChangeNotifier {
             enabled &&
             receiver.video &&
             stream?.getVideoTracks().isNotEmpty == true;
-        if (show &&
-            !receiver.output.cameraEnabled &&
-            receiver.renderer.textureId != null) {
-          await receiver.output.setCameraInstalled(true);
-          receiver.output.startCamera(receiver.renderer.textureId!);
-          LogService.instance.info(
-            'Camera receiver ${receiver.slot + 1}: virtual webcam output started',
-          );
-        } else if (!show && receiver.output.cameraEnabled) {
-          receiver.output.stopCamera();
+        final failures = <Object>[];
+        try {
+          if (show &&
+              !receiver.output.cameraEnabled &&
+              receiver.renderer.textureId != null) {
+            await receiver.output.setCameraInstalled(true);
+            receiver.output.startCamera(receiver.renderer.textureId!);
+            LogService.instance.info(
+              'Camera receiver ${receiver.slot + 1}: virtual webcam output started',
+            );
+          } else if (!show && receiver.output.cameraEnabled) {
+            receiver.output.stopCamera();
+          }
+        } catch (error) {
+          failures.add(error);
         }
-        await receiver.output.setMicrophoneSource(
-          receiver.enabled && enabled && receiver.audio ? stream : null,
-        );
+        try {
+          await receiver.output.setMicrophoneSource(
+            receiver.enabled && enabled && receiver.audio ? stream : null,
+          );
+        } catch (error) {
+          failures.add(error);
+        }
+        if (failures.isNotEmpty) throw StateError(failures.join(' / '));
       }
       receiver.outputError = '';
     } catch (e) {

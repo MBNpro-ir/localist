@@ -878,21 +878,35 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Text(
-              'Localist Camera $slot · Localist Microphone $slot',
+              'Localist Camera $slot',
               textDirection: TextDirection.ltr,
             ),
           ),
         const SizedBox(height: 12),
         Text(
-            _audioStatus['available'] == true
+          _audioStatus['available'] == true
               ? t(
-                  'میکروفون‌های اختصاصی آماده‌اند؛ در برنامهٔ مقصد میکروفون همان دستگاه را انتخاب کنید.',
-                  'Dedicated microphones are installed. Select the matching device microphone in your target app.',
+                  'صدا آماده است؛ در Discord، OBS یا مرورگر CABLE Output را به‌عنوان میکروفون انتخاب کنید.',
+                  'Audio is ready. Select CABLE Output as your microphone in Discord, OBS or your browser.',
                 )
               : t(
-                  'درایور میکروفون اختصاصی نصب نیست. نصب عمومی آن به بستهٔ امضاشدهٔ Localist Setup نیاز دارد.',
-                  'Dedicated microphone driver is not installed. It requires a signed Localist Setup package.',
+                  'VB-CABLE نصب یا فعال نیست. پس از نصب اولیه، ویندوز را ری‌استارت کنید.',
+                  'VB-CABLE is not installed or enabled. Restart Windows after its first installation.',
                 ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          t(
+            'هر دستگاه یک کابل مستقل می‌گیرد و صداها ترکیب نمی‌شوند. تعداد وبکم و میکروفون را در Setup انتخاب کنید؛ برای کابل‌های بیشتر بسته‌های دارای مجوز A/B/C/D لازم است.',
+            'Each device uses an independent cable; audio is never mixed. Choose device counts in Setup. Additional A/B/C/D cables require their licensed packages.',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          t(
+            'درایور صوتی VB-Audio · Donationware؛ حمایت از سازنده از vb-cable.com',
+            'Audio driver by VB-Audio · Donationware; support the author at vb-cable.com',
+          ),
         ),
         TextButton.icon(
           onPressed: _refreshVirtualDevices,
@@ -917,8 +931,8 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           padding: const EdgeInsets.all(16),
           child: Text(
             t(
-              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای صدا، Localist Microphone همان شماره را در برنامهٔ مقصد انتخاب کنید؛ نصب درایور امضاشده با Setup لازم است.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ کنترل تنظیمات فرستنده در دسترس است.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. انتقال در پس‌زمینه ادامه دارد؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
-              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For audio, select the matching Localist Microphone. Its signed driver is installed by Setup.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls the paired sender.\n4. Actual quality/FPS depend on hardware and network. Background sharing stays active with a silent notification and Stop action.',
+              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای صدا، CABLE Output را به‌عنوان میکروفون انتخاب کنید. هر دستگاه از کابل مستقل استفاده می‌کند؛ تعداد دستگاه‌ها و بسته‌های لازم در Setup انتخاب می‌شوند و پس از نصب اولیه ری‌استارت لازم است.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ کنترل تنظیمات فرستنده در دسترس است.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. انتقال در پس‌زمینه ادامه دارد؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
+              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For audio, select CABLE Output. Each sender uses an independent cable. Choose device counts and licensed packages in Setup; restart Windows after first installation.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls the paired sender.\n4. Actual quality/FPS depend on hardware and network. Background sharing stays active with a silent notification and Stop action.',
             ),
           ),
         ),

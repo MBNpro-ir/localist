@@ -347,11 +347,25 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   ::SetCurrentDirectoryW(ExeDirectory().c_str());
   const auto arguments = GetCommandLineArguments();
   if (std::find(arguments.begin(), arguments.end(), "--install-windows-integration") != arguments.end()) {
-    if (!InstallLocalistMicrophones(ExeDirectory())) return EXIT_FAILURE;
+    const auto configuration=JoinPath(ExeDirectory(),L"capture-devices.ini");
+    int cameras=GetPrivateProfileIntW(L"Devices",L"Cameras",1,configuration.c_str());
+    int microphones=GetPrivateProfileIntW(L"Devices",L"Microphones",1,configuration.c_str());
+    std::wstring packages;
+    for(const auto& argument:arguments){
+      if(argument.rfind("--camera-count=",0)==0){const int n=atoi(argument.c_str()+15);if(n)cameras=n;}
+      if(argument.rfind("--microphone-count=",0)==0){const int n=atoi(argument.c_str()+19);if(n)microphones=n;}
+      if(argument.rfind("--cable-packages=",0)==0){const auto p=argument.substr(17);
+        const int size=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,p.data(),static_cast<int>(p.size()),nullptr,0);
+        packages.resize(size);if(size)MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,p.data(),static_cast<int>(p.size()),packages.data(),size);}
+    }
+    if(cameras<1||cameras>4||microphones<1||microphones>4)return EXIT_FAILURE;
+    if (!InstallLocalistCableCount(ExeDirectory(),microphones,packages)) return EXIT_FAILURE;
     const bool microphoneReboot = GetLastError() == ERROR_SUCCESS_REBOOT_REQUIRED;
-    if (!InstallLocalistCameras(ExeDirectory())) return EXIT_FAILURE;
+    if (!InstallLocalistCameras(ExeDirectory(),cameras)) return EXIT_FAILURE;
     if (!ConfigureLocalistLanAccess(ExeDirectory(), true)) return EXIT_FAILURE;
     if (!MigrateLegacyLocalistStartup(JoinPath(ExeDirectory(), L"Localist.exe"))) return EXIT_FAILURE;
+    WritePrivateProfileStringW(L"Devices",L"Cameras",std::to_wstring(cameras).c_str(),configuration.c_str());
+    WritePrivateProfileStringW(L"Devices",L"Microphones",std::to_wstring(microphones).c_str(),configuration.c_str());
     return microphoneReboot ? ERROR_SUCCESS_REBOOT_REQUIRED : EXIT_SUCCESS;
   }
   if (std::find(arguments.begin(), arguments.end(), "--repair-elevated-startup") != arguments.end()) {

@@ -56,7 +56,7 @@ class CaptureReceiversPanel extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
-                '${peer.advertisement.model} · ${peer.online ? t(context, 'آنلاین', 'Online') : t(context, 'آفلاین', 'Offline')}\n${windows ? 'Localist Camera ${peer.slot + 1} · Localist Microphone ${peer.slot + 1}' : t(context, 'گیرنده', 'Receiver')}',
+                '${peer.advertisement.model} · ${peer.online ? t(context, 'آنلاین', 'Online') : t(context, 'آفلاین', 'Offline')}\n${windows ? 'Localist Camera ${peer.slot + 1} · ${peer.output.microphoneName.isEmpty ? t(context, 'در انتظار کابل مستقل', 'Waiting for an independent cable') : peer.output.microphoneName}' : t(context, 'گیرنده', 'Receiver')}',
                 maxLines: 3,
               ),
               trailing: Switch.adaptive(
@@ -186,6 +186,52 @@ class CaptureReceiversPanel extends StatelessWidget {
                         ),
                 ),
                 const SizedBox(height: 16),
+                if (windows)
+                  FutureBuilder<Map<String, dynamic>>(
+                    future: peer.output.microphoneStatus(),
+                    builder: (context, snapshot) {
+                      final endpoints =
+                          (snapshot.data?['endpoints'] as List? ?? [])
+                              .cast<Map>();
+                      final selected = peer.output.microphoneEndpoint;
+                      return DropdownButtonFormField<String>(
+                        key: ValueKey('audio-endpoint-$selected'),
+                        isExpanded: true,
+                        initialValue: endpoints.any((e) => e['id'] == selected)
+                            ? selected
+                            : '',
+                        decoration: InputDecoration(
+                          labelText: t(
+                            context,
+                            'میکروفون مستقل این دستگاه',
+                            'Independent microphone for this device',
+                          ),
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: '',
+                            child: Text(
+                              t(
+                                context,
+                                'انتخاب خودکار کابل خالی',
+                                'Automatically use an unused cable',
+                              ),
+                            ),
+                          ),
+                          for (final e in endpoints)
+                            DropdownMenuItem(
+                              value: e['id'] as String,
+                              child: Text(
+                                e['name'] as String,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) =>
+                            hub!.configure(peer, audioEndpoint: value ?? ''),
+                      );
+                    },
+                  ),
                 DropdownButtonFormField<String>(
                   key: ValueKey('receiver-mode-${selectedMode?.key}'),
                   isExpanded: true,
