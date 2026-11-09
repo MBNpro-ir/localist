@@ -8,6 +8,7 @@ android {
     namespace = "com.prs.localist"
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } }
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true

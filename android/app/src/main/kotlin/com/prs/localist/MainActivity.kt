@@ -44,6 +44,7 @@ import java.util.UUID
 class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     private val thumbnailExecutor = Executors.newFixedThreadPool(2)
     private var pendingVpnResult: MethodChannel.Result? = null
+    private var systemAudioResult: MethodChannel.Result? = null
     private var pendingLocalNetworkPermissionResult: MethodChannel.Result? = null
     private var pendingSaveFileResult: MethodChannel.Result? = null
     private var pendingSaveFileText: String = ""
@@ -98,9 +99,31 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        CaptureAudioEngine.register(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         CaptureForegroundService.channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "localist/capture").apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "hasBluetoothMicrophone" -> result.success(getSystemService(android.media.AudioManager::class.java)
+                        .getDevices(android.media.AudioManager.GET_DEVICES_INPUTS).any {
+                            it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                            (Build.VERSION.SDK_INT >= 31 && it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET) })
+                    "systemAudioStart" -> {
+                        if(Build.VERSION.SDK_INT<29)result.error("SYSTEM_AUDIO_UNSUPPORTED","System audio sharing requires Android 10 or later",null)
+                        else if(systemAudioResult!=null)result.error("SYSTEM_AUDIO_BUSY","A consent request is already active",null)
+                        else { systemAudioResult=result
+                            try { startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager::class.java).createScreenCaptureIntent(),41093) }
+                            catch(error: Exception){systemAudioResult=null;result.error("SYSTEM_AUDIO_CONSENT",error.message,null)} }
+                    }
+                    "systemAudioStop" -> { stopService(Intent(this@MainActivity,SystemAudioCaptureService::class.java));result.success(true) }
+                    "audioEffects" -> runCatching {
+                        CaptureAudioEngine.configureSource(call.arguments as? Map<*, *> ?: emptyMap<Any,Any>())
+                    }.onSuccess { result.success(true) }.onFailure { result.error("AUDIO_EFFECTS",it.message,null) }
+                    "audioOutputDevices" -> result.success(CaptureAudioEngine.devices(this@MainActivity))
+                    "audioOutputStatus" -> result.success(CaptureAudioEngine.status(call.argument<Int>("slot") ?: 0))
+                    "audioOutputBind" -> runCatching {
+                        CaptureAudioEngine.bind(this@MainActivity,call.arguments as? Map<*, *> ?: emptyMap<Any,Any>())
+                    }.onSuccess { result.success(it) }.onFailure { result.error("AUDIO_OUTPUT",it.message,null) }
+                    "audioOutputPcm" -> result.success(CaptureAudioEngine.pcm(call.argument<Int>("slot") ?: 0,call.argument<ByteArray>("data") ?: byteArrayOf()))
                     "orientation" -> runCatching {
                         CaptureOrientation.set(this@MainActivity, call.argument<String>("track"),
                             call.argument<String>("mode") ?: "auto", call.argument<String>("cameraId"),
@@ -231,6 +254,8 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     }
 
     override fun onDestroy() {
+        systemAudioResult?.error("SYSTEM_AUDIO_CANCELLED", "Audio capture activity closed", null)
+        systemAudioResult = null
         thumbnailExecutor.shutdownNow()
         lanDiscoveryRequested = false
         setQuickSendMulticastLock(false)
@@ -326,6 +351,14 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if(requestCode==41093){
+            val result=systemAudioResult;systemAudioResult=null
+            if(result!=null){
+                if(resultCode==Activity.RESULT_OK && data!=null && Build.VERSION.SDK_INT>=29)SystemAudioCaptureService.begin(this,data,result)
+                else result.error("SYSTEM_AUDIO_DENIED","System audio capture was cancelled",null)
+            }
+            return
+        }
         if (requestCode == VPN_REQUEST_CODE) {
             getSharedPreferences("localist-vpn-consent", MODE_PRIVATE).edit().putBoolean("granted", resultCode == Activity.RESULT_OK).apply()
             pendingVpnResult?.success(resultCode == Activity.RESULT_OK)

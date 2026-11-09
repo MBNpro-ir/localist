@@ -3,6 +3,8 @@
 #include "../windows/virtual_audio/pcm_ring.h"
 #include "../windows/virtual_audio/pcm_converter.h"
 #include "../windows/virtual_audio/cable_assignment.h"
+#include "../windows/virtual_audio/render_queue.h"
+#include "../windows/virtual_audio/pcm_packet.h"
 #include "virtual_audio_kernel_shim.h"
 #include <algorithm>
 #include <array>
@@ -56,6 +58,31 @@ void TestTransport() {
 }
 
 int main() {
+  LocalistRenderQueue render;
+  render.Configure(20,100,6);
+  std::array<int16_t,960> quiet{};quiet.fill(1000);
+  std::array<int16_t,480> queue_output{};
+  render.Push(quiet.data(),480);
+  assert(render.Pull(queue_output.data(),480)==0);
+  render.Push(quiet.data(),480);
+  assert(render.Pull(queue_output.data(),480)==480&&queue_output[0]>=1990&&queue_output[0]<=2000);
+  std::array<int16_t,4800> loud{};loud.fill(30000);
+  render.Push(loud.data(),loud.size());
+  assert(render.Dropped()==480&&render.Clipped()==4800);
+  for(int i=0;i<11;++i)render.Pull(queue_output.data(),480);
+  assert(render.Underruns()>0&&render.Buffered()==0);
+  for(const auto gain : {-30.0,40.0}) {
+    render.Configure(0,100,gain);
+    const int16_t input=100;
+    render.Push(&input,1);
+    assert(render.Pull(queue_output.data(),1)==1);
+    assert(queue_output[0]==(gain<0?3:10000));
+  }
+  LocalistNetworkPcmHeader header;
+  std::vector<uint8_t> valid(sizeof(header)+960*sizeof(int16_t));header.frames=960;
+  std::memcpy(valid.data(),&header,sizeof(header));
+  assert(ReadLocalistNetworkPcm(valid.data(),valid.size(),header));
+  valid[0]=0;assert(!ReadLocalistNetworkPcm(valid.data(),valid.size(),header));
   const std::vector<std::string> cables={"base","a","b","c"};
   std::vector<std::string> allocated;
   for(int i=0;i<4;++i){const int index=SelectLocalistCable(cables,allocated,"");assert(index==i);allocated.push_back(cables[index]);}

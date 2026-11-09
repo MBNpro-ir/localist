@@ -3,6 +3,8 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/capture_hub_service.dart';
 import '../services/capture_capabilities.dart';
 import 'glass.dart';
+import 'capture_audio_controls.dart';
+import '../services/capture_audio_settings.dart';
 
 class CaptureReceiversPanel extends StatelessWidget {
   const CaptureReceiversPanel({super.key, this.hub, required this.windows});
@@ -56,7 +58,7 @@ class CaptureReceiversPanel extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
-                '${peer.advertisement.model} · ${peer.online ? t(context, 'آنلاین', 'Online') : t(context, 'آفلاین', 'Offline')}\n${windows ? 'Localist Camera ${peer.slot + 1} · ${peer.output.microphoneName.isEmpty ? t(context, 'در انتظار کابل مستقل', 'Waiting for an independent cable') : peer.output.microphoneName}' : t(context, 'گیرنده', 'Receiver')}',
+                '${peer.advertisement.model} · ${peer.online ? t(context, 'آنلاین', 'Online') : t(context, 'آفلاین', 'Offline')}\n${windows ? [if (peer.advertisement.camera) 'Localist Camera ${peer.slot + 1}', if (peer.advertisement.microphone) peer.output.microphoneName.isEmpty ? t(context, 'در انتظار کابل مستقل', 'Waiting for an independent cable') : peer.output.microphoneName].join(' · ') : t(context, 'گیرنده', 'Receiver')}',
                 maxLines: 3,
               ),
               trailing: Switch.adaptive(
@@ -64,7 +66,8 @@ class CaptureReceiversPanel extends StatelessWidget {
                 onChanged: (value) => hub!.configure(peer, enabled: value),
               ),
               children: [
-                if (peer.ready &&
+                if (peer.advertisement.camera &&
+                    peer.ready &&
                     peer.video &&
                     peer.capture.remoteStream?.getVideoTracks().isNotEmpty ==
                         true)
@@ -82,26 +85,28 @@ class CaptureReceiversPanel extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      IconButton.filledTonal(
-                        tooltip: t(context, 'قطع/وصل تصویر', 'Toggle video'),
-                        isSelected: peer.video,
-                        icon: const Icon(Icons.videocam_off_outlined),
-                        selectedIcon: const Icon(Icons.videocam_outlined),
-                        onPressed: () =>
-                            hub!.configure(peer, video: !peer.video),
-                      ),
-                      IconButton.filledTonal(
-                        tooltip: t(
-                          context,
-                          'قطع/وصل صدای این دستگاه',
-                          'Toggle this device audio',
+                      if (peer.advertisement.camera)
+                        IconButton.filledTonal(
+                          tooltip: t(context, 'قطع/وصل تصویر', 'Toggle video'),
+                          isSelected: peer.video,
+                          icon: const Icon(Icons.videocam_off_outlined),
+                          selectedIcon: const Icon(Icons.videocam_outlined),
+                          onPressed: () =>
+                              hub!.configure(peer, video: !peer.video),
                         ),
-                        isSelected: peer.audio,
-                        icon: const Icon(Icons.volume_off_outlined),
-                        selectedIcon: const Icon(Icons.volume_up_outlined),
-                        onPressed: () =>
-                            hub!.configure(peer, audio: !peer.audio),
-                      ),
+                      if (peer.advertisement.microphone)
+                        IconButton.filledTonal(
+                          tooltip: t(
+                            context,
+                            'قطع/وصل صدای این دستگاه',
+                            'Toggle this device audio',
+                          ),
+                          isSelected: peer.audio,
+                          icon: const Icon(Icons.mic_off_outlined),
+                          selectedIcon: const Icon(Icons.mic_outlined),
+                          onPressed: () =>
+                              hub!.configure(peer, audio: !peer.audio),
+                        ),
                       IconButton.filledTonal(
                         tooltip: t(
                           context,
@@ -138,7 +143,7 @@ class CaptureReceiversPanel extends StatelessWidget {
     isScrollControlled: true,
     showDragHandle: true,
     builder: (context) => AnimatedBuilder(
-      animation: peer.capture,
+      animation: Listenable.merge([peer.capture, ?hub]),
       builder: (context, _) {
         final state = peer.capture.captureControlState;
         final available = state['enabled'] == true;
@@ -186,121 +191,261 @@ class CaptureReceiversPanel extends StatelessWidget {
                         ),
                 ),
                 const SizedBox(height: 16),
-                if (windows)
-                  FutureBuilder<Map<String, dynamic>>(
-                    future: peer.output.microphoneStatus(),
-                    builder: (context, snapshot) {
-                      final endpoints =
-                          (snapshot.data?['endpoints'] as List? ?? [])
-                              .cast<Map>();
-                      final selected = peer.output.microphoneEndpoint;
-                      return DropdownButtonFormField<String>(
-                        key: ValueKey('audio-endpoint-$selected'),
-                        isExpanded: true,
-                        initialValue: endpoints.any((e) => e['id'] == selected)
-                            ? selected
-                            : '',
-                        decoration: InputDecoration(
-                          labelText: t(
-                            context,
-                            'میکروفون مستقل این دستگاه',
-                            'Independent microphone for this device',
-                          ),
-                        ),
-                        items: [
-                          DropdownMenuItem(
-                            value: '',
-                            child: Text(
-                              t(
-                                context,
-                                'انتخاب خودکار کابل خالی',
-                                'Automatically use an unused cable',
-                              ),
-                            ),
-                          ),
-                          for (final e in endpoints)
+                if (peer.advertisement.microphone)
+                  Text(
+                    t(context, 'خروجی Player', 'Player output'),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                if (peer.advertisement.microphone)
+                  CaptureAudioControls(
+                    settings: peer.output.audioSettings,
+                    windows: windows,
+                    loadDevices: peer.output.microphoneStatus,
+                    onChanged: (value) => hub!.configure(
+                      peer,
+                      audioSettings: value,
+                      audioEndpoint: value.outputMode == 'mic'
+                          ? value.outputDevice
+                          : null,
+                    ),
+                  ),
+                if (peer.advertisement.microphone &&
+                    peer.output.audioDiagnostics.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      '${t(context, 'نمونه‌های دریافت‌شده', 'Received samples')}: ${peer.output.audioDiagnostics['frames'] ?? 0}\n'
+                      '${t(context, 'بافر', 'Buffer')}: ${((peer.output.audioDiagnostics['bufferedFrames'] as num? ?? 0) / 48).round()} ms · '
+                      '${t(context, 'افت بافر', 'Underruns')}: ${peer.output.audioDiagnostics['underruns'] ?? 0} · '
+                      '${t(context, 'نمونه‌های حذف‌شده', 'Dropped samples')}: ${peer.output.audioDiagnostics['droppedFrames'] ?? 0}',
+                    ),
+                  ),
+                const Divider(height: 32),
+                Text(
+                  t(context, 'تنظیمات Server', 'Server settings'),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                if (peer.advertisement.camera) ...[
+                  if (state.keys.any(
+                    (k) =>
+                        k.startsWith('camera') &&
+                        int.tryParse(k.substring(6)) != null,
+                  ))
+                    DropdownButtonFormField<int>(
+                      isExpanded: true,
+                      key: ValueKey(
+                        'receiver-camera-${state['selectedCamera']}',
+                      ),
+                      initialValue: (state['selectedCamera'] as int? ?? -1) >= 0
+                          ? state['selectedCamera'] as int
+                          : null,
+                      decoration: InputDecoration(
+                        labelText: t(context, 'انتخاب دوربین', 'Camera input'),
+                      ),
+                      items: [
+                        for (var i = 0; i < 12; i++)
+                          if (state['camera$i'] is String)
                             DropdownMenuItem(
-                              value: e['id'] as String,
+                              value: i,
                               child: Text(
-                                e['name'] as String,
+                                state['camera$i'] as String,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                        ],
-                        onChanged: (value) =>
-                            hub!.configure(peer, audioEndpoint: value ?? ''),
-                      );
-                    },
-                  ),
-                DropdownButtonFormField<String>(
-                  key: ValueKey('receiver-mode-${selectedMode?.key}'),
-                  isExpanded: true,
-                  initialValue: selectedMode?.key,
-                  decoration: InputDecoration(
-                    labelText: t(
-                      context,
-                      'رزولوشن دوربین',
-                      'Camera resolution',
+                      ],
+                      onChanged: available
+                          ? (value) => change({'camera': value})
+                          : null,
                     ),
-                  ),
-                  items: [
-                    for (final mode in capabilities.modes)
-                      DropdownMenuItem(
-                        value: mode.key,
-                        child: Text(
-                          mode.label,
-                          textDirection: TextDirection.ltr,
-                        ),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(
+                      'receiver-orientation-${state['orientation']}',
+                    ),
+                    isExpanded: true,
+                    initialValue:
+                        [
+                          'auto',
+                          'portrait',
+                          'landscape',
+                        ].contains(state['orientation'])
+                        ? state['orientation'] as String
+                        : 'landscape',
+                    decoration: InputDecoration(
+                      labelText: t(
+                        context,
+                        'جهت ویدیوی ارسالی',
+                        'Outgoing video orientation',
                       ),
-                  ],
-                  onChanged: !available
-                      ? null
-                      : (key) {
-                          final mode = capabilities.modes.firstWhere(
-                            (m) => m.key == key,
-                          );
-                          change({
-                            'width': mode.width,
-                            'height': mode.height,
-                            'fps':
-                                ((state['fps'] as num?)?.toInt() ?? mode.maxFps)
-                                    .clamp(mode.minFps, mode.maxFps),
-                          });
-                        },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  key: ValueKey(
-                    'receiver-fps-${state['fps']}-${selectedMode?.key}',
+                    ),
+                    items: [
+                      for (final e in {
+                        'auto': t(context, 'خودکار', 'Automatic'),
+                        'landscape': t(context, 'قفل افقی', 'Lock landscape'),
+                        'portrait': t(context, 'قفل عمودی', 'Lock portrait'),
+                      }.entries)
+                        DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    ],
+                    onChanged: available
+                        ? (value) => change({'orientation': value})
+                        : null,
                   ),
-                  isExpanded: true,
-                  initialValue:
-                      selectedMode?.frameRates.contains(state['fps']) == true
-                      ? state['fps'] as int
-                      : null,
-                  decoration: InputDecoration(
-                    labelText: t(context, 'نرخ فریم', 'Frame rate'),
-                  ),
-                  items: [
-                    for (final fps in selectedMode?.frameRates ?? <int>[])
-                      DropdownMenuItem(value: fps, child: Text('$fps FPS')),
-                  ],
-                  onChanged: !available
-                      ? null
-                      : (value) => change({'fps': value}),
-                ),
-                for (final entry in {
-                  'noise': t(context, 'حذف نویز', 'Noise reduction'),
-                  'echo': t(context, 'حذف اکو', 'Echo cancellation'),
-                  'gain': t(context, 'تقویت خودکار', 'Automatic gain'),
-                }.entries)
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(entry.value),
-                    value: state[entry.key] == true,
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('receiver-mode-${selectedMode?.key}'),
+                    isExpanded: true,
+                    initialValue: selectedMode?.key,
+                    decoration: InputDecoration(
+                      labelText: t(
+                        context,
+                        'رزولوشن دوربین',
+                        'Camera resolution',
+                      ),
+                    ),
+                    items: [
+                      for (final mode in capabilities.modes)
+                        DropdownMenuItem(
+                          value: mode.key,
+                          child: Text(
+                            mode.label,
+                            textDirection: TextDirection.ltr,
+                          ),
+                        ),
+                    ],
                     onChanged: !available
                         ? null
-                        : (value) => change({entry.key: value}),
+                        : (key) {
+                            final mode = capabilities.modes.firstWhere(
+                              (m) => m.key == key,
+                            );
+                            change({
+                              'width': mode.width,
+                              'height': mode.height,
+                              'fps':
+                                  ((state['fps'] as num?)?.toInt() ??
+                                          mode.maxFps)
+                                      .clamp(mode.minFps, mode.maxFps),
+                            });
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    key: ValueKey(
+                      'receiver-fps-${state['fps']}-${selectedMode?.key}',
+                    ),
+                    isExpanded: true,
+                    initialValue:
+                        selectedMode?.frameRates.contains(state['fps']) == true
+                        ? state['fps'] as int
+                        : null,
+                    decoration: InputDecoration(
+                      labelText: t(context, 'نرخ فریم', 'Frame rate'),
+                    ),
+                    items: [
+                      for (final fps in selectedMode?.frameRates ?? <int>[])
+                        DropdownMenuItem(value: fps, child: Text('$fps FPS')),
+                    ],
+                    onChanged: !available
+                        ? null
+                        : (value) => change({'fps': value}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: ValueKey('receiver-bitrate-${state['bitrate']}'),
+                    initialValue: '${state['bitrate'] ?? ''}',
+                    enabled: available,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: t(
+                        context,
+                        'بیت‌ریت تصویر (kb/s)',
+                        'Video bitrate (kb/s)',
+                      ),
+                    ),
+                    onFieldSubmitted: (value) {
+                      final rate = int.tryParse(value);
+                      if (rate != null) change({'bitrate': rate});
+                    },
+                  ),
+                  if ((state['maxZoom'] as num? ?? 100) > 100) ...[
+                    const SizedBox(height: 12),
+                    Text(t(context, 'بزرگ‌نمایی دوربین', 'Camera zoom')),
+                    _CaptureZoomControl(
+                      maximum: (state['maxZoom'] as num).toDouble() / 100,
+                      value: ((state['zoom'] as num? ?? 100).toDouble() / 100)
+                          .clamp(1, (state['maxZoom'] as num).toDouble() / 100),
+                      onChanged: available
+                          ? (value) => change({'zoom': value})
+                          : null,
+                    ),
+                  ],
+                  if (state['torchAvailable'] == true)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(t(context, 'چراغ دوربین', 'Camera light')),
+                      value: state['torch'] == true,
+                      onChanged: available
+                          ? (value) => change({'torch': value})
+                          : null,
+                    ),
+                ],
+                if (peer.advertisement.microphone &&
+                    state['audioSource'] != 'system')
+                  if (state.keys.any(
+                    (k) =>
+                        k.startsWith('microphone') &&
+                        int.tryParse(k.substring(10)) != null,
+                  ))
+                    DropdownButtonFormField<int>(
+                      isExpanded: true,
+                      key: ValueKey(
+                        'receiver-microphone-${state['selectedMicrophone']}',
+                      ),
+                      initialValue:
+                          (state['selectedMicrophone'] as int? ?? -1) >= 0
+                          ? state['selectedMicrophone'] as int
+                          : null,
+                      decoration: InputDecoration(
+                        labelText: t(
+                          context,
+                          'انتخاب میکروفون',
+                          'Microphone input',
+                        ),
+                      ),
+                      items: [
+                        for (var i = 0; i < 12; i++)
+                          if (state['microphone$i'] is String)
+                            DropdownMenuItem(
+                              value: i,
+                              child: Text(
+                                state['microphone$i'] as String,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                      ],
+                      onChanged: available
+                          ? (value) => change({'microphone': value})
+                          : null,
+                    ),
+                if (peer.advertisement.microphone)
+                  CaptureAudioControls(
+                    settings: CaptureAudioSettings.fromMap(state),
+                    sender: true,
+                    windows: windows,
+                    enabled: available,
+                    echo: state['echo'] == true,
+                    noise: state['noise'] == true,
+                    autoGain: state['gain'] == true,
+                    onEffects: state['audioSource'] == 'system' ? null : change,
+                    onChanged: (value) => change({
+                      for (final e in value.toMap().entries)
+                        if ([
+                          'audioBitrate',
+                          'audioGainDb',
+                          'audioContinuous',
+                          'audioUncompressed',
+                        ].contains(e.key))
+                          e.key: e.value,
+                    }),
                   ),
               ],
             ),
@@ -308,5 +453,35 @@ class CaptureReceiversPanel extends StatelessWidget {
         );
       },
     ),
+  );
+}
+
+class _CaptureZoomControl extends StatefulWidget {
+  const _CaptureZoomControl({
+    required this.maximum,
+    required this.value,
+    this.onChanged,
+  });
+  final double maximum, value;
+  final Future<void> Function(double)? onChanged;
+  @override
+  State<_CaptureZoomControl> createState() => _CaptureZoomControlState();
+}
+
+class _CaptureZoomControlState extends State<_CaptureZoomControl> {
+  double? draft;
+  @override
+  Widget build(BuildContext context) => Slider(
+    min: 1,
+    max: widget.maximum,
+    value: (draft ?? widget.value).clamp(1, widget.maximum),
+    label: '${(draft ?? widget.value).toStringAsFixed(1)}×',
+    onChanged: widget.onChanged == null
+        ? null
+        : (value) => setState(() => draft = value),
+    onChangeEnd: (value) async {
+      await widget.onChanged?.call(value);
+      if (mounted) setState(() => draft = null);
+    },
   );
 }

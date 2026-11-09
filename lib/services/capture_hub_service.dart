@@ -11,6 +11,7 @@ import 'live_capture_service.dart';
 import 'native_bridge_service.dart';
 import 'windows_virtual_devices_service.dart';
 import 'log_service.dart';
+import 'capture_audio_settings.dart';
 
 class CaptureReceiver {
   CaptureReceiver(
@@ -241,10 +242,24 @@ class CaptureHubService extends ChangeNotifier {
         receiver.audio = saved['audio'] != false;
         receiver.output.microphoneEndpoint =
             saved['audioEndpoint'] as String? ?? '';
+        if (saved['audioSettings'] is Map) {
+          receiver.output.audioSettings = CaptureAudioSettings.fromMap(
+            saved['audioSettings'] as Map,
+          );
+        }
       } catch (_) {}
       _receivers[advertisement.id] = receiver;
       final target = receiver;
       target.capture.addListener(() => unawaited(_syncOutput(target)));
+      target.capture.onAudioPcm = (data) {
+        if (target.enabled && target.audio && enabled) {
+          unawaited(
+            target.output.pushPcm(data).catchError((Object error) {
+              target.outputError = '$error';
+            }),
+          );
+        }
+      };
       target.output.bindCaptureControls(target.capture);
     }
     final changed = receiver.advertisement.link != advertisement.link;
@@ -277,10 +292,12 @@ class CaptureHubService extends ChangeNotifier {
     bool? video,
     bool? audio,
     String? audioEndpoint,
+    CaptureAudioSettings? audioSettings,
   }) async {
     if (enabled != null) receiver.enabled = enabled;
     if (video != null) receiver.video = video;
     if (audio != null) receiver.audio = audio;
+    if (audioSettings != null) receiver.output.audioSettings = audioSettings;
     if (audioEndpoint != null) {
       receiver.output.microphoneEndpoint = audioEndpoint;
     }
@@ -291,6 +308,7 @@ class CaptureHubService extends ChangeNotifier {
         'video': receiver.video,
         'audio': receiver.audio,
         'audioEndpoint': receiver.output.microphoneEndpoint,
+        'audioSettings': receiver.output.audioSettings.toMap(),
       }),
     );
     await tick();
@@ -353,7 +371,7 @@ class CaptureHubService extends ChangeNotifier {
           r.error = '';
           _changed();
           try {
-            if (!r.ready) {
+            if (!r.ready && r.advertisement.camera) {
               await r.renderer.initialize().timeout(const Duration(seconds: 8));
               r.ready = true;
             }
@@ -413,9 +431,8 @@ class CaptureHubService extends ChangeNotifier {
         );
         receiver.renderedVideoTrack = videoTrack;
       }
-      await receiver.capture.setPlaybackMuted(
-        windows || !receiver.audio || !receiver.enabled || !enabled,
-      );
+      await receiver.capture.setPlaybackMuted(true);
+      final failures = <Object>[];
       if (windows) {
         receiver.output.persian = persian;
         final show =
@@ -423,7 +440,6 @@ class CaptureHubService extends ChangeNotifier {
             enabled &&
             receiver.video &&
             stream?.getVideoTracks().isNotEmpty == true;
-        final failures = <Object>[];
         try {
           if (show &&
               !receiver.output.cameraEnabled &&
@@ -439,15 +455,19 @@ class CaptureHubService extends ChangeNotifier {
         } catch (error) {
           failures.add(error);
         }
-        try {
-          await receiver.output.setMicrophoneSource(
-            receiver.enabled && enabled && receiver.audio ? stream : null,
-          );
-        } catch (error) {
-          failures.add(error);
-        }
-        if (failures.isNotEmpty) throw StateError(failures.join(' / '));
       }
+      receiver.output.audioSettings = receiver.output.audioSettings.withValues({
+        'audioUncompressed':
+            receiver.capture.captureControlState['audioUncompressed'] == true,
+      });
+      try {
+        await receiver.output.setMicrophoneSource(
+          receiver.enabled && enabled && receiver.audio ? stream : null,
+        );
+      } catch (error) {
+        failures.add(error);
+      }
+      if (failures.isNotEmpty) throw StateError(failures.join(' / '));
       receiver.outputError = '';
     } catch (e) {
       final changed = receiver.outputError != '$e';

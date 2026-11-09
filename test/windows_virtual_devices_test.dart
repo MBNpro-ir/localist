@@ -58,11 +58,10 @@ void main() {
           .toList();
       expect(bindings.length, 4);
       for (var i = 0; i < 4; i++) {
-        expect(bindings[i].arguments, {
-          'slot': i,
-          'ownerTag': 'peer-$i',
-          'trackId': 'audio',
-        });
+        expect(bindings[i].arguments, containsPair('slot', i));
+        expect(bindings[i].arguments, containsPair('ownerTag', 'peer-$i'));
+        expect(bindings[i].arguments, containsPair('trackId', 'audio'));
+        expect(bindings[i].arguments, containsPair('audioOutputMode', 'mic'));
       }
       await services[1].stopMicrophone();
       expect(calls.last.arguments, {'slot': 1, 'trackId': ''});

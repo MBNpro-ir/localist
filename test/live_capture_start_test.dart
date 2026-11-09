@@ -46,6 +46,16 @@ void main() {
       const channel = MethodChannel('FlutterWebRTC.Method');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
+            const MethodChannel('localist/audioDevices'),
+            (_) async => null,
+          );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('FlutterWebRTC.Event'),
+            (_) async => null,
+          );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
             channel,
             (call) async => call.method == 'getSources'
                 ? {
@@ -107,7 +117,26 @@ void main() {
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Start live capture'));
       await tester.pumpAndSettle();
+      for (
+        var i = 0;
+        i < 30 &&
+            tester
+                    .widget<FilledButton>(
+                      find.widgetWithText(FilledButton, 'Start live capture'),
+                    )
+                    .onPressed ==
+                null;
+        i++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pumpAndSettle();
+      }
       await tester.tap(find.text('Start live capture'));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
       await tester.pumpAndSettle();
       expect(preview.initialized, true);
       expect(service.started, true);

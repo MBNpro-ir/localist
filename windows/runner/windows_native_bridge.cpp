@@ -905,6 +905,10 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
   if (method == "getWindowsVirtualMicrophoneStatus") {
     const auto outputs = LocalistConfiguredCableEndpoints();
     const auto inputs = LocalistCableEndpoints(true);
+    EncodableList playback;
+    for(const auto& endpoint:LocalistCableEndpoints(false,true))playback.emplace_back(EncodableMap{
+      {EncodableValue("id"),EncodableValue(WideToUtf8(endpoint.id))},
+      {EncodableValue("name"),EncodableValue(WideToUtf8(endpoint.name))}});
     EncodableList endpoints;
     for(const auto& endpoint:outputs){
       auto microphone=endpoint.name;const auto pos=microphone.find(L"Input");if(pos!=std::wstring::npos)microphone.replace(pos,5,L"Output");
@@ -917,6 +921,7 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
       {EncodableValue("available"), EncodableValue(!outputs.empty() && !inputs.empty())},
       {EncodableValue("backend"), EncodableValue("vb-cable")},
       {EncodableValue("endpoints"),EncodableValue(endpoints)},
+      {EncodableValue("playbackEndpoints"),EncodableValue(playback)},
       {EncodableValue("microphone"), EncodableValue("CABLE Output (VB-Audio Virtual Cable)")},
     }));
     return;

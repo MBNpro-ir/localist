@@ -25,7 +25,7 @@ bool CableName(std::wstring name) {
   return name.find(L"vb-audio") != std::wstring::npos && name.find(L"cable") != std::wstring::npos;
 }
 }
-std::vector<LocalistCableEndpoint> LocalistCableEndpoints(bool recording) {
+std::vector<LocalistCableEndpoint> LocalistCableEndpoints(bool recording, bool all) {
   Apartment apartment;
   std::vector<LocalistCableEndpoint> result;
   ComPtr<IMMDeviceEnumerator> enumerator;
@@ -41,11 +41,14 @@ std::vector<LocalistCableEndpoint> LocalistCableEndpoints(bool recording) {
     const auto interfaceName=Property(store.Get(),PKEY_DeviceInterface_FriendlyName);
     // The 16-channel render alias feeds the SAME base recording endpoint.
     // It must not be advertised as another independent microphone.
-    if (name.find(L"16ch") != std::wstring::npos) continue;
+    auto normalized=name;
+    std::transform(normalized.begin(),normalized.end(),normalized.begin(),[](wchar_t c){return static_cast<wchar_t>(towlower(c));});
+    normalized.erase(std::remove_if(normalized.begin(),normalized.end(),[](wchar_t c){return iswspace(c)!=0;}),normalized.end());
+    if (normalized.find(L"16ch") != std::wstring::npos) continue;
     // Interface identity remains useful if the user renames the endpoint.
-    if (!CableName(interfaceName) && !CableName(name)) continue;
+    if (!all && !CableName(interfaceName) && !CableName(name)) continue;
     // A renamed multi-channel alias is still part of the same vendor interface.
-    if(!interfaceName.empty() && !interfaces.insert(interfaceName).second)continue;
+    if(!all && !interfaceName.empty() && !interfaces.insert(interfaceName).second)continue;
     LPWSTR id = nullptr;
     if (SUCCEEDED(device->GetId(&id))) { result.push_back({id, name}); CoTaskMemFree(id); }
   }
@@ -60,8 +63,17 @@ std::vector<LocalistCableEndpoint> LocalistConfiguredCableEndpoints() {
   if(endpoints.size()>count)endpoints.resize(count);
   return endpoints;
 }
-bool LocalistCableOutput::Start(const std::wstring& endpointId) {
+std::wstring LocalistDefaultPlaybackEndpoint() {
+  Apartment apartment;ComPtr<IMMDeviceEnumerator> enumerator;ComPtr<IMMDevice> device;
+  if(FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_ALL,IID_PPV_ARGS(&enumerator)))||
+      FAILED(enumerator->GetDefaultAudioEndpoint(eRender,eConsole,&device)))return {};
+  LPWSTR id=nullptr;if(FAILED(device->GetId(&id)))return {};
+  std::wstring result(id);CoTaskMemFree(id);return result;
+}
+bool LocalistCableOutput::Start(const std::wstring& endpointId, const LocalistAudioRenderOptions& options) {
   Stop(); frames_ = 0; error_ = 0; started_ = false; queue_.Clear();
+  options_=options;
+  queue_.Configure(options.minimum_ms,options.maximum_ms,options.gain_db);
   endpoint_id_ = endpointId;
   stop_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
   if (!stop_) { error_ = GetLastError(); return false; }
@@ -82,6 +94,10 @@ void LocalistCableOutput::Stop() {
 void LocalistCableOutput::Push(const int16_t* samples, size_t frames) {
   std::lock_guard<std::mutex> lock(queue_lock_); queue_.Push(samples, frames);
 }
+LocalistAudioQueueStatus LocalistCableOutput::QueueStatus() {
+  std::lock_guard<std::mutex> lock(queue_lock_);
+  return {queue_.Buffered(),queue_.Dropped(),queue_.Underruns(),queue_.Clipped()};
+}
 void LocalistCableOutput::Run() {
   Apartment apartment;
   ComPtr<IMMDeviceEnumerator> enumerator; ComPtr<IMMDevice> device;
@@ -95,7 +111,7 @@ void LocalistCableOutput::Run() {
   };
   do {
     if (FAILED(status)) break;
-    const auto endpoints = LocalistCableEndpoints();
+    const auto endpoints = LocalistCableEndpoints(false,options_.playback);
     if (endpoints.empty()) { status = HRESULT_FROM_WIN32(ERROR_NOT_FOUND); break; }
     status = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
     if (FAILED(status)) break;
@@ -109,11 +125,11 @@ void LocalistCableOutput::Run() {
     format.nSamplesPerSec = 48000; format.wBitsPerSample = 16;
     format.nBlockAlign = 2; format.nAvgBytesPerSec = 96000;
     status = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
-      AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+      (options_.event_sync ? AUDCLNT_STREAMFLAGS_EVENTCALLBACK : 0) | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
       300000, 0, &format, nullptr); if (FAILED(status)) break;
     tick = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!tick) { status = HRESULT_FROM_WIN32(GetLastError()); break; }
-    status = client->SetEventHandle(tick); if (FAILED(status)) break;
+    if (options_.event_sync) { status = client->SetEventHandle(tick); if (FAILED(status)) break; }
     status = client->GetService(IID_PPV_ARGS(&render)); if (FAILED(status)) break;
     UINT32 capacity = 0; status = client->GetBufferSize(&capacity); if (FAILED(status)) break;
     status = client->Start(); if (FAILED(status)) break;
@@ -121,9 +137,9 @@ void LocalistCableOutput::Run() {
     finishStart(S_OK);
     const HANDLE waits[] = {stop_, tick};
     while (true) {
-      const auto wait = WaitForMultipleObjects(2, waits, FALSE, 2000);
+      const auto wait = options_.event_sync ? WaitForMultipleObjects(2, waits, FALSE, 2000) : WaitForSingleObject(stop_,5);
       if (wait == WAIT_OBJECT_0) break;
-      if (wait != WAIT_OBJECT_0 + 1) { status = HRESULT_FROM_WIN32(wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError()); break; }
+      if (options_.event_sync ? wait != WAIT_OBJECT_0 + 1 : wait != WAIT_TIMEOUT) { status = HRESULT_FROM_WIN32(wait == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError()); break; }
       UINT32 padding = 0; status = client->GetCurrentPadding(&padding); if (FAILED(status)) break;
       if (padding >= capacity) continue;
       const UINT32 available = capacity - padding;

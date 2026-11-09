@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/live_capture_service.dart';
 import '../services/capture_capabilities.dart';
 import '../services/capture_hub_service.dart';
@@ -10,6 +13,10 @@ import '../services/windows_virtual_devices_service.dart';
 import '../services/feature_permission_service.dart';
 import '../widgets/glass.dart';
 import '../widgets/capture_receivers_panel.dart';
+import '../widgets/capture_audio_controls.dart';
+import '../services/capture_audio_settings.dart';
+import '../services/log_service.dart';
+import '../widgets/capture_latency_chart.dart';
 
 class LiveCapturePage extends StatefulWidget {
   const LiveCapturePage({super.key, this.service, this.renderer, this.hub});
@@ -30,13 +37,22 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   final _scroll = ScrollController();
   final _virtual = WindowsVirtualDevicesService();
   Map<String, dynamic> _audioStatus = {};
+  List<int> _installedCameraSlots = [];
+  bool _checkingOutputs = false;
   CaptureCapabilities _capabilities = const CaptureCapabilities();
   CaptureMode? _mode;
   String _orientation = 'landscape';
+  String _panel = 'server', _audioSource = 'microphone';
+  CaptureAudioSettings _audio = const CaptureAudioSettings();
   bool _loadingCapabilities = false;
   int _capabilityRequest = 0;
   bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
   bool get _android => defaultTargetPlatform == TargetPlatform.android;
+  bool get _hasPreviewVideo =>
+      (_service.localStream ?? _service.remoteStream)
+          ?.getVideoTracks()
+          .isNotEmpty ==
+      true;
   List<MediaDeviceInfo> _inputs = [];
   String? _cameraId, _microphoneId;
   bool _operationRunning = false, _previewSuspended = false;
@@ -44,7 +60,12 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   bool _previewDirty = false, _previewDisposed = false;
   String? _previewTrack;
   double? _zoomDraft;
+  int? _videoBitrateDraft;
   bool _rendererReady = false, _camera = true, _microphone = true;
+  void Function(dynamic)? _previousDeviceChange;
+  StreamSubscription<dynamic>? _audioDeviceChanges;
+  Future<void>? _inputRefresh;
+  bool _inputRefreshAgain = false, _bluetoothPermissionOffered = false;
   bool _echo = true, _noise = true, _gain = true, _mirror = false;
   int _fps = 30, _bitrate = 0;
   String _notice = '';
@@ -53,15 +74,98 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   @override
   void initState() {
     super.initState();
+    _panel = widget.service != null || _android ? 'server' : 'player';
+    unawaited(_restoreAudioSettings());
     WidgetsBinding.instance.addObserver(this);
+    _previousDeviceChange = navigator.mediaDevices.ondevicechange;
+    navigator.mediaDevices.ondevicechange = (event) {
+      _previousDeviceChange?.call(event);
+      unawaited(_refreshInputs(silent: true));
+    };
+    if (_android) {
+      _audioDeviceChanges = const EventChannel('localist/audioDevices')
+          .receiveBroadcastStream()
+          .listen(
+            (_) {
+              unawaited(_refreshInputs(silent: true));
+            },
+            onError: (Object error) {
+              LogService.instance.warning('Audio device monitoring: $error');
+            },
+          );
+    }
     _service.addListener(_changed);
     _hub?.addListener(_hubChanged);
     if (_hub != null) unawaited(_hub.start());
     if (_windows) unawaited(_refreshVirtualDevices());
     unawaited(_refreshInputs(silent: true));
+    if (_service.broadcasting) _changed();
+  }
+
+  Future<void> _restoreAudioSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString('capture.senderAudio');
+      if (stored == null || !mounted || _service.active) return;
+      final map = Map<String, dynamic>.from(jsonDecode(stored) as Map);
+      setState(() {
+        _audio = CaptureAudioSettings.fromMap(map);
+        _echo = map['echo'] != false;
+        _noise = map['noise'] != false;
+        _gain = map['gain'] != false;
+      });
+    } catch (_) {
+      /* Invalid/old preferences never prevent capture. */
+    }
+  }
+
+  Future<void> _saveAudioSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'capture.senderAudio',
+      jsonEncode({
+        ..._audio.toMap(),
+        'echo': _echo,
+        'noise': _noise,
+        'gain': _gain,
+      }),
+    );
+  }
+
+  void _draftAudio(CaptureAudioSettings value) {
+    setState(() => _audio = value);
+    unawaited(_saveAudioSettings().catchError((Object _) {}));
+  }
+
+  void _draftEffects(Map<String, dynamic> values) {
+    setState(() {
+      _echo = values['echo'] as bool? ?? _echo;
+      _noise = values['noise'] as bool? ?? _noise;
+      _gain = values['gain'] as bool? ?? _gain;
+    });
+    unawaited(_saveAudioSettings().catchError((Object _) {}));
   }
 
   void _changed() {
+    if (_service.broadcasting) {
+      final value = _service.options;
+      _camera = value.camera;
+      _microphone = value.microphone;
+      _cameraId = value.cameraId;
+      _microphoneId = value.microphoneId;
+      _audioSource = value.audioSource;
+      _audio = value.audioSettings;
+      _echo = value.echoCancellation;
+      _noise = value.noiseSuppression;
+      _gain = value.autoGain;
+      _orientation = value.orientation;
+      if (value.camera) {
+        _capabilities = _service.capabilities;
+        _mode = _capabilities.choose(width: value.width, height: value.height);
+        _fps = value.fps;
+        _bitrate = value.bitrateKbps;
+      }
+    }
     if (_rendererReady && !_previewDisposed) {
       _previewDirty = true;
       _previewBinding ??= _bindPreview().whenComplete(
@@ -102,10 +206,43 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   }
 
   Future<void> _refreshInputs({bool silent = false}) async {
+    if (!mounted) return;
+    if (_inputRefresh != null) {
+      _inputRefreshAgain = true;
+      return _inputRefresh;
+    }
+    _inputRefresh = _enumerateInputs(silent: silent);
     try {
+      await _inputRefresh;
+    } finally {
+      _inputRefresh = null;
+      if (_inputRefreshAgain && mounted) {
+        _inputRefreshAgain = false;
+        unawaited(_refreshInputs(silent: true));
+      }
+    }
+  }
+
+  Future<void> _enumerateInputs({bool silent = false}) async {
+    try {
+      if (_android &&
+          !_bluetoothPermissionOffered &&
+          await const MethodChannel('localist/capture')
+                  .invokeMethod<bool>('hasBluetoothMicrophone')
+                  .catchError((Object _) => false) ==
+              true &&
+          !await FeaturePermissionService.instance.granted(
+            FeatureAccess.bluetoothAudio,
+          )) {
+        _bluetoothPermissionOffered = true;
+        await FeaturePermissionService.instance.ensure([
+          FeatureAccess.bluetoothAudio,
+        ]);
+      }
       final inputs = (await LiveCaptureService.inputDevices())
           .where((d) => d.deviceId.isNotEmpty)
           .toList();
+      _service.updateInputDevices(inputs);
       if (!mounted) return;
       final previous = _cameraId;
       setState(() {
@@ -133,6 +270,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       });
       if (previous != _cameraId || _mode == null) await _loadCapabilities();
     } catch (error) {
+      LogService.instance.warning('Capture input enumeration: $error');
       if (!silent && mounted) setState(() => _notice = '$error');
     }
   }
@@ -193,19 +331,32 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     }
   }
 
-  Future<void> _bluetoothInputs() async {
-    if (await FeaturePermissionService.instance.ensure(
-      [FeatureAccess.bluetoothAudio],
-      reason: t(
-        'برای انتخاب میکروفون هدست بلوتوث، دسترسی اتصال بلوتوث لازم است.',
-        'Bluetooth connection access is needed to select a headset microphone.',
-      ),
-    )) {
-      await _refreshInputs();
-    }
-  }
-
   void _profile(String profile) {
+    if (_service.broadcasting) {
+      final caps = _service.capabilities;
+      final mode = profile == 'quality'
+          ? caps.modes.lastOrNull
+          : caps.choose(
+              width: profile == 'battery' ? 640 : 1280,
+              height: profile == 'battery' ? 480 : 720,
+            );
+      if (mode == null) return;
+      final fps = (profile == 'battery' ? 15 : 30).clamp(
+        mode.minFps,
+        mode.maxFps,
+      );
+      unawaited(
+        _run(
+          () => _service.requestCaptureControl({
+            'width': mode.width,
+            'height': mode.height,
+            'fps': fps,
+            'bitrate': caps.recommendedBitrate(mode, fps),
+          }),
+        ),
+      );
+      return;
+    }
     if (_capabilities.modes.isEmpty) return;
     setState(() {
       _mode = profile == 'quality'
@@ -224,11 +375,27 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   }
 
   Future<void> _refreshVirtualDevices() async {
+    if (_checkingOutputs) return;
+    setState(() => _checkingOutputs = true);
     try {
-      final status = await _virtual.microphoneStatus();
-      if (mounted) setState(() => _audioStatus = status);
+      final status = await Future.wait([
+        _virtual.microphoneStatus(),
+        for (var slot = 0; slot < 4; slot++)
+          WindowsVirtualDevicesService(slot: slot).cameraStatus(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _audioStatus = status.first;
+          _installedCameraSlots = [
+            for (var slot = 0; slot < 4; slot++)
+              if (status[slot + 1]['installed'] == true) slot + 1,
+          ];
+        });
+      }
     } catch (error) {
       if (mounted) setState(() => _notice = '$error');
+    } finally {
+      if (mounted) setState(() => _checkingOutputs = false);
     }
   }
 
@@ -237,7 +404,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     setState(() => _operationRunning = true);
     try {
       await LiveCaptureService.initializeMedia();
-      if (!_rendererReady) {
+      if (!_rendererReady && (_service.active ? _hasPreviewVideo : _camera)) {
         _renderer.onResize = () {
           if (mounted) setState(() {});
         };
@@ -275,6 +442,8 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   void dispose() {
     _previewDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
+    navigator.mediaDevices.ondevicechange = _previousDeviceChange;
+    unawaited(_audioDeviceChanges?.cancel());
     _service.removeListener(_changed);
     if (widget.service != null) _service.dispose();
     _hub?.removeListener(_hubChanged);
@@ -316,7 +485,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           DropdownButtonFormField<String>(
-            key: ValueKey('capture-$kind-$live-$selected-${inputs.length}'),
+            key: ValueKey('capture-$kind-$selected-${inputs.length}'),
             isExpanded: true,
             initialValue: selected,
             decoration: InputDecoration(
@@ -354,117 +523,162 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                     if (video) await _loadCapabilities();
                   },
           ),
-          if (!video)
-            Wrap(
-              spacing: 8,
-              children: [
-                TextButton.icon(
-                  onPressed: () => _refreshInputs(),
-                  icon: const Icon(Icons.refresh),
-                  label: Text(t('تازه‌سازی ورودی‌ها', 'Refresh inputs')),
-                ),
-                if (_android)
-                  TextButton.icon(
-                    onPressed: _bluetoothInputs,
-                    icon: const Icon(Icons.bluetooth_audio),
-                    label: Text(t('میکروفون بلوتوث', 'Bluetooth microphone')),
-                  ),
-              ],
-            ),
         ],
       ),
     );
   }
 
-  List<Widget> _videoModeFields() => [
-    if (_loadingCapabilities) const LinearProgressIndicator(),
-    DropdownButtonFormField<String>(
-      key: ValueKey('capture-resolution-${_mode?.key}'),
-      isExpanded: true,
-      initialValue: _mode?.key,
-      decoration: InputDecoration(
-        labelText: t('رزولوشن دوربین', 'Camera resolution'),
-      ),
-      hint: Text(
-        t('در انتظار مشخصات دوربین', 'Waiting for camera capabilities'),
-      ),
-      items: [
-        for (final mode in _capabilities.modes)
-          DropdownMenuItem(
-            value: mode.key,
-            child: Text(mode.label, textDirection: TextDirection.ltr),
-          ),
-      ],
-      onChanged: _loadingCapabilities
-          ? null
-          : (key) {
-              setState(
-                () =>
-                    _mode = _capabilities.modes.firstWhere((m) => m.key == key),
-              );
-              unawaited(_loadCapabilities());
-            },
-    ),
-    const SizedBox(height: 12),
-    DropdownButtonFormField<int>(
-      key: ValueKey('capture-fps-${_mode?.key}-$_fps'),
-      isExpanded: true,
-      initialValue: _mode == null ? null : _fps,
-      decoration: InputDecoration(labelText: t('نرخ فریم', 'Frame rate')),
-      items: [
-        for (final fps in _mode?.frameRates ?? <int>[])
-          DropdownMenuItem(
-            value: fps,
-            child: Text('$fps FPS', textDirection: TextDirection.ltr),
-          ),
-      ],
-      onChanged: _loadingCapabilities
-          ? null
-          : (value) {
-              if (value == null) return;
-              setState(() => _fps = value);
-              unawaited(_loadCapabilities());
-            },
-    ),
-    const SizedBox(height: 14),
-    Text('${t('بیت‌ریت هدف', 'Target bitrate')}: $_bitrate kbps'),
-    if (_capabilities.hasBitrateRange) ...[
-      Text(
-        '${_capabilities.minBitrate}–${_capabilities.maxBitrate} kbps · ${_capabilities.codecs}',
-        textDirection: TextDirection.ltr,
-      ),
-      if (_capabilities.maxBitrate > _capabilities.minBitrate)
-        Slider(
-          min: math.log(_capabilities.minBitrate.toDouble()),
-          max: math.log(_capabilities.maxBitrate.toDouble()),
-          value: math.log(
-            _bitrate
-                .clamp(_capabilities.minBitrate, _capabilities.maxBitrate)
-                .toDouble(),
-          ),
-          onChanged: _loadingCapabilities
-              ? null
-              : (value) => setState(() => _bitrate = math.exp(value).round()),
-        ),
-    ] else
-      TextFormField(
-        key: ValueKey('capture-bitrate-$_bitrate'),
-        initialValue: _bitrate > 0 ? '$_bitrate' : '',
-        keyboardType: TextInputType.number,
+  List<Widget> _videoModeFields({bool live = false}) {
+    final caps = live ? _service.capabilities : _capabilities;
+    final mode = live
+        ? caps.choose(
+            width: _service.options.width,
+            height: _service.options.height,
+          )
+        : _mode;
+    final fps = live ? _service.options.fps : _fps;
+    final bitrate =
+        _videoBitrateDraft ?? (live ? _service.options.bitrateKbps : _bitrate);
+    final locked = _loadingCapabilities || _operationRunning || _service.busy;
+    return [
+      if (_loadingCapabilities) const LinearProgressIndicator(),
+      DropdownButtonFormField<String>(
+        key: ValueKey('capture-resolution-${mode?.key}'),
+        isExpanded: true,
+        initialValue: mode?.key,
         decoration: InputDecoration(
-          suffixText: 'kbps',
-          helperMaxLines: 3,
-          helperText: t(
-            'این درایور محدودهٔ بیت‌ریت اعلام نمی‌کند؛ مقدار هدف با کنترل نرخ WebRTC اعمال می‌شود.',
-            'This driver does not report bitrate bounds; WebRTC applies the target rate.',
-          ),
+          labelText: t('رزولوشن دوربین', 'Camera resolution'),
         ),
-        onChanged: (v) {
-          final rate = int.tryParse(v);
-          if (rate != null && rate > 0 && rate <= 1000000) _bitrate = rate;
-        },
+        hint: Text(
+          t('در انتظار مشخصات دوربین', 'Waiting for camera capabilities'),
+        ),
+        items: [
+          for (final mode in caps.modes)
+            DropdownMenuItem(
+              value: mode.key,
+              child: Text(mode.label, textDirection: TextDirection.ltr),
+            ),
+        ],
+        onChanged: locked
+            ? null
+            : (key) {
+                if (live) {
+                  final selected = caps.modes.firstWhere((m) => m.key == key);
+                  unawaited(
+                    _run(
+                      () => _service.requestCaptureControl({
+                        'width': selected.width,
+                        'height': selected.height,
+                        'fps': fps.clamp(selected.minFps, selected.maxFps),
+                      }),
+                    ),
+                  );
+                  return;
+                }
+                setState(
+                  () => _mode = _capabilities.modes.firstWhere(
+                    (m) => m.key == key,
+                  ),
+                );
+                unawaited(_loadCapabilities());
+              },
       ),
-  ];
+      const SizedBox(height: 12),
+      DropdownButtonFormField<int>(
+        key: ValueKey('capture-fps-${mode?.key}-$fps'),
+        isExpanded: true,
+        initialValue: mode?.frameRates.contains(fps) == true ? fps : null,
+        decoration: InputDecoration(labelText: t('نرخ فریم', 'Frame rate')),
+        items: [
+          for (final fps in mode?.frameRates ?? <int>[])
+            DropdownMenuItem(
+              value: fps,
+              child: Text('$fps FPS', textDirection: TextDirection.ltr),
+            ),
+        ],
+        onChanged: locked
+            ? null
+            : (value) {
+                if (value == null) return;
+                if (live) {
+                  unawaited(
+                    _run(() => _service.requestCaptureControl({'fps': value})),
+                  );
+                  return;
+                }
+                setState(() => _fps = value);
+                unawaited(_loadCapabilities());
+              },
+      ),
+      const SizedBox(height: 14),
+      Text('${t('بیت‌ریت هدف', 'Target bitrate')}: $bitrate kbps'),
+      if (caps.hasBitrateRange) ...[
+        Text(
+          '${caps.minBitrate}–${caps.maxBitrate} kbps · ${caps.codecs}',
+          textDirection: TextDirection.ltr,
+        ),
+        if (caps.maxBitrate > caps.minBitrate)
+          Slider(
+            min: math.log(caps.minBitrate.toDouble()),
+            max: math.log(caps.maxBitrate.toDouble()),
+            value: math.log(
+              bitrate.clamp(caps.minBitrate, caps.maxBitrate).toDouble(),
+            ),
+            onChanged: locked
+                ? null
+                : (value) => setState(() {
+                    if (live) {
+                      _videoBitrateDraft = math.exp(value).round();
+                    } else {
+                      _bitrate = math.exp(value).round();
+                    }
+                  }),
+            onChangeEnd: live
+                ? (value) async {
+                    await _run(
+                      () => _service.requestCaptureControl({
+                        'bitrate': math.exp(value).round(),
+                      }),
+                    );
+                    if (mounted) setState(() => _videoBitrateDraft = null);
+                  }
+                : null,
+          ),
+      ] else
+        TextFormField(
+          key: ValueKey('capture-bitrate-$bitrate'),
+          initialValue: bitrate > 0 ? '$bitrate' : '',
+          enabled: !locked,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            suffixText: 'kbps',
+            helperMaxLines: 3,
+            helperText: t(
+              'این درایور محدودهٔ بیت‌ریت اعلام نمی‌کند؛ مقدار هدف با کنترل نرخ WebRTC اعمال می‌شود.',
+              'This driver does not report bitrate bounds; WebRTC applies the target rate.',
+            ),
+          ),
+          onChanged: (v) {
+            final rate = int.tryParse(v);
+            if (!live && rate != null && rate > 0 && rate <= 1000000) {
+              _bitrate = rate;
+            }
+          },
+          onFieldSubmitted: live
+              ? (value) {
+                  final rate = int.tryParse(value);
+                  if (rate != null) {
+                    unawaited(
+                      _run(
+                        () => _service.requestCaptureControl({'bitrate': rate}),
+                      ),
+                    );
+                  }
+                }
+              : null,
+        ),
+    ];
+  }
 
   Widget _heading(IconData icon, String title, String subtitle) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -486,8 +700,10 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 4),
-            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+            if (subtitle.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+            ],
           ],
         ),
       ),
@@ -525,32 +741,69 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     ),
   );
 
-  Widget _captureSettings() => LayoutBuilder(
+  Widget _captureSettings({bool live = false}) => LayoutBuilder(
     builder: (context, constraints) {
-      final video = _settingsGroup(
-        Icons.videocam_outlined,
-        t('تصویر', 'Video'),
-        [_inputSelector('videoinput'), ..._videoModeFields()],
-      );
+      final video =
+          _settingsGroup(Icons.videocam_outlined, t('تصویر', 'Video'), [
+            _inputSelector('videoinput', live: live),
+            ..._videoModeFields(live: live),
+            if (_android) _orientationSelector(live: live),
+          ]);
       final audio = _settingsGroup(Icons.mic_none, t('صدا', 'Audio'), [
-        _inputSelector('audioinput'),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(t('حذف اکو', 'Echo cancellation')),
-          value: _echo,
-          onChanged: (v) => setState(() => _echo = v),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(t('کاهش نویز', 'Noise suppression')),
-          value: _noise,
-          onChanged: (v) => setState(() => _noise = v),
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(t('تنظیم خودکار بلندی صدا', 'Automatic gain')),
-          value: _gain,
-          onChanged: (v) => setState(() => _gain = v),
+        if (_windows || _android)
+          DropdownButtonFormField<String>(
+            isExpanded: true,
+            key: ValueKey('capture-source-$_audioSource'),
+            initialValue: _audioSource,
+            decoration: InputDecoration(
+              labelText: t('منبع صدا', 'Audio source'),
+            ),
+            items: [
+              DropdownMenuItem(
+                value: 'microphone',
+                child: Text(t('میکروفون', 'Microphone')),
+              ),
+              DropdownMenuItem(
+                value: 'system',
+                child: Text(t('صدای برنامه‌ها / سیستم', 'Apps / system audio')),
+              ),
+            ],
+            onChanged: live
+                ? null
+                : (value) => setState(() {
+                    _audioSource = value ?? 'microphone';
+                    if (_audioSource == 'system') _camera = false;
+                  }),
+          ),
+        if (_audioSource == 'microphone')
+          _inputSelector('audioinput', live: live),
+        CaptureAudioControls(
+          settings: live ? _service.options.audioSettings : _audio,
+          sender: true,
+          windows: _windows,
+          enabled: !_operationRunning && !_service.busy,
+          echo: live ? _service.options.echoCancellation : _echo,
+          noise: live ? _service.options.noiseSuppression : _noise,
+          autoGain: live ? _service.options.autoGain : _gain,
+          onEffects: _audioSource != 'microphone'
+              ? null
+              : live
+              ? (value) => _run(() => _service.requestCaptureControl(value))
+              : _draftEffects,
+          onChanged: live
+              ? (value) => _run(
+                  () => _service.requestCaptureControl({
+                    for (final entry in value.toMap().entries)
+                      if ([
+                        'audioBitrate',
+                        'audioGainDb',
+                        'audioContinuous',
+                        'audioUncompressed',
+                      ].contains(entry.key))
+                        entry.key: entry.value,
+                  }),
+                )
+              : _draftAudio,
         ),
       ]);
 
@@ -626,24 +879,25 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           ),
         ),
         const SizedBox(height: 16),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ActionChip(
-              label: Text(t('کم‌مصرف', 'Battery saver')),
-              onPressed: () => _profile('battery'),
-            ),
-            ActionChip(
-              label: Text(t('متعادل', 'Balanced')),
-              onPressed: () => _profile('balanced'),
-            ),
-            ActionChip(
-              label: Text(t('با کیفیت', 'High quality')),
-              onPressed: () => _profile('quality'),
-            ),
-          ],
-        ),
+        if (_camera)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ActionChip(
+                label: Text(t('کم‌مصرف', 'Battery saver')),
+                onPressed: () => _profile('battery'),
+              ),
+              ActionChip(
+                label: Text(t('متعادل', 'Balanced')),
+                onPressed: () => _profile('balanced'),
+              ),
+              ActionChip(
+                label: Text(t('با کیفیت', 'High quality')),
+                onPressed: () => _profile('quality'),
+              ),
+            ],
+          ),
 
         const SizedBox(height: 12),
         Wrap(
@@ -655,21 +909,28 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               avatar: const Icon(Icons.videocam_outlined, size: 18),
               label: Text(t('دوربین', 'Camera')),
               selected: _camera,
-              onSelected: (v) => setState(() => _camera = v),
+              onSelected: _service.broadcasting || _audioSource == 'system'
+                  ? null
+                  : (v) => setState(() => _camera = v),
             ),
             FilterChip(
               showCheckmark: false,
               avatar: const Icon(Icons.mic_none, size: 18),
               label: Text(t('میکروفون', 'Microphone')),
               selected: _microphone,
-              onSelected: (v) => setState(() => _microphone = v),
+              onSelected: _service.broadcasting
+                  ? null
+                  : (v) => setState(() => _microphone = v),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        _captureSettings(),
-        if ((_camera && (_cameraId == null || _capabilities.modes.isEmpty)) ||
-            (_microphone && _microphoneId == null))
+        _captureSettings(live: _service.broadcasting),
+        if (!_service.broadcasting &&
+            ((_camera && (_cameraId == null || _capabilities.modes.isEmpty)) ||
+                (_microphone &&
+                    _audioSource == 'microphone' &&
+                    _microphoneId == null)))
           OutlinedButton.icon(
             onPressed: _operationRunning
                 ? null
@@ -689,16 +950,18 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               ),
             ),
           ),
-        if (_android && _camera) _orientationSelector(),
         const SizedBox(height: 12),
         FilledButton.icon(
-          onPressed:
-              _operationRunning ||
-                  _service.busy ||
-                  _loadingCapabilities ||
-                  (!_camera && !_microphone) ||
-                  (_camera && (_cameraId == null || _mode == null)) ||
-                  (_microphone && _microphoneId == null)
+          onPressed: _service.broadcasting
+              ? () => _run(_service.stop)
+              : _operationRunning ||
+                    _service.busy ||
+                    _loadingCapabilities ||
+                    (!_camera && !_microphone) ||
+                    (_camera && (_cameraId == null || _mode == null)) ||
+                    (_microphone &&
+                        _audioSource == 'microphone' &&
+                        _microphoneId == null)
               ? null
               : () => _run(
                   () => _service.start(
@@ -707,7 +970,11 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                       microphone: _microphone,
                       cameraId: _cameraId,
                       orientation: _orientation,
-                      microphoneId: _microphoneId,
+                      microphoneId: _audioSource == 'microphone'
+                          ? _microphoneId
+                          : null,
+                      audioSettings: _audio,
+                      audioSource: _audioSource,
                       width: _mode?.width ?? 1280,
                       height: _mode?.height ?? 720,
                       fps: _fps,
@@ -718,9 +985,14 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                     ),
                   ),
                 ),
-          icon: const Icon(Icons.sensors),
-          label: Text(t('شروع انتقال زنده', 'Start live capture')),
+          icon: Icon(_service.broadcasting ? Icons.stop : Icons.sensors),
+          label: Text(
+            _service.broadcasting
+                ? t('توقف اشتراک', 'Stop sharing')
+                : t('شروع انتقال زنده', 'Start live capture'),
+          ),
         ),
+        if (_service.active) ...[const SizedBox(height: 18), _sessionCard()],
       ],
     ),
   );
@@ -734,8 +1006,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       children: [
         _heading(Icons.live_tv, t('انتقال زنده', 'Live session'), _statusLabel),
         const SizedBox(height: 16),
-        if (_rendererReady &&
-            (_service.localStream != null || _service.remoteStream != null))
+        if (_rendererReady && _hasPreviewVideo)
           AspectRatio(
             aspectRatio: _renderer.videoWidth > 0 && _renderer.videoHeight > 0
                 ? _renderer.videoWidth / _renderer.videoHeight
@@ -757,6 +1028,21 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         Text(
           '${t('وضعیت', 'Status')}: $_statusLabel • ${t('بیننده', 'Viewers')}: ${_service.viewers}',
         ),
+        if (_service.broadcasting) ...[
+          const SizedBox(height: 12),
+          if (_service.options.microphone)
+            CaptureLatencyChart(
+              values: _service.latencyHistory['audio']!,
+              video: false,
+            ),
+          if (_service.options.microphone && _service.options.camera)
+            const SizedBox(height: 12),
+          if (_service.options.camera)
+            CaptureLatencyChart(
+              values: _service.latencyHistory['video']!,
+              video: true,
+            ),
+        ],
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
@@ -785,13 +1071,14 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                 onPressed: _service.busy ? null : _switchCamera,
               ),
             ],
-            IconButton.filledTonal(
-              tooltip: t('تصویر آینه‌ای', 'Mirror preview'),
-              isSelected: _mirror,
-              icon: const Icon(Icons.flip),
-              selectedIcon: const Icon(Icons.flip),
-              onPressed: () => setState(() => _mirror = !_mirror),
-            ),
+            if (_hasPreviewVideo)
+              IconButton.filledTonal(
+                tooltip: t('تصویر آینه‌ای', 'Mirror preview'),
+                isSelected: _mirror,
+                icon: const Icon(Icons.flip),
+                selectedIcon: const Icon(Icons.flip),
+                onPressed: () => setState(() => _mirror = !_mirror),
+              ),
             if (_android && _service.broadcasting)
               IconButton.filledTonal(
                 tooltip: t('ادامه با صفحهٔ خاموش', 'Continue with screen off'),
@@ -811,13 +1098,8 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             ),
           ],
         ),
-        if (_android && _service.broadcasting && _service.options.camera) ...[
-          const SizedBox(height: 12),
-          _orientationSelector(live: true),
-        ],
         if (_android && _service.broadcasting) ...[
           const SizedBox(height: 12),
-          _inputSelector('audioinput', live: true),
           if (_service.localStream?.getVideoTracks().isNotEmpty == true) ...[
             _inputSelector('videoinput', live: true),
             if (_service.maxZoom > 1)
@@ -868,73 +1150,47 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         _heading(
           Icons.video_camera_front_outlined,
           t('خروجی دستگاه‌ها', 'Device outputs'),
-          t(
-            'وبکم مستقل هر گیرنده به‌صورت خودکار آماده می‌شود.',
-            'Each receiver gets an automatically registered webcam.',
-          ),
+          '',
         ),
         const SizedBox(height: 12),
-        for (final slot in [1, 2, 3, 4])
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Text(
+        if (_checkingOutputs) const LinearProgressIndicator(),
+        if (!_checkingOutputs && _installedCameraSlots.isEmpty)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.videocam_off_outlined),
+            title: Text(t('وبکم', 'Webcam')),
+            trailing: Text(t('نصب نیست', 'Not installed')),
+          ),
+        for (final slot in _installedCameraSlots)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.videocam_outlined),
+            title: Text(
               'Localist Camera $slot',
               textDirection: TextDirection.ltr,
             ),
+            trailing: Text(t('آماده', 'Ready')),
           ),
-        const SizedBox(height: 12),
-        Text(
-          _audioStatus['available'] == true
-              ? t(
-                  'صدا آماده است؛ در Discord، OBS یا مرورگر CABLE Output را به‌عنوان میکروفون انتخاب کنید.',
-                  'Audio is ready. Select CABLE Output as your microphone in Discord, OBS or your browser.',
-                )
-              : t(
-                  'VB-CABLE نصب یا فعال نیست. پس از نصب اولیه، ویندوز را ری‌استارت کنید.',
-                  'VB-CABLE is not installed or enabled. Restart Windows after its first installation.',
-                ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          t(
-            'هر دستگاه یک کابل مستقل می‌گیرد و صداها ترکیب نمی‌شوند. تعداد وبکم و میکروفون را در Setup انتخاب کنید؛ برای کابل‌های بیشتر بسته‌های دارای مجوز A/B/C/D لازم است.',
-            'Each device uses an independent cable; audio is never mixed. Choose device counts in Setup. Additional A/B/C/D cables require their licensed packages.',
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            _audioStatus['available'] == true
+                ? Icons.mic_outlined
+                : Icons.mic_off_outlined,
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          t(
-            'درایور صوتی VB-Audio · Donationware؛ حمایت از سازنده از vb-cable.com',
-            'Audio driver by VB-Audio · Donationware; support the author at vb-cable.com',
+          title: const Text('VB-CABLE · VB-Audio'),
+          trailing: Text(
+            _checkingOutputs
+                ? t('در حال بررسی', 'Checking')
+                : _audioStatus['available'] == true
+                ? t('آماده', 'Ready')
+                : t('در دسترس نیست', 'Unavailable'),
           ),
         ),
         TextButton.icon(
-          onPressed: _refreshVirtualDevices,
+          onPressed: _checkingOutputs ? null : _refreshVirtualDevices,
           icon: const Icon(Icons.refresh),
           label: Text(t('بررسی وضعیت دستگاه‌ها', 'Refresh device status')),
-        ),
-      ],
-    ),
-  );
-
-  Widget _guideCard() => GlassPanel(
-    padding: EdgeInsets.zero,
-    child: ExpansionTile(
-      title: Text(
-        t(
-          'راهنمای USB، OBS، دوربین و میکروفون مجازی',
-          'USB, OBS & virtual device guide',
-        ),
-      ),
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(
-            t(
-              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای صدا، CABLE Output را به‌عنوان میکروفون انتخاب کنید. هر دستگاه از کابل مستقل استفاده می‌کند؛ تعداد دستگاه‌ها و بسته‌های لازم در Setup انتخاب می‌شوند و پس از نصب اولیه ری‌استارت لازم است.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ کنترل تنظیمات فرستنده در دسترس است.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. انتقال در پس‌زمینه ادامه دارد؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
-              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For audio, select CABLE Output. Each sender uses an independent cable. Choose device counts and licensed packages in Setup; restart Windows after first installation.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls the paired sender.\n4. Actual quality/FPS depend on hardware and network. Background sharing stays active with a silent notification and Stop action.',
-            ),
-          ),
         ),
       ],
     ),
@@ -945,9 +1201,10 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     builder: (context, constraints) {
       final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
       final available = (constraints.maxWidth - 40).clamp(0.0, 1420.0);
-      final columns = available / scale >= 1040;
+      final server = _panel == 'server' || (_android && _service.broadcasting);
+      final columns = !server && _windows && available / scale >= 1040;
       final width = columns ? available : available.clamp(0.0, 840.0);
-      final side = [_receiveCard(), if (_windows) _virtualCard(), _guideCard()];
+      final side = [if (!server && _windows) _virtualCard()];
       Widget stack(List<Widget> cards) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -957,7 +1214,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           ],
         ],
       );
-      final primary = _service.active ? _sessionCard() : _sendCard();
+      final primary = server ? _sendCard() : _receiveCard();
       return Scrollbar(
         controller: _scroll,
         thumbVisibility: _windows,
@@ -986,6 +1243,31 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                     ),
                   ),
                   const SizedBox(height: 22),
+                  Visibility(
+                    visible: !_android || !_service.broadcasting,
+                    maintainSize: true,
+                    maintainState: true,
+                    maintainAnimation: true,
+                    child: SegmentedButton<String>(
+                      key: const ValueKey('capture-role'),
+                      segments: [
+                        ButtonSegment(
+                          value: 'player',
+                          icon: const Icon(Icons.headphones),
+                          label: Text(t('گیرنده · Player', 'Player')),
+                        ),
+                        ButtonSegment(
+                          value: 'server',
+                          icon: const Icon(Icons.wifi_tethering),
+                          label: Text(t('فرستنده · Server', 'Server')),
+                        ),
+                      ],
+                      selected: {_panel},
+                      onSelectionChanged: (v) =>
+                          setState(() => _panel = v.first),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
                   if (_notice.isNotEmpty || _service.error.isNotEmpty) ...[
                     Text(
                       _notice.isNotEmpty ? _notice : _service.error,

@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.18)
+project(localist_audio LANGUAGES CXX)
+add_library(localist_audio SHARED opensl_output.cpp)
+target_compile_features(localist_audio PRIVATE cxx_std_17)
+target_compile_options(localist_audio PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(localist_audio PRIVATE OpenSLES android log)

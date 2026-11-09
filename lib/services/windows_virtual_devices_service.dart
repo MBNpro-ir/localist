@@ -1,9 +1,11 @@
 import 'dart:ffi';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'live_capture_service.dart';
+import 'capture_audio_settings.dart';
 
 typedef _SetSlotNative = Int32 Function(Int32 slot, Int64 texture, Int32 fps);
 typedef _SetSlot = int Function(int slot, int texture, int fps);
@@ -17,6 +19,32 @@ class WindowsVirtualDevicesService {
   final int slot;
   static const _channel = MethodChannel('com.prs.localist.vpn');
   static const _media = MethodChannel('FlutterWebRTC.Method');
+  static const _androidAudio = MethodChannel('localist/capture');
+  bool get _windows => Platform.isWindows;
+  MethodChannel get _audioChannel => _windows ? _media : _androidAudio;
+  String _audioMethod(String windows, String android) =>
+      _windows ? windows : android;
+  CaptureAudioSettings _audioSettings = CaptureAudioSettings(
+    outputMode: Platform.isWindows ? 'mic' : 'playback',
+  );
+  CaptureAudioSettings get audioSettings => _audioSettings;
+  set audioSettings(CaptureAudioSettings value) {
+    value.validate();
+    if (jsonEncode(value.toMap()) == jsonEncode(_audioSettings.toMap())) return;
+    _audioSettings = value;
+    _microphoneFailure = null;
+    _microphoneRetry = DateTime(1970);
+  }
+
+  Map<String, dynamic> audioDiagnostics = {};
+  Future<void> pushPcm(Uint8List data) async {
+    if (_microphoneTrack == null || !validCapturePcm(data)) return;
+    await _audioChannel.invokeMethod(
+      _audioMethod('localistVirtualMicrophonePcm', 'audioOutputPcm'),
+      {'slot': slot, 'data': data},
+    );
+  }
+
   _SetSlot? _setSlot;
   bool cameraEnabled = false;
   String? _microphoneTrack;
@@ -119,9 +147,12 @@ class WindowsVirtualDevicesService {
 
   Future<Map<String, dynamic>> microphoneStatus() async =>
       Map<String, dynamic>.from(
-        await _channel.invokeMapMethod<String, dynamic>(
-              'getWindowsVirtualMicrophoneStatus',
-            ) ??
+        await (_windows ? _channel : _androidAudio)
+                .invokeMapMethod<String, dynamic>(
+                  _windows
+                      ? 'getWindowsVirtualMicrophoneStatus'
+                      : 'audioOutputDevices',
+                ) ??
             {},
       );
 
@@ -129,15 +160,16 @@ class WindowsVirtualDevicesService {
     final track = stream?.getAudioTracks().firstOrNull;
     final identity = track == null
         ? null
-        : '${stream!.ownerTag}/${track.id}/$_microphoneEndpoint';
+        : '${stream!.ownerTag}/${track.id}/$_microphoneEndpoint/${jsonEncode(audioSettings.toMap())}';
     if (identity == _microphoneTrack) {
       if (identity == null || DateTime.now().isBefore(_microphoneCheck)) return;
       _microphoneCheck = DateTime.now().add(const Duration(seconds: 2));
-      final state = await _media.invokeMapMethod<String, dynamic>(
-        'localistVirtualMicrophoneStatus',
+      final state = await _audioChannel.invokeMapMethod<String, dynamic>(
+        _audioMethod('localistVirtualMicrophoneStatus', 'audioOutputStatus'),
         {'slot': slot},
       );
       microphoneName = state?['microphone'] as String? ?? microphoneName;
+      audioDiagnostics = state ?? {};
       if (state?['error'] == 0) return;
       // Reopen a removed/restarted driver handle while retaining the RTC session.
       _microphoneTrack = null;
@@ -151,24 +183,32 @@ class WindowsVirtualDevicesService {
       throw StateError(_microphoneFailure!);
     }
     try {
-      final bound = await _media.invokeMethod<bool>(
-        'localistVirtualMicrophone',
+      final bound = await _audioChannel.invokeMethod<bool>(
+        _audioMethod('localistVirtualMicrophone', 'audioOutputBind'),
         {
           'slot': slot,
           'ownerTag': stream!.ownerTag,
           'trackId': track!.id,
-          if (_microphoneEndpoint.isNotEmpty) 'endpointId': _microphoneEndpoint,
+          ...audioSettings.nativeMap,
+          if ((audioSettings.outputMode == 'playback'
+                  ? audioSettings.outputDevice
+                  : _microphoneEndpoint)
+              .isNotEmpty)
+            'endpointId': audioSettings.outputMode == 'playback'
+                ? audioSettings.outputDevice
+                : _microphoneEndpoint,
         },
       );
       if (bound != true) throw StateError('Native microphone binding failed.');
       _microphoneTrack = identity;
       _microphoneCheck = DateTime.now().add(const Duration(seconds: 2));
       _microphoneFailure = null;
-      final state = await _media.invokeMapMethod<String, dynamic>(
-        'localistVirtualMicrophoneStatus',
+      final state = await _audioChannel.invokeMapMethod<String, dynamic>(
+        _audioMethod('localistVirtualMicrophoneStatus', 'audioOutputStatus'),
         {'slot': slot},
       );
       microphoneName = state?['microphone'] as String? ?? '';
+      audioDiagnostics = state ?? {};
     } catch (error) {
       _microphoneTrack = null;
       _microphoneRetry = DateTime.now().add(const Duration(seconds: 5));
@@ -183,10 +223,10 @@ class WindowsVirtualDevicesService {
     _microphoneTrack = null;
     microphoneName = '';
     if (hadTrack) {
-      await _media.invokeMethod<bool>('localistVirtualMicrophone', {
-        'slot': slot,
-        'trackId': '',
-      });
+      await _audioChannel.invokeMethod<bool>(
+        _audioMethod('localistVirtualMicrophone', 'audioOutputBind'),
+        {'slot': slot, 'trackId': ''},
+      );
     }
   }
 

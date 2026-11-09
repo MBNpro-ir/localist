@@ -2,6 +2,7 @@
 #include "../windows/virtual_audio/cable_output.h"
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#include <endpointvolume.h>
 #include <ksmedia.h>
 #include <wrl/client.h>
 #include <chrono>
@@ -12,6 +13,21 @@
 using Microsoft::WRL::ComPtr;
 int wmain(int argc, wchar_t** argv) {
   CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  if (argc > 1 && std::wstring(argv[1]) == L"--levels") {
+    ComPtr<IMMDeviceEnumerator> enumerator;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator)))) return 6;
+    for (auto flow : {eRender, eCapture}) for (auto role : {eConsole, eMultimedia, eCommunications}) {
+      ComPtr<IMMDevice> device; ComPtr<IAudioEndpointVolume> volume;
+      if (FAILED(enumerator->GetDefaultAudioEndpoint(flow, role, &device))) continue;
+      LPWSTR id=nullptr; float scalar=0; BOOL muted=FALSE;
+      if (FAILED(device->GetId(&id)) || FAILED(device->Activate(__uuidof(IAudioEndpointVolume),CLSCTX_ALL,nullptr,&volume))) return 7;
+      if (FAILED(volume->GetMasterVolumeLevelScalar(&scalar)) || FAILED(volume->GetMute(&muted))) return 8;
+      std::wcout << L"DEFAULT flow=" << flow << L" role=" << role << L" id=" << id
+        << L" volume=" << scalar << L" mute=" << muted << L"\n";
+      CoTaskMemFree(id);
+    }
+    return 0;
+  }
   const auto endpoints=LocalistCableEndpoints(true);
   for (const auto& endpoint:LocalistCableEndpoints()) std::wcout << L"PLAYBACK " << endpoint.name << L"\n";
   for (const auto& endpoint:endpoints) std::wcout << L"MICROPHONE " << endpoint.name << L"\n";

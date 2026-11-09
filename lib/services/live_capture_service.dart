@@ -5,11 +5,13 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'feature_activity_service.dart';
 import 'feature_permission_service.dart';
 import 'lan_network_service.dart';
 import 'capture_capabilities.dart';
 import 'log_service.dart';
+import 'capture_audio_settings.dart';
 
 class LiveCaptureOptions {
   const LiveCaptureOptions({
@@ -28,8 +30,12 @@ class LiveCaptureOptions {
     this.microphoneId,
     this.receiverControls = true,
     this.orientation = 'landscape',
+    this.audioSettings = const CaptureAudioSettings(),
+    this.audioSource = 'microphone',
   });
   final String orientation;
+  final CaptureAudioSettings audioSettings;
+  final String audioSource;
   final String? cameraId, microphoneId;
   final bool receiverControls;
   final bool background;
@@ -82,7 +88,10 @@ class LiveCaptureOptions {
         : false,
   };
   void validate() {
+    audioSettings.validate();
     if ((!camera && !microphone) ||
+        !['microphone', 'system'].contains(audioSource) ||
+        (audioSource == 'system' && camera) ||
         !['auto', 'portrait', 'landscape'].contains(orientation) ||
         width < 2 ||
         width > 8192 ||
@@ -103,6 +112,7 @@ class LiveCaptureOptions {
     String? cameraId,
     String? microphoneId,
     bool clearCameraId = false,
+    bool clearMicrophoneId = false,
     bool? receiverControls,
     int? width,
     int? height,
@@ -112,6 +122,8 @@ class LiveCaptureOptions {
     bool? noiseSuppression,
     bool? autoGain,
     String? orientation,
+    CaptureAudioSettings? audioSettings,
+    String? audioSource,
   }) => LiveCaptureOptions(
     background: background ?? this.background,
     camera: camera,
@@ -126,8 +138,10 @@ class LiveCaptureOptions {
     autoGain: autoGain ?? this.autoGain,
     receiverControls: receiverControls ?? this.receiverControls,
     cameraId: clearCameraId ? null : cameraId ?? this.cameraId,
-    microphoneId: microphoneId ?? this.microphoneId,
+    microphoneId: clearMicrophoneId ? null : microphoneId ?? this.microphoneId,
     orientation: orientation ?? this.orientation,
+    audioSettings: audioSettings ?? this.audioSettings,
+    audioSource: audioSource ?? this.audioSource,
   );
 }
 
@@ -268,11 +282,118 @@ Future<WebSocket> connectCaptureSocket(Uri uri) async {
 }
 
 class LiveCaptureService extends ChangeNotifier {
+  Timer? _latencyTimer;
+  bool _latencyBusy = false;
+  final Map<String, List<double>> latencyHistory = {'audio': [], 'video': []};
+  Future<void> _sampleLatency() async {
+    if (_latencyBusy || !broadcasting) return;
+    _latencyBusy = true;
+    try {
+      final values = <String, List<double>>{'audio': [], 'video': []};
+      for (final peer in _peers.values.toList()) {
+        final reports = await peer.getStats();
+        double? roundTrip;
+        for (final report in reports) {
+          if (report.type == 'candidate-pair' &&
+              report.values['state'] == 'succeeded') {
+            final value = report.values['currentRoundTripTime'];
+            if (value is num) roundTrip = value.toDouble() * 1000;
+          }
+        }
+        if (roundTrip == null) continue;
+        for (final report in reports.where((r) => r.type == 'outbound-rtp')) {
+          final kind = '${report.values['kind'] ?? report.values['mediaType']}';
+          if (!values.containsKey(kind)) continue;
+          final encoded = report.values['framesEncoded'];
+          final encodeTime = report.values['totalEncodeTime'];
+          final encode = encoded is num && encoded > 0 && encodeTime is num
+              ? encodeTime / encoded * 1000
+              : 0.0;
+          values[kind]!.add(roundTrip / 2 + encode);
+        }
+      }
+      if (!broadcasting || _disposed) return;
+      for (final entry in values.entries) {
+        if (entry.value.isEmpty) continue;
+        final history = latencyHistory[entry.key]!;
+        history.add(entry.value.reduce(max).clamp(0, 10000));
+        if (history.length > 60) history.removeAt(0);
+      }
+      notifyListeners();
+    } catch (error) {
+      LogService.instance.debug(
+        'Capture latency statistics unavailable',
+        error: error,
+      );
+    } finally {
+      _latencyBusy = false;
+    }
+  }
+
+  final Map<WebSocket, RTCDataChannel> _pcmChannels = {};
+  StreamSubscription<dynamic>? _audioFrames;
+  bool _captureSourceOwned = false;
+  void Function(Uint8List)? onAudioPcm;
+  int pcmPacketsReceived = 0, pcmPacketsSent = 0, pcmPacketsDropped = 0;
+  Future<void> _configureAudioCapture() async {
+    if (!options.microphone) return;
+    final args = options.audioSettings.toMap();
+    if (Platform.isWindows) {
+      await const MethodChannel(
+        'FlutterWebRTC.Method',
+      ).invokeMethod('localistCaptureAudioSettings', args);
+    } else if (Platform.isAndroid) {
+      await _captureChannel.invokeMethod('audioEffects', args);
+    }
+    if (options.audioSettings.uncompressed) {
+      _audioFrames ??= const EventChannel('localist/audioFrames')
+          .receiveBroadcastStream()
+          .listen((event) {
+            if (event is! Uint8List || !validCapturePcm(event)) return;
+            for (final channel in _pcmChannels.values.toList()) {
+              if (channel.state != RTCDataChannelState.RTCDataChannelOpen) {
+                continue;
+              }
+              if ((channel.bufferedAmount ?? 0) > 65536) {
+                pcmPacketsDropped++;
+                continue;
+              }
+              unawaited(
+                channel
+                    .send(RTCDataChannelMessage.fromBinary(event))
+                    .then((_) {
+                      pcmPacketsSent++;
+                    })
+                    .catchError((Object _) {
+                      pcmPacketsDropped++;
+                    }),
+              );
+            }
+          });
+    }
+  }
+
+  void _receivePcmChannel(RTCDataChannel channel) {
+    if (channel.label != 'localist.pcm.v1') return;
+    channel.onMessage = (message) {
+      if (!message.isBinary || !validCapturePcm(message.binary)) {
+        pcmPacketsDropped++;
+        return;
+      }
+      pcmPacketsReceived++;
+      onAudioPcm?.call(message.binary);
+    };
+  }
+
   static Future<void>? _mediaInitialization;
   static Future<void> initializeMedia() => _mediaInitialization ??=
       WebRTC.initialize(
         options: {
-          if (Platform.isAndroid) 'androidUseHardwareAudioProcessing': false,
+          if (Platform.isAndroid) ...{
+            'androidUseHardwareAudioProcessing': false,
+            'androidAudioConfiguration': AndroidAudioConfiguration.media.toMap()
+              ..['manageAudioFocus'] = false,
+          },
         },
       ).catchError((Object error) {
         _mediaInitialization = null;
@@ -280,7 +401,7 @@ class LiveCaptureService extends ChangeNotifier {
       });
   static Future<List<MediaDeviceInfo>> inputDevices() async {
     await initializeMedia();
-    return (await navigator.mediaDevices.enumerateDevices())
+    final devices = (await navigator.mediaDevices.enumerateDevices())
         .where(
           (device) =>
               device.kind == 'audioinput' || device.kind == 'videoinput',
@@ -289,6 +410,9 @@ class LiveCaptureService extends ChangeNotifier {
           (device) => !device.label.toLowerCase().contains('localist camera'),
         )
         .toList();
+    return {
+      for (final device in devices) '${device.kind}:${device.deviceId}': device,
+    }.values.toList();
   }
 
   static Future<CaptureCapabilities> deviceCapabilities(
@@ -342,6 +466,27 @@ class LiveCaptureService extends ChangeNotifier {
 
   Map<String, dynamic> _remoteControls = {};
   List<MediaDeviceInfo> _controlMicrophones = [];
+  List<MediaDeviceInfo> _controlCameras = [];
+  void updateInputDevices(List<MediaDeviceInfo> inputs) {
+    final microphones = options.audioSource == 'system'
+        ? <MediaDeviceInfo>[]
+        : inputs.where((d) => d.kind == 'audioinput').take(12).toList();
+    final cameras = inputs
+        .where((d) => d.kind == 'videoinput')
+        .take(12)
+        .toList();
+    String signature(List<MediaDeviceInfo> devices) => jsonEncode([
+      for (final d in devices) [d.deviceId, d.label],
+    ]);
+    if (signature(microphones) == signature(_controlMicrophones) &&
+        signature(cameras) == signature(_controlCameras)) {
+      return;
+    }
+    _controlMicrophones = microphones;
+    _controlCameras = cameras;
+    if (broadcasting) _changed();
+  }
+
   final Map<int, Completer<void>> _controlRequests = {};
   int _controlSequence = 0, _captureGeneration = 0;
   Map<String, dynamic> get captureControlState => receiving
@@ -358,11 +503,22 @@ class LiveCaptureService extends ChangeNotifier {
           'noise': options.noiseSuppression,
           'echo': options.echoCancellation,
           'gain': options.autoGain,
+          ...options.audioSettings.toMap(),
+          'audioSource': options.audioSource,
+          'orientation': options.orientation,
+          'selectedMicrophone': _controlMicrophones.indexWhere(
+            (d) => d.deviceId == options.microphoneId,
+          ),
+          'selectedCamera': _controlCameras.indexWhere(
+            (d) => d.deviceId == activeCameraId,
+          ),
           'torch': torch,
           'torchAvailable': hasTorch,
           'message': error,
           for (var i = 0; i < _controlMicrophones.length && i < 12; i++)
             'microphone$i': _controlMicrophones[i].label,
+          for (var i = 0; i < _controlCameras.length && i < 12; i++)
+            'camera$i': _controlCameras[i].label,
         };
   bool get broadcasting => _server != null;
   bool get receiving => _receiver != null;
@@ -447,6 +603,14 @@ class LiveCaptureService extends ChangeNotifier {
         );
       }
       value = value.copyWith(background: true, receiverControls: true);
+      if (value.audioSource == 'system') {
+        value = value.copyWith(
+          clearMicrophoneId: true,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGain: false,
+        );
+      }
       final inputs = await inputDevices();
       final cameras = inputs.where((d) => d.kind == 'videoinput').toList();
       final microphones = inputs.where((d) => d.kind == 'audioinput').toList();
@@ -463,12 +627,17 @@ class LiveCaptureService extends ChangeNotifier {
               ?.deviceId ??
           microphones.firstOrNull?.deviceId;
       if (value.camera && cameraId == null ||
-          value.microphone && microphoneId == null) {
+          value.microphone &&
+              value.audioSource == 'microphone' &&
+              microphoneId == null) {
         throw StateError(
           'ورودی انتخاب‌شده در دسترس نیست. / Selected input is unavailable.',
         );
       }
-      value = value.copyWith(cameraId: cameraId, microphoneId: microphoneId);
+      value = value.copyWith(
+        cameraId: cameraId,
+        microphoneId: value.audioSource == 'microphone' ? microphoneId : null,
+      );
       if (value.camera) {
         capabilities = await deviceCapabilities(
           cameraId!,
@@ -503,6 +672,7 @@ class LiveCaptureService extends ChangeNotifier {
         }
       }
       options = value;
+      _captureSourceOwned = true;
       if (_disposed || generation != _captureGeneration) return;
       await initializeMedia();
       if (Platform.isAndroid && value.background) {
@@ -546,10 +716,41 @@ class LiveCaptureService extends ChangeNotifier {
           {'sourceId': inputs.first.deviceId},
         ];
       }
-      if (value.microphoneId != null && value.microphone) {
+      if (value.microphoneId != null &&
+          value.microphone &&
+          value.audioSource == 'microphone') {
         await selectMicrophone(value.microphoneId!);
       }
-      localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (value.audioSource == 'system' && value.microphone) {
+        if (!Platform.isWindows && !Platform.isAndroid) {
+          throw UnsupportedError('System audio capture is unavailable.');
+        }
+        if (Platform.isAndroid) {
+          await _captureChannel.invokeMethod('systemAudioStart');
+          localStream = await navigator.mediaDevices.getUserMedia(
+            value
+                .copyWith(
+                  echoCancellation: false,
+                  noiseSuppression: false,
+                  autoGain: false,
+                )
+                .constraints,
+          );
+        } else {
+          localStream = await navigator.mediaDevices.getDisplayMedia({
+            'audio': true,
+            'video': false,
+          });
+        }
+        if (localStream!.getAudioTracks().isEmpty) {
+          throw StateError(
+            'System audio capture is not supported on this device.',
+          );
+        }
+      } else {
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      }
+      await _configureAudioCapture();
       if (_disposed || generation != _captureGeneration) {
         await stop();
         return;
@@ -557,15 +758,22 @@ class LiveCaptureService extends ChangeNotifier {
       activeCameraId =
           localStream?.getVideoTracks().firstOrNull?.getSettings()['deviceId']
               as String?;
-      await setOrientation(value.orientation);
+      if (value.camera) await setOrientation(value.orientation);
       if (_disposed) {
         await stop();
         return;
       }
-      await refreshCameraControls();
+      if (value.camera) await refreshCameraControls();
       if (_disposed || generation != _captureGeneration) return;
-      _controlMicrophones = (await inputDevices())
-          .where((device) => device.kind == 'audioinput')
+      _controlMicrophones =
+          (options.audioSource == 'system'
+                  ? <MediaDeviceInfo>[]
+                  : await inputDevices())
+              .where((device) => device.kind == 'audioinput')
+              .take(12)
+              .toList();
+      _controlCameras = (await inputDevices())
+          .where((d) => d.kind == 'videoinput')
           .take(12)
           .toList();
       // Preview must never play our own microphone through the local speakers.
@@ -587,6 +795,11 @@ class LiveCaptureService extends ChangeNotifier {
           .toList();
       if (addresses.isEmpty) addresses = ['127.0.0.1'];
       status = 'waiting';
+      _latencyTimer?.cancel();
+      _latencyTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => unawaited(_sampleLatency()),
+      );
     } catch (e) {
       error = '$e';
       await stop();
@@ -693,6 +906,7 @@ class LiveCaptureService extends ChangeNotifier {
       onDone: () {
         handshakeDeadline.cancel();
         _peers.remove(socket);
+        unawaited(_pcmChannels.remove(socket)?.close() ?? Future<void>.value());
         if (_peers.isEmpty && broadcasting) status = 'waiting';
         unawaited(peer.close());
         _changed();
@@ -709,16 +923,35 @@ class LiveCaptureService extends ChangeNotifier {
       for (final track in stream.getTracks()) {
         await peer.addTrack(track, stream);
       }
+      if (options.microphone) {
+        final channel = await peer.createDataChannel(
+          'localist.pcm.v1',
+          RTCDataChannelInit()
+            ..ordered = false
+            ..maxRetransmits = 0,
+        );
+        _pcmChannels[socket] = channel;
+      }
       final offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.add(jsonEncode({'type': 'offer', 'sdp': offer.sdp}));
+      final sdp = configureCaptureAudioSdp(
+        offer.sdp ?? '',
+        options.audioSettings,
+      );
+      await peer.setLocalDescription(RTCSessionDescription(sdp, 'offer'));
+      socket.add(jsonEncode({'type': 'offer', 'sdp': sdp}));
       try {
         for (final sender in await peer.getSenders()) {
-          if (sender.track?.kind != 'video') continue;
+          if (sender.track?.kind != 'video' && sender.track?.kind != 'audio') {
+            continue;
+          }
           final parameters = sender.parameters;
           for (final encoding in parameters.encodings ?? <RTCRtpEncoding>[]) {
-            encoding.maxBitrate = options.bitrateKbps * 1000;
-            encoding.maxFramerate = options.fps;
+            encoding.maxBitrate = sender.track?.kind == 'audio'
+                ? options.audioSettings.bitrateKbps * 1000
+                : options.bitrateKbps * 1000;
+            if (sender.track?.kind == 'video') {
+              encoding.maxFramerate = options.fps;
+            }
           }
           await sender.setParameters(parameters);
         }
@@ -776,6 +1009,7 @@ class LiveCaptureService extends ChangeNotifier {
         return;
       }
       _peers[socket] = peer;
+      peer.onDataChannel = _receivePcmChannel;
       final preferredAddresses = await _usbAddresses(uri.host);
       if (_disposed || generation != _captureGeneration) {
         if (_receiver == socket) await stop();
@@ -840,8 +1074,14 @@ class LiveCaptureService extends ChangeNotifier {
                   }
                   _pendingCandidates.clear();
                   final answer = await peer.createAnswer();
-                  await peer.setLocalDescription(answer);
-                  socket.add(jsonEncode({'type': 'answer', 'sdp': answer.sdp}));
+                  final sdp = configureCaptureAudioSdp(
+                    answer.sdp ?? '',
+                    CaptureAudioSettings.fromMap(_remoteControls),
+                  );
+                  await peer.setLocalDescription(
+                    RTCSessionDescription(sdp, 'answer'),
+                  );
+                  socket.add(jsonEncode({'type': 'answer', 'sdp': sdp}));
                 } else if (data['candidate'] is Map) {
                   final candidate = _candidate(data['candidate'] as Map);
                   if (await peer.getRemoteDescription() == null) {
@@ -981,8 +1221,20 @@ class LiveCaptureService extends ChangeNotifier {
       }
       return;
     }
+    if (command.containsKey('camera')) {
+      final index = command['camera'] as int;
+      if (index < 0 || index >= _controlCameras.length) {
+        throw StateError('Camera is unavailable');
+      }
+      await switchCamera(cameraId: _controlCameras[index].deviceId);
+      return;
+    }
     if (!broadcasting || busy) {
       throw StateError('Receiver controls are not enabled by the sender.');
+    }
+    if (options.audioSource == 'system' &&
+        ['microphone', 'noise', 'echo', 'gain'].any(command.containsKey)) {
+      throw StateError('Microphone controls do not apply to system audio.');
     }
     busy = true;
     final generation = _captureGeneration;
@@ -1023,6 +1275,7 @@ class LiveCaptureService extends ChangeNotifier {
         microphoneId: microphone >= 0
             ? _controlMicrophones[microphone].deviceId
             : null,
+        orientation: command['orientation'] as String?,
       );
       next.validate();
       if (mode != null && (next.fps < mode.minFps || next.fps > mode.maxFps)) {
@@ -1054,6 +1307,11 @@ class LiveCaptureService extends ChangeNotifier {
           );
         }
       }
+      final audioSettings = options.audioSettings.withValues({
+        for (final entry in command.entries)
+          if (entry.key.startsWith('audio')) entry.key: entry.value,
+      });
+      next = next.copyWith(audioSettings: audioSettings);
       final restart =
           next.width != options.width ||
           next.height != options.height ||
@@ -1095,7 +1353,7 @@ class LiveCaptureService extends ChangeNotifier {
           throw StateError('Capture stopped during configuration.');
         }
         localStream = stream;
-        await setOrientation(applied.orientation);
+        if (applied.camera) await setOrientation(applied.orientation);
         for (final peer in _peers.values.toList()) {
           for (final sender in await peer.getSenders()) {
             final replacement = stream
@@ -1111,7 +1369,7 @@ class LiveCaptureService extends ChangeNotifier {
         activeCameraId =
             stream.getVideoTracks().firstOrNull?.getSettings()['deviceId']
                 as String?;
-        await refreshCameraControls();
+        if (applied.camera) await refreshCameraControls();
         if (applied == previous) {
           throw StateError(
             'Requested mode was unavailable; previous capture restored.',
@@ -1124,13 +1382,43 @@ class LiveCaptureService extends ChangeNotifier {
         options = next.copyWith(receiverControls: true);
       }
       capabilities = limits;
+      if (command.containsKey('orientation') && options.camera) {
+        await setOrientation(options.orientation);
+      }
+      await _configureAudioCapture();
+      if (previous.audioSettings.bitrateKbps !=
+              options.audioSettings.bitrateKbps ||
+          previous.audioSettings.continuous !=
+              options.audioSettings.continuous ||
+          previous.audioSettings.uncompressed !=
+              options.audioSettings.uncompressed) {
+        for (final entry in _peers.entries.toList()) {
+          final offer = await entry.value.createOffer();
+          final sdp = configureCaptureAudioSdp(
+            offer.sdp ?? '',
+            options.audioSettings,
+          );
+          await entry.value.setLocalDescription(
+            RTCSessionDescription(sdp, 'offer'),
+          );
+          if (entry.key.readyState == WebSocket.open) {
+            entry.key.add(jsonEncode({'type': 'offer', 'sdp': sdp}));
+          }
+        }
+      }
       for (final peer in _peers.values.toList()) {
         for (final sender in await peer.getSenders()) {
-          if (sender.track?.kind != 'video') continue;
+          if (sender.track?.kind != 'video' && sender.track?.kind != 'audio') {
+            continue;
+          }
           final parameters = sender.parameters;
           for (final encoding in parameters.encodings ?? <RTCRtpEncoding>[]) {
-            encoding.maxBitrate = options.bitrateKbps * 1000;
-            encoding.maxFramerate = options.fps;
+            encoding.maxBitrate = sender.track?.kind == 'audio'
+                ? options.audioSettings.bitrateKbps * 1000
+                : options.bitrateKbps * 1000;
+            if (sender.track?.kind == 'video') {
+              encoding.maxFramerate = options.fps;
+            }
           }
           await sender.setParameters(parameters);
         }
@@ -1141,6 +1429,16 @@ class LiveCaptureService extends ChangeNotifier {
       if (command['torch'] is bool && hasTorch) {
         await setTorch(command['torch'] as bool);
       }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'capture.senderAudio',
+        jsonEncode({
+          ...options.audioSettings.toMap(),
+          'echo': options.echoCancellation,
+          'noise': options.noiseSuppression,
+          'gain': options.autoGain,
+        }),
+      );
     } catch (exception) {
       error = '$exception';
       if (localStream == null && generation == _captureGeneration) await stop();
@@ -1276,6 +1574,33 @@ class LiveCaptureService extends ChangeNotifier {
   Future<void> stop() =>
       _stopping ??= _stop().whenComplete(() => _stopping = null);
   Future<void> _stop() async {
+    final ownedSource =
+        _captureSourceOwned ||
+        localStream != null ||
+        _foregroundOwned ||
+        _server != null;
+    _captureSourceOwned = false;
+    _latencyTimer?.cancel();
+    _latencyTimer = null;
+    for (final history in latencyHistory.values) {
+      history.clear();
+    }
+    if (ownedSource && Platform.isAndroid && options.audioSource == 'system') {
+      await _captureChannel
+          .invokeMethod('systemAudioStop')
+          .catchError((Object _) => null);
+    }
+    await _audioFrames?.cancel();
+    _audioFrames = null;
+    for (final channel in _pcmChannels.values.toList()) {
+      await channel.close().catchError((Object _) {});
+    }
+    _pcmChannels.clear();
+    if (ownedSource && Platform.isWindows && options.audioSource == 'system') {
+      await const MethodChannel(
+        'FlutterWebRTC.Method',
+      ).invokeMethod('localistStopSystemAudio').catchError((Object _) => null);
+    }
     ++_captureGeneration;
     _receiverWatchdog?.cancel();
     _receiverWatchdog = null;
@@ -1302,6 +1627,19 @@ class LiveCaptureService extends ChangeNotifier {
       await track.stop().catchError((Object _) {});
     }
     await local?.dispose().catchError((Object _) {});
+    if (ownedSource && options.microphone) {
+      final channel = Platform.isWindows
+          ? const MethodChannel('FlutterWebRTC.Method')
+          : _captureChannel;
+      await channel
+          .invokeMethod(
+            Platform.isWindows
+                ? 'localistCaptureAudioSettings'
+                : 'audioEffects',
+            const CaptureAudioSettings().toMap(),
+          )
+          .catchError((Object _) => null);
+    }
     if (_foregroundOwned) {
       _foregroundOwned = false;
       _captureChannel.setMethodCallHandler(null);
@@ -1403,16 +1741,45 @@ void validateCaptureControl(Map<String, dynamic> command) {
     'gain',
     'torch',
     'microphone',
+    'camera',
+    'orientation',
+    'audioBitrate',
+    'audioGainDb',
+    'audioBufferMode',
+    'audioMinBuffer',
+    'audioMaxBuffer',
+    'audioEventSync',
+    'audioContinuous',
+    'audioFocus',
+    'audioLowLatency',
+    'audioUncompressed',
   };
   if (command.isEmpty || command.keys.any((key) => !keys.contains(key))) {
     throw const FormatException('Unsupported capture control.');
+  }
+  if (command.keys.any((key) => key.startsWith('audio'))) {
+    CaptureAudioSettings.fromMap({
+      for (final e in command.entries)
+        if (e.key.startsWith('audio')) e.key: e.value,
+    });
   }
   for (final key in ['noise', 'echo', 'gain', 'torch']) {
     if (command.containsKey(key) && command[key] is! bool) {
       throw const FormatException('Invalid capture switch.');
     }
   }
-  for (final key in ['width', 'height', 'fps', 'bitrate', 'microphone']) {
+  if (command.containsKey('orientation') &&
+      !['auto', 'portrait', 'landscape'].contains(command['orientation'])) {
+    throw const FormatException('Invalid camera orientation');
+  }
+  for (final key in [
+    'width',
+    'height',
+    'fps',
+    'bitrate',
+    'microphone',
+    'camera',
+  ]) {
     if (command.containsKey(key) && command[key] is! int) {
       throw const FormatException('Invalid capture number.');
     }
@@ -1433,6 +1800,9 @@ void validateCaptureControl(Map<String, dynamic> command) {
       (command.containsKey('microphone') &&
           ((command['microphone'] as int) < -1 ||
               (command['microphone'] as int) >= 12)) ||
+      (command.containsKey('camera') &&
+          ((command['camera'] as int) < 0 ||
+              (command['camera'] as int) >= 12)) ||
       (command.containsKey('zoom') &&
           (command['zoom'] is! num ||
               !(command['zoom'] as num).isFinite ||

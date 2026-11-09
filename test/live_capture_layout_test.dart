@@ -41,6 +41,14 @@ class _Preview extends RTCVideoRenderer {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('localist/audioDevices'),
+          (_) async => null,
+        );
+  });
+  TestWidgetsFlutterBinding.ensureInitialized();
   const imageKey = ValueKey('capture-layout-image');
   const webrtc = MethodChannel('FlutterWebRTC.Method');
   const bridge = MethodChannel('com.prs.localist.vpn');
@@ -265,31 +273,19 @@ void main() {
       final send = tester.getRect(
         find.byKey(const ValueKey('capture-send-card')),
       );
-      final receive = tester.getRect(
-        find.byKey(const ValueKey('capture-receive-card')),
+      expect(find.byKey(const ValueKey('capture-receive-card')), findsNothing);
+      expect(send.width, lessThanOrEqualTo(sample.size.width));
+      await tester.ensureVisible(
+        find.text(sample.fa ? 'گیرنده · Player' : 'Player'),
       );
-      final desktop = find
-          .byKey(const ValueKey('capture-desktop-columns'))
-          .evaluate()
-          .isNotEmpty;
-      if (desktop) {
-        expect(receive.top, send.top);
-        expect(
-          sample.fa ? receive.right < send.left : receive.left > send.right,
-          true,
-        );
-        final output = tester.getRect(
-          find.byKey(const ValueKey('capture-outputs-card')),
-        );
-        expect(output.top, closeTo(receive.bottom + 18, .1));
-        expect(output.top, lessThan(sample.size.height));
-        expect(
-          find.byKey(const ValueKey('capture-settings-columns')),
-          findsOneWidget,
-        );
-      } else {
-        expect(receive.top, greaterThan(send.bottom));
-      }
+      await tester.tap(find.text(sample.fa ? 'گیرنده · Player' : 'Player'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('capture-receive-card')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('capture-send-card')), findsNothing);
+      expect(tester.takeException(), isNull);
       if (sample.platform == TargetPlatform.windows) {
         expect(
           find.text(sample.fa ? 'دوربین پشت' : 'Rear camera'),
@@ -365,18 +361,15 @@ void main() {
         find.byKey(const ValueKey('capture-session-card')),
         findsOneWidget,
       );
+      expect(find.byKey(const ValueKey('capture-receive-card')), findsNothing);
+      await tester.ensureVisible(find.text('Player'));
+      await tester.tap(find.text('Player'));
+      await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('capture-receive-card')),
         findsOneWidget,
       );
-      expect(
-        tester
-            .getTopLeft(find.byKey(const ValueKey('capture-session-card')))
-            .dy,
-        tester
-            .getTopLeft(find.byKey(const ValueKey('capture-receive-card')))
-            .dy,
-      );
+      expect(find.byKey(const ValueKey('capture-session-card')), findsNothing);
       expect(tester.takeException(), isNull);
       await saveImage(tester, 'desktop-active');
       await tester.pumpWidget(const SizedBox());
