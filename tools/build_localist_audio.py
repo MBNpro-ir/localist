@@ -16,7 +16,7 @@ version='10.0.26100.0';framework='1.15'
 incs=[vc/'include',WDK/f'Include/{version}/km',WDK/f'Include/{version}/shared',
  sdk/f'Include/{version}/shared',sdk/f'Include/{version}/ucrt',WDK/f'Include/wdf/kmdf/{framework}',
  source/'Main',source/'Filters',source/'Inc',source/'Utilities']
-flags=['/nologo','/c','/kernel','/GS','/Zl','/GR-','/EHs-c-','/std:c++17','/W3','/O2','/Oi',
+flags=['/nologo','/c','/kernel','/GS','/Zl','/Z7','/GR-','/EHs-c-','/std:c++17','/W3','/O2','/Oi',
  '/D_AMD64_','/DAMD64','/D_WIN64','/D_WIN32','/DUNICODE','/D_UNICODE',
  '/DWINVER=0x0A00','/D_WIN32_WINNT=0x0A00','/DNTDDI_VERSION=0x0A000008',
  '/D_USE_WAVERT_','/D_USE_IPortClsRuntimePower','/D_NEW_DELETE_OPERATORS_','/DPC_IMPLEMENTATION']
@@ -30,6 +30,7 @@ for file in sorted(source.rglob('*.cpp')):
 libs=[WDK/f'Lib/{version}/km/x64',WDK/f'Lib/wdf/kmdf/x64/{framework}',vc/'lib/x64']
 command=[str(link),'/nologo','/DRIVER','/SUBSYSTEM:NATIVE,10.00','/MACHINE:X64','/ENTRY:FxDriverEntry',
  '/NODEFAULTLIB','/INTEGRITYCHECK','/DYNAMICBASE','/NXCOMPAT','/MANIFEST:NO','/OPT:REF','/OPT:ICF',
+ '/DEBUG:FULL','/PDB:'+str(package/'LocalistAudio.pdb'),'/PDBALTPATH:%_PDB%',
  '/OUT:'+str(package/'LocalistAudio.sys'),*map(str,compiled)]
 command+=['/LIBPATH:'+str(p) for p in libs]
 command+=['ntoskrnl.lib','hal.lib','wmilib.lib','portcls.lib','stdunk.lib','libcntpr.lib','wdmsec.lib',

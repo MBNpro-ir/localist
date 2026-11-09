@@ -24,6 +24,11 @@ The supported driver target begins at Windows10 build19041; ARM64 is not built.
 
 No trusted public driver signature is currently available. The maintainer has
 confirmed there is no Hardware Partner Center account or EV certificate.
+This does not imply the maintainer must personally purchase EV: an authorized
+publisher/development partner can handle an appropriate driver-signing workflow.
+The required condition is a trusted driver package. See
+`VIRTUAL_MICROPHONE_SIGNING_RESEARCH.md` for direct DroidCam/Iriun signature
+evidence and evaluated alternatives; no suitable signing partner is configured.
 Do not install this unsigned driver, enable test-signing, disable Secure Boot or
 weaken signature enforcement on the user's workstation. For normal public
 Windows10/11 distribution, use Microsoft's current signing/submission process.
