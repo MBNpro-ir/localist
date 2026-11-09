@@ -1,5 +1,44 @@
 # Release Notes
 
+## [7.3.1] — Live audio controls, USB microphone recovery and independent outputs
+
+- Added Server and Player panels for camera/microphone sharing. Server input
+  selectors and settings keep their position after Start. Microphone-only
+  sessions show audio controls without a camera preview.
+- Server audio settings are displayed in Player and can be changed from either
+  device while connected: echo cancellation, noise suppression, automatic gain,
+  continuous transmission, quality/bitrate, PCM and manual gain from -30 to
+  +40 dB. Applied state is synchronized between devices. Camera hardware
+  controls remain available when the sender supports them.
+- Fixed Android USB-tethering media discovery by including downstream network
+  interfaces in WebRTC. Available Bluetooth SCO/LE and USB microphones update
+  automatically without separate Bluetooth or Refresh input buttons.
+- Windows reception writes to an allocated VB-CABLE recording device without
+  speaker monitoring or changing system volume/default devices. Independent
+  licensed A/B/C/D cables are supported for up to four microphone outputs.
+  The base signed VB-CABLE package is included unchanged; additional cables
+  require the user's separately licensed packages.
+- Setup lets users select 1–4 webcams and microphones, detects existing devices
+  and preserves settings during updates. Windows is distributed as Setup only.
+  Shared VB-CABLE drivers are retained when Localist is uninstalled.
+- Added per-Player audio output, gain, bounded buffer and EventSync controls,
+  plus Android AudioTrack/OpenSL ES playback options. System/app audio sharing
+  is available on supported Windows/Android devices; Android 10+ requires
+  MediaProjection consent and apps may prohibit playback capture.
+- Server audio/video charts display estimated transport delay in milliseconds.
+  Estimates use RTT/2 and encoder statistics rather than claiming measured
+  end-to-end playback delay. Android background services share silent status
+  notifications.
+
+Validation: 219 passing Flutter tests, clean analysis, native packet/queue/gain
+probes, Windows Release and Android ARM64/x86_64 Debug builds. Physical USB
+microphone-only reception reached the Windows virtual recording endpoint with
+unchanged system volume/default devices. Android emulator runtime checks covered
+Opus/PCM, AudioTrack/OpenSL ES, live gain/APM/input changes and retained RTC
+connections. Bluetooth input enumeration was observed; Bluetooth capture quality,
+four physical independent microphones and Android system-audio capture are not
+claimed as hardware-tested. See docs/WINDOWS_VB_CABLE.md for evidence and limits.
+
 ## [7.2.1] — Windows webcam reception and Setup-only distribution
 
 - Fixed Windows Unified Plan reception: register incoming OnTrack streams before
