@@ -34,8 +34,13 @@ int RunEmbeddedRemote(HINSTANCE instance) {
     return reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", app.c_str(),
         nullptr, directory.c_str(), SW_SHOWNORMAL)) > 32 ? EXIT_SUCCESS : EXIT_FAILURE;
   }
-  const bool is_host = std::find(command_arguments.begin(), command_arguments.end(),
-                                 "--localist-host") != command_arguments.end();
+  // --noinstall is consumed by upstream before its elevated portable-service
+  // bootstrap. A custom nonempty command skips that bootstrap. Keep the legacy
+  // command accepted for existing callers, without treating service children
+  // or individual session windows as the retained GUI host.
+  const bool is_host = command_arguments.size() == 1 &&
+      (command_arguments.front() == "--noinstall" ||
+       command_arguments.front() == "--localist-host");
   HANDLE host_mutex = nullptr;
   if (is_host) {
     host_mutex = CreateMutexW(nullptr, TRUE, L"Local\\PRS.Localist.RemoteHost");

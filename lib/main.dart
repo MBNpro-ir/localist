@@ -18,6 +18,7 @@ import 'screens/android_permission_gate.dart';
 import 'screens/logs_page.dart';
 import 'screens/remote_debug_page.dart';
 import 'remote/embedded_remote_app.dart';
+import 'remote/desktop_host_launch.dart';
 import 'remote/android_remote_host.dart';
 import 'services/feature_permission_service.dart';
 import 'remote/remote_theme.dart';
@@ -66,7 +67,7 @@ Future<void> main(List<String> args) async {
           ) ||
           (args.isNotEmpty &&
               (args.first == 'multi_window' || args.first == '--cm')))) {
-    configureEmbeddedDesktop(host: args.contains('--localist-host'));
+    configureEmbeddedDesktop(host: isRetainedDesktopHostLaunch(args));
     await embedded.main(args);
     return;
   }

@@ -23,6 +23,7 @@ import 'remote_session_return.dart';
 import 'android_remote_host.dart';
 import 'desktop_host_bridge.dart';
 import 'desktop_host_runtime.dart';
+import 'desktop_host_launch.dart';
 import 'remote_peer_presence.dart';
 
 class LocalistRemoteRuntime {
@@ -83,9 +84,11 @@ class LocalistRemoteRuntime {
             false,
         startHost: () async {
           final executable = File(hostExecutablePath);
-          final process = await Process.start(executable.path, [
-            '--localist-host',
-          ], workingDirectory: executable.parent.path);
+          final process = await Process.start(
+            executable.path,
+            desktopHostLaunchArguments,
+            workingDirectory: executable.parent.path,
+          );
           unawaited(process.stdout.drain<void>());
           unawaited(process.stderr.drain<void>());
           LogService.instance.info('Remote host started (PID ${process.pid}).');
