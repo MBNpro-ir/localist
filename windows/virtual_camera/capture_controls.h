@@ -10,6 +10,8 @@ struct LocalistCaptureState {
   int enabled = 0, width = 640, height = 480, fps = 30, bitrate = 2500;
   int noise = 1, echo = 1, gain = 1, zoom = 100, max_zoom = 100;
   int torch_available = 0, torch = 0, microphone = -1, microphones = 0;
+  int min_bitrate = 0, max_bitrate = 0, modes = 0;
+  struct Mode { int width = 0, height = 0, min_fps = 1, max_fps = 30; } camera_modes[128];
   wchar_t microphone_names[12][128] = {};
   wchar_t message[256] = {};
 };

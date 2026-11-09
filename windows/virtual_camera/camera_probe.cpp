@@ -18,7 +18,10 @@ int wmain(int argc, wchar_t** argv) {
     CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     for(int slot=0;slot<4;++slot) {
       LocalistCaptureState state;state.enabled=1;state.max_zoom=1000+slot*100;
+      state.modes=1; state.camera_modes[0]={3840,2160,15,60}; state.min_bitrate=64+slot; state.max_bitrate=160000-slot;
       if(!PublishLocalistCaptureState(state,slot)) return 20;
+      LocalistCaptureState read; if(!ReadLocalistCaptureState(read,slot) || read.camera_modes[0].width!=3840 ||
+          read.camera_modes[0].max_fps!=60 || read.min_bitrate!=64+slot || read.max_bitrate!=160000-slot) return 24;
       CLSID cls=CLSID_OBS_VirtualVideo;cls.Data1+=slot;
       IBaseFilter* filter=nullptr;
       if(FAILED(CoCreateInstance(cls,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&filter))))return 21;

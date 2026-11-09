@@ -97,7 +97,8 @@ class CaptureHubService extends ChangeNotifier {
         _prefs!.getString('capture.identity') ??
         base64UrlEncode(List.generate(18, (_) => Random.secure().nextInt(256)));
     await _prefs!.setString('capture.identity', id);
-    enabled = _prefs!.getBool('capture.autoReceive') ?? true;
+    enabled = true;
+    await _prefs!.setBool('capture.autoReceive', true);
     final details = await NativeBridgeService.instance.getDeviceDetails();
     name =
         _prefs!.getString('quickSend.alias') ??

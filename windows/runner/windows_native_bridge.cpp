@@ -2,6 +2,7 @@
 #include "remote_host_process.h"
 #include "elevated_startup.h"
 #include "virtual_devices.h"
+#include "capture_capabilities.h"
 #include "../virtual_camera/capture_controls.h"
 
 #include <dwmapi.h>
@@ -875,6 +876,16 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     result->Success(StartWindowsLocalNetwork());
     return;
   }
+  if (method == "getCaptureDeviceCapabilities") {
+    const auto* args = std::get_if<EncodableMap>(call.arguments());
+    std::string id;
+    if (args) {
+      const auto found = args->find(EncodableValue("cameraId"));
+      if (found != args->end()) { const auto* text = std::get_if<std::string>(&found->second); if (text) id = *text; }
+    }
+    result->Success(EncodableValue(GetWindowsCaptureCapabilities(id)));
+    return;
+  }
   if (method == "stopWindowsLocalNetwork") {
     result->Success(EncodableValue(StopWindowsLocalNetwork()));
     return;
@@ -904,6 +915,23 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     state.persian = GetBoolArgument(arguments, "persian");
     state.enabled = GetBoolArgument(arguments, "enabled");
     state.width = static_cast<int>(GetIntegerArgument(arguments, "width"));
+    state.min_bitrate = static_cast<int>(GetIntegerArgument(arguments, "minBitrateKbps"));
+    state.max_bitrate = static_cast<int>(GetIntegerArgument(arguments, "maxBitrateKbps"));
+    const auto* state_map = GetArgumentsMap(arguments);
+    if (state_map) {
+    const auto modes_it = state_map->find(EncodableValue("modes"));
+    if (modes_it != state_map->end()) if (const auto* modes = std::get_if<EncodableList>(&modes_it->second)) {
+      for (const auto& item : *modes) {
+        const auto* mode = std::get_if<EncodableMap>(&item);
+        if (!mode || state.modes >= 128) continue;
+        auto& target = state.camera_modes[state.modes++];
+        target.width = static_cast<int>(GetIntegerArgument(&item, "width"));
+        target.height = static_cast<int>(GetIntegerArgument(&item, "height"));
+        target.min_fps = static_cast<int>(GetIntegerArgument(&item, "minFps"));
+        target.max_fps = static_cast<int>(GetIntegerArgument(&item, "maxFps"));
+      }
+    }
+    }
     state.height = static_cast<int>(GetIntegerArgument(arguments, "height"));
     state.fps = static_cast<int>(GetIntegerArgument(arguments, "fps"));
     state.bitrate = static_cast<int>(GetIntegerArgument(arguments, "bitrate"));

@@ -45,13 +45,54 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
             channel,
-            (call) async =>
-                call.method == 'getSources' ? {'sources': []} : null,
+            (call) async => call.method == 'getSources'
+                ? {
+                    'sources': [
+                      {
+                        'deviceId': 'camera',
+                        'label': 'Back camera',
+                        'kind': 'videoinput',
+                      },
+                      {
+                        'deviceId': 'microphone',
+                        'label': 'Built in mic',
+                        'kind': 'audioinput',
+                      },
+                    ],
+                  }
+                : null,
           );
       addTearDown(
         () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(channel, null),
       );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('com.prs.localist.vpn'),
+            (call) async => call.method == 'getCaptureDeviceCapabilities'
+                ? {
+                    'modes': [
+                      {'width': 640, 'height': 480, 'minFps': 1, 'maxFps': 30},
+                      {'width': 1280, 'height': 720, 'minFps': 1, 'maxFps': 60},
+                      {
+                        'width': 1920,
+                        'height': 1080,
+                        'minFps': 1,
+                        'maxFps': 60,
+                      },
+                      {
+                        'width': 3840,
+                        'height': 2160,
+                        'minFps': 1,
+                        'maxFps': 30,
+                      },
+                    ],
+                    'minBitrateKbps': 64,
+                    'maxBitrateKbps': 80000,
+                    'codecs': 'avc',
+                  }
+                : null,
+          );
       final service = _Capture();
       final preview = _Preview();
       await tester.pumpWidget(

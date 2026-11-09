@@ -55,6 +55,7 @@ class ControlsPage : public IPropertyPage {
     auto* page = reinterpret_cast<ControlsPage*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (event == WM_NCCREATE) { page = static_cast<ControlsPage*>(reinterpret_cast<CREATESTRUCTW*>(l)->lpCreateParams); SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(page)); }
     if (page && event == WM_COMMAND && LOWORD(w) == 100) { page->Apply(); return 0; }
+    if (page && event == WM_COMMAND && LOWORD(w) == 200 && HIWORD(w) == CBN_SELCHANGE) { page->UpdateFps(); return 0; }
     if (page && event == WM_TIMER) {
       LocalistCaptureState state;
       if (!ReadLocalistCaptureState(state)) { SetWindowTextW(page->message,page->Text(L"گیرندهٔ لوکالیست در دسترس نیست.",L"Localist receiver is unavailable.")); EnableWindow(page->apply,FALSE); }
@@ -69,11 +70,21 @@ class ControlsPage : public IPropertyPage {
     SendMessageW(result, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE); return result;
   }
   void Label(const wchar_t* text, int y) { Control(L"STATIC", text, 0, 12, y + 3, 172, 22); }
-  HWND Combo(int y) { return Control(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 190, y, 240, 200); }
+  HWND Combo(int y, int id = 0) { return Control(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP, 190, y, 240, 200, id); }
   void Option(HWND combo, const wchar_t* label, LPARAM value) { const auto index = SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label)); SendMessageW(combo, CB_SETITEMDATA, index, value); }
   void Select(HWND combo, LPARAM value) { const auto count = SendMessageW(combo, CB_GETCOUNT, 0, 0); for (int i = 0; i < count; ++i) if (SendMessageW(combo, CB_GETITEMDATA, i, 0) == value) { SendMessageW(combo, CB_SETCURSEL, i, 0); return; } SendMessageW(combo, CB_SETCURSEL, 0, 0); }
   int Value(HWND combo) { return static_cast<int>(SendMessageW(combo, CB_GETITEMDATA, SendMessageW(combo, CB_GETCURSEL, 0, 0), 0)); }
 public:
+  void UpdateFps() {
+    LocalistCaptureState state; if (!fps || !ReadLocalistCaptureState(state)) return;
+    const int index = Value(resolution);
+    const int minimum = index>=0 && index<state.modes ? state.camera_modes[index].min_fps : state.fps;
+    const int maximum = index>=0 && index<state.modes ? state.camera_modes[index].max_fps : state.fps;
+    const int previous = Value(fps);
+    SendMessageW(fps, CB_RESETCONTENT, 0, 0);
+    for (int value=minimum; value<=maximum && value<=240; ++value) Option(fps, std::to_wstring(value).c_str(), value);
+    Select(fps, previous >= minimum && previous <= maximum ? previous : maximum);
+  }
   ControlsPage() { InterlockedIncrement(&locks); }
   STDMETHODIMP QueryInterface(REFIID iid, void** out) override { if (!out) return E_POINTER; *out = nullptr; if (iid != IID_IUnknown && iid != IID_IPropertyPage) return E_NOINTERFACE; *out = static_cast<IPropertyPage*>(this); AddRef(); return S_OK; }
   STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&refs); }
@@ -87,11 +98,21 @@ public:
     window = CreateWindowExW(persian ? WS_EX_LAYOUTRTL : 0, cls.lpszClassName, L"Localist Camera", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, rect->left, rect->top, rect->right-rect->left, rect->bottom-rect->top, parent, nullptr, cls.hInstance, this);
     if (!window) return E_FAIL;
     Control(L"STATIC", Text(L"تنظیمات ضبط دستگاه فرستندهٔ جفت‌شده",L"Phone capture controls (paired Localist sender)"), 0, 12, 10, 430, 22);
-    Label(Text(L"وضوح ضبط",L"Capture resolution"), 40); resolution = Combo(40);
-    for (const auto& item : {std::pair<int,const wchar_t*>{320,L"320 x 240"},{640,L"640 x 480"},{1280,L"1280 x 720"},{1920,L"1920 x 1080"}}) Option(resolution, item.second, item.first);
-    Select(resolution, state.width);
-    Label(Text(L"نرخ فریم ضبط",L"Capture FPS"), 75); fps = Combo(75); for (int value : {10,15,24,30,60}) { const auto text = std::to_wstring(value); Option(fps, text.c_str(), value); } Select(fps, state.fps);
-    Label(Text(L"بیت‌ریت (250-12000 kbps)",L"Bitrate (250-12000 kbps)"), 110); bitrate = Control(L"EDIT", std::to_wstring(state.bitrate).c_str(), WS_BORDER | ES_NUMBER | WS_TABSTOP, 190, 110, 240, 24);
+    Label(Text(L"وضوح ضبط",L"Capture resolution"), 40); resolution = Combo(40, 200);
+    int selected_mode = -1;
+    for (int i=0; i<state.modes && i<128; ++i) {
+      const auto& mode = state.camera_modes[i];
+      const auto text = std::to_wstring(mode.width) + L" x " + std::to_wstring(mode.height);
+      Option(resolution, text.c_str(), i);
+      if (mode.width == state.width && mode.height == state.height) selected_mode = i;
+    }
+    if (state.modes == 0) Option(resolution, (std::to_wstring(state.width)+L" x "+std::to_wstring(state.height)).c_str(), -1);
+    Select(resolution, selected_mode);
+    Label(Text(L"نرخ فریم ضبط",L"Capture FPS"), 75); fps = Combo(75);
+    const auto minimum = selected_mode >= 0 ? state.camera_modes[selected_mode].min_fps : state.fps;
+    const auto maximum = selected_mode >= 0 ? state.camera_modes[selected_mode].max_fps : state.fps;
+    for (int value=minimum; value<=maximum && value<=240; ++value) { const auto text = std::to_wstring(value); Option(fps, text.c_str(), value); } Select(fps, state.fps);
+    Label(Text(L"بیت‌ریت هدف (kbps)",L"Target bitrate (kbps)"), 110); bitrate = Control(L"EDIT", std::to_wstring(state.bitrate).c_str(), WS_BORDER | ES_NUMBER | WS_TABSTOP, 190, 110, 240, 24);
     Label(Text(L"زوم (100 برابر 1x)",L"Zoom (100 = 1x)"), 145); zoom = Control(L"EDIT", std::to_wstring(state.zoom).c_str(), WS_BORDER | ES_NUMBER | WS_TABSTOP, 190, 145, 240, 24);
     Label(Text(L"میکروفون",L"Microphone"), 180); microphone = Combo(180); Option(microphone, Text(L"حفظ ورودی فعلی",L"Keep current input"), -1); for (int i = 0; i < state.microphones; ++i) Option(microphone, state.microphone_names[i], i); Select(microphone, state.microphone);
     noise = Control(L"BUTTON", Text(L"کاهش نویز",L"Noise reduction"), BS_AUTOCHECKBOX | WS_TABSTOP, 12, 220, 210, 24);
@@ -101,7 +122,7 @@ public:
     SendMessageW(noise,BM_SETCHECK,state.noise?BST_CHECKED:BST_UNCHECKED,0); SendMessageW(echo,BM_SETCHECK,state.echo?BST_CHECKED:BST_UNCHECKED,0); SendMessageW(gain,BM_SETCHECK,state.gain?BST_CHECKED:BST_UNCHECKED,0); SendMessageW(torch,BM_SETCHECK,state.torch?BST_CHECKED:BST_UNCHECKED,0);
     EnableWindow(torch, state.torch_available && state.enabled); EnableWindow(zoom,state.max_zoom>100 && state.enabled);
     apply = Control(L"BUTTON", Text(L"اعمال روی دستگاه فرستنده",L"Apply to paired sender"), BS_PUSHBUTTON | WS_TABSTOP, 190, 285, 240, 28, 100); EnableWindow(apply, fresh && state.enabled);
-    message = Control(L"STATIC", fresh && state.enabled ? Text(L"تغییر کیفیت، ضبط را لحظه‌ای بازآغاز می‌کند؛ اتصال باز می‌ماند.",L"Quality changes briefly restart capture; the connection stays open.") : Text(L"کنترل گیرنده را در فرستنده مجاز کنید، سپس در لوکالیست متصل شوید و خروجی وبکم مجازی را روشن کنید.",L"Enable receiver controls on the sender, connect in Localist and enable virtual webcam output first."), 0, 12, 325, 420, 50);
+    message = Control(L"STATIC", fresh && state.enabled ? Text(L"تغییر کیفیت، ضبط را لحظه‌ای بازآغاز می‌کند؛ اتصال باز می‌ماند.",L"Quality changes briefly restart capture; the connection stays open.") : Text(L"ابتدا دستگاه فرستنده را متصل کنید تا تنظیمات آماده شوند.",L"Connect the sender in Localist to make its controls available."), 0, 12, 325, 420, 50);
     SetTimer(window,1,1000,nullptr);
     return S_OK;
   }
@@ -115,8 +136,12 @@ public:
     if(!window)return S_OK;
     LocalistCaptureState state; if(!ReadLocalistCaptureState(state)||!state.enabled)return E_FAIL;
     wchar_t buffer[32]; GetWindowTextW(zoom,buffer,32); const int zoom_value=_wtoi(buffer); GetWindowTextW(bitrate,buffer,32); const int rate=_wtoi(buffer);
-    if(zoom_value<100||zoom_value>state.max_zoom||rate<250||rate>12000){SetWindowTextW(message,Text(L"زوم مجاز و بیت‌ریت بین 250 تا 12000 وارد کنید.",L"Enter a supported zoom and bitrate (250-12000 kbps)."));return E_INVALIDARG;}
-    char json[512]; sprintf_s(json,"{\"width\":%d,\"fps\":%d,\"bitrate\":%d,\"zoom\":%.2f,\"noise\":%s,\"echo\":%s,\"gain\":%s,\"torch\":%s,\"microphone\":%d}",Value(resolution),Value(fps),rate,zoom_value/100.0,SendMessageW(noise,BM_GETCHECK,0,0)==BST_CHECKED?"true":"false",SendMessageW(echo,BM_GETCHECK,0,0)==BST_CHECKED?"true":"false",SendMessageW(gain,BM_GETCHECK,0,0)==BST_CHECKED?"true":"false",SendMessageW(torch,BM_GETCHECK,0,0)==BST_CHECKED?"true":"false",Value(microphone));
+    const int minimum = state.min_bitrate>0 ? state.min_bitrate : 1, maximum = state.max_bitrate>=minimum ? state.max_bitrate : 1000000;
+    if(zoom_value<100||zoom_value>state.max_zoom||rate<minimum||rate>maximum){SetWindowTextW(message,Text(L"مقدار باید در محدودهٔ دستگاه فرستنده باشد.",L"Value is outside the sender device limits."));return E_INVALIDARG;}
+    const int index = Value(resolution);
+    const int width = index>=0 && index<state.modes ? state.camera_modes[index].width : state.width;
+    const int height = index>=0 && index<state.modes ? state.camera_modes[index].height : state.height;
+    char json[512]; sprintf_s(json,"{\"width\":%d,\"height\":%d,\"fps\":%d,\"bitrate\":%d,\"zoom\":%.2f,\"noise\":%s,\"echo\":%s,\"gain\":%s,\"torch\":%s,\"microphone\":%d}",width,height,Value(fps),rate,zoom_value/100.0,SendMessageW(noise,BM_GETCHECK,0,0)==BST_CHECKED?"true":"false",SendMessageW(echo,BM_GETCHECK,0,0)==BST_CHECKED?"true":"false",SendMessageW(gain,BM_GETCHECK,0,0)==BST_CHECKED?"true":"false",SendMessageW(torch,BM_GETCHECK,0,0)==BST_CHECKED?"true":"false",Value(microphone));
     const bool sent=SubmitLocalistCaptureCommand(json); SetWindowTextW(message,sent?Text(L"درخواست ارسال شد؛ برای خواندن نتیجه، پنل را دوباره باز کنید.",L"Request sent. Reopen this panel to read the sender's current settings."):Text(L"فرستنده در دسترس نیست یا تغییر دیگری در انتظار است.",L"Sender is unavailable or another change is pending."));return sent?S_OK:E_FAIL;
   }
   STDMETHODIMP Help(LPCOLESTR) override { return E_NOTIMPL; }

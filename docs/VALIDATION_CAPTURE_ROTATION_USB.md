@@ -3,6 +3,10 @@
 Scope: local changes only, following 7.1.0+74. No release, tag, push or Action
 is requested for this fix. The preexisting untracked `site/` is excluded.
 
+Later update: the user subsequently authorized release 7.2.0+75. The final
+rotation choices and device-specific settings are documented in
+`VALIDATION_CAPTURE_DEVICE_SETTINGS.md`, which supersedes earlier UI choices.
+
 ## Changes
 
 - Android automatic rotation now reads physical orientation through

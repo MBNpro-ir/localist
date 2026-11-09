@@ -22,6 +22,17 @@ class NotificationRegressionRunner : Instrumentation() {
         try {
             // Application.onCreate and the instrumentation thread can overlap.
             main { }
+            if (args.getString("captureServiceLifecycle") == "true") {
+                CaptureServiceRegression.verify(targetContext, this)
+                results.putString("stream", "\nLOCALIST_CAPTURE_SERVICE_LIFECYCLE_OK: rapid restart and stop during startup\n")
+                finish(Activity.RESULT_OK, results)
+                return
+            }
+            if (args.getString("captureCapabilities") == "true") {
+                results.putString("stream", "\n" + CaptureCapabilitiesRegression.verify(targetContext) + "\n")
+                finish(Activity.RESULT_OK, results)
+                return
+            }
             if (args.getString("captureRotation") == "true") {
                 CaptureRotationRegression.verify()
                 results.putString("stream", "\nLOCALIST_CAPTURE_ROTATION_OK: pixel rotation, sensor directions, locks, buffer ownership\n")

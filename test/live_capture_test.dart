@@ -71,7 +71,7 @@ void main() {
       {'password': 'x'},
       {'zoom': double.nan},
       {'zoom': 101},
-      {'width': 4096},
+      {'width': 10000},
       {'fps': 500},
       {'bitrate': -1},
       {'noise': 1},
@@ -92,7 +92,7 @@ void main() {
       'torch': false,
       'microphone': 0,
     });
-    expect(const LiveCaptureOptions().receiverControls, false);
+    expect(const LiveCaptureOptions().receiverControls, true);
     expect(
       const LiveCaptureOptions(
         receiverControls: true,
@@ -116,15 +116,18 @@ void main() {
     );
   });
 
-  test('capture controls are unavailable without sender opt-in', () async {
-    final service = LiveCaptureService();
-    addTearDown(service.dispose);
-    await expectLater(
-      service.requestCaptureControl({'zoom': 2}),
-      throwsStateError,
-    );
-    expect(service.captureControlState['enabled'], false);
-  });
+  test(
+    'capture controls are unavailable until the sender starts sharing',
+    () async {
+      final service = LiveCaptureService();
+      addTearDown(service.dispose);
+      await expectLater(
+        service.requestCaptureControl({'zoom': 2}),
+        throwsStateError,
+      );
+      expect(service.captureControlState['enabled'], false);
+    },
+  );
   test(
     'microphone-only and camera-only constraints request only selected hardware',
     () {

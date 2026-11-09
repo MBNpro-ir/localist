@@ -20,7 +20,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   const hub=await vm.eval(vm.library('/capture_hub_service.dart'),'CaptureHubService.instance');
   await vm.wait(await vm.eval(hub.id,'setEnabled(false)'));
   sender=await vm.eval(hub.id,'sender');
-  await vm.wait(await vm.eval(sender.id,'start(const LiveCaptureOptions(width:640,height:480,fps:15,bitrateKbps:750),port:33333)'));
+  await vm.wait(await vm.eval(sender.id,"start(const LiveCaptureOptions(width:640,height:480,fps:15,bitrateKbps:750,orientation:'auto'),port:33333)"));
   const session=await vm.json(sender.id,"{'key':signalingKey,'port':signalingPort}");
   command('forward','tcp:45108','tcp:33333');
   browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,

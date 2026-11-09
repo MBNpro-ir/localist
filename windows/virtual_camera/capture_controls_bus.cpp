@@ -35,9 +35,9 @@ struct Bus {
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1, &descriptor, nullptr)) return;
     SECURITY_ATTRIBUTES security{sizeof(security), descriptor, FALSE};
 #ifdef LOCALIST_CAMERA_TEST_IDENTITY
-    const std::wstring prefix = L"Local\\LocalistCameraQAControls-v2-";
+    const std::wstring prefix = L"Local\\LocalistCameraQAControls-v3-";
 #else
-    const std::wstring prefix = L"Local\\LocalistCameraControls-v2-";
+    const std::wstring prefix = L"Local\\LocalistCameraControls-v3-";
 #endif
     mutex = CreateMutexW(&security, FALSE, (prefix + L"mutex-" + std::to_wstring(slot)).c_str());
     mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, &security, PAGE_READWRITE, 0, sizeof(Shared), (prefix + std::to_wstring(slot)).c_str());

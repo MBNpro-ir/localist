@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/capture_hub_service.dart';
+import '../services/capture_capabilities.dart';
 import 'glass.dart';
 
 class CaptureReceiversPanel extends StatelessWidget {
@@ -19,24 +20,15 @@ class CaptureReceiversPanel extends StatelessWidget {
           t(context, 'گیرنده', 'Receive'),
           style: Theme.of(context).textTheme.titleLarge,
         ),
-        SwitchListTile.adaptive(
-          contentPadding: EdgeInsets.zero,
-          title: Text(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Text(
             t(
               context,
-              'دریافت خودکار دستگاه‌ها',
-              'Automatically receive devices',
+              'دریافت خودکار تا چهار دستگاه در شبکه فعال است.',
+              'Automatic reception is active for up to four devices.',
             ),
           ),
-          subtitle: Text(
-            t(
-              context,
-              'تا چهار فرستندهٔ فعال در شبکه؛ بدون لینک و ورود دستی.',
-              'Up to four active senders on this network; no links or manual entry.',
-            ),
-          ),
-          value: hub?.enabled ?? true,
-          onChanged: hub == null ? null : (value) => hub!.setEnabled(value),
         ),
         if (hub?.error.isNotEmpty == true) Text(hub!.error),
         if (hub?.receivers.isEmpty != false)
@@ -145,6 +137,12 @@ class CaptureReceiversPanel extends StatelessWidget {
       builder: (context, _) {
         final state = peer.capture.captureControlState;
         final available = state['enabled'] == true;
+        final capabilities = CaptureCapabilities.fromMap(state);
+        final selectedMode = capabilities.modes
+            .where(
+              (m) => m.width == state['width'] && m.height == state['height'],
+            )
+            .firstOrNull;
         Future<void> change(Map<String, dynamic> command) async {
           try {
             await peer.capture.requestCaptureControl(command);
@@ -178,36 +176,62 @@ class CaptureReceiversPanel extends StatelessWidget {
                         )
                       : t(
                           context,
-                          'برای تغییر کیفیت و سخت‌افزار، فرستنده باید اجازهٔ کنترل گیرنده را روشن کند.',
-                          'The sender must allow receiver controls to change capture quality and hardware.',
+                          'تنظیمات پس از برقراری اتصال آماده می‌شوند.',
+                          'Settings become available after the sender connects.',
                         ),
                 ),
                 const SizedBox(height: 16),
-                DropdownButtonFormField<int>(
-                  initialValue: [320, 640, 1280, 1920].contains(state['width'])
-                      ? state['width'] as int
-                      : 1280,
+                DropdownButtonFormField<String>(
+                  key: ValueKey('receiver-mode-${selectedMode?.key}'),
+                  isExpanded: true,
+                  initialValue: selectedMode?.key,
                   decoration: InputDecoration(
-                    labelText: t(context, 'وضوح', 'Resolution'),
+                    labelText: t(
+                      context,
+                      'رزولوشن دوربین',
+                      'Camera resolution',
+                    ),
                   ),
                   items: [
-                    for (final width in [320, 640, 1280, 1920])
-                      DropdownMenuItem(value: width, child: Text('$width px')),
+                    for (final mode in capabilities.modes)
+                      DropdownMenuItem(
+                        value: mode.key,
+                        child: Text(
+                          mode.label,
+                          textDirection: TextDirection.ltr,
+                        ),
+                      ),
                   ],
                   onChanged: !available
                       ? null
-                      : (value) => change({'width': value}),
+                      : (key) {
+                          final mode = capabilities.modes.firstWhere(
+                            (m) => m.key == key,
+                          );
+                          change({
+                            'width': mode.width,
+                            'height': mode.height,
+                            'fps':
+                                ((state['fps'] as num?)?.toInt() ?? mode.maxFps)
+                                    .clamp(mode.minFps, mode.maxFps),
+                          });
+                        },
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
-                  initialValue: [10, 15, 24, 30, 60].contains(state['fps'])
+                  key: ValueKey(
+                    'receiver-fps-${state['fps']}-${selectedMode?.key}',
+                  ),
+                  isExpanded: true,
+                  initialValue:
+                      selectedMode?.frameRates.contains(state['fps']) == true
                       ? state['fps'] as int
-                      : 30,
+                      : null,
                   decoration: InputDecoration(
                     labelText: t(context, 'نرخ فریم', 'Frame rate'),
                   ),
                   items: [
-                    for (final fps in [10, 15, 24, 30, 60])
+                    for (final fps in selectedMode?.frameRates ?? <int>[])
                       DropdownMenuItem(value: fps, child: Text('$fps FPS')),
                   ],
                   onChanged: !available

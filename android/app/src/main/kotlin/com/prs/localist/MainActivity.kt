@@ -110,7 +110,9 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                     }
                     "cameraCapabilities" -> runCatching {
                         CaptureDeviceControls.capabilities(this@MainActivity,
-                            call.argument<String>("cameraId"), call.argument<Boolean>("rear") != false)
+                            call.argument<String>("cameraId"), call.argument<Boolean>("rear") != false,
+                            call.argument<Int>("width") ?: 1280, call.argument<Int>("height") ?: 720,
+                            call.argument<Int>("fps") ?: 30)
                     }.onSuccess { result.success(it) }.onFailure { result.error("CAMERA_CONTROLS", it.message, null) }
                     "background" -> result.success(CaptureDeviceControls.background(this@MainActivity))
                     "start" -> {
@@ -119,7 +121,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                         if (!camera && !microphone) result.error("NO_CAPTURE", "Choose camera or microphone.", null)
                         else CaptureForegroundService.requestStart(this@MainActivity, camera, microphone, result)
                     }
-                    "stop" -> { stopService(Intent(this@MainActivity, CaptureForegroundService::class.java)); result.success(true) }
+                    "stop" -> CaptureForegroundService.requestStop(this@MainActivity, result)
                     else -> result.notImplemented()
                 }
             }

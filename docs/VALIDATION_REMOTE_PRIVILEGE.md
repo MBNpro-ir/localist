@@ -43,4 +43,5 @@ Both the receiving Localist installation and the authorized Windows bootstrap
 must be present on the destination for the improved behavior there.
 
 Logs/results: `.runlogs/remote-privilege-qa` (not committed).
-No push, tag, release or Action was performed for this change.
+Initially validated and committed locally. The user subsequently authorized
+including this change in the 7.2.0+75 release.

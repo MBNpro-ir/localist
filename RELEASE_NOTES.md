@@ -1,5 +1,51 @@
 # Release Notes
 
+## [7.2.0] — Hardware capture settings, linked preview rotation and remote privileges
+
+- **Camera and microphone selection:** concrete available inputs are selected
+  from the start. Removed Automatic input entries and the redundant Rear
+  camera switch. Camera resolution and frame-rate choices come from the
+  selected device, including supported sizes above 1080p and nonstandard
+  aspect ratios. Camera capabilities refresh when the selected device changes.
+- **Device-specific bitrate:** Android queries supported WebRTC encoder
+  capabilities for the selected resolution/FPS. Rate controls use those limits
+  rather than a fixed 250–12000 kbps interval. Where a Windows driver does not
+  report encoder limits, the UI states that and accepts a target rate instead
+  of inventing hardware bounds. Network/thermal conditions still affect the
+  achieved quality and rate.
+- **Video and preview orientation:** Landscape is the default. Automatic uses
+  physical device rotation even with Android display rotation locked. Portrait
+  and Landscape retain the selected canvas, with upright image content fitted
+  without stretching. Pixels are rotated before local preview and transmission;
+  preview dimensions follow the actual rendered frames.
+- **Simpler capture controls:** background sharing, paired receiver/OBS
+  controls and automatic device reception remain enabled. Removed their
+  unnecessary switches; per-device camera/audio/connection switches remain.
+  OBS capture settings receive the sender's actual modes and bitrate bounds.
+- **Android capture stability:** wait for foreground-service destruction before
+  a new capture starts; prevent late stop callbacks from terminating a new
+  session. Starting/stopping or changing capture settings is serialized, and
+  cancelled startup cannot revive capture. Frame-processing errors report an
+  actionable message and stop capture instead of escaping its capture thread.
+- **Remote Control privileges:** use upstream's elevated portable bootstrap so
+  an already-authorized Windows host starts its authenticated SYSTEM helper
+  automatically. Initial Windows admin authorization remains necessary;
+  destination password/2FA/manual approval policies are preserved. Android's
+  Input permission request disappears after permission is granted and returns
+  if it is revoked.
+
+**Validation:** 197 Flutter tests passed, clean analysis, Android device-side
+capability/rotation/foreground-service tests, compiled camera/mic restart stress
+(8 sessions and 5 cancelled starts), real WebRTC preview/receiver orientation,
+Windows camera enumeration and four independent OBS camera/control tests.
+The native privilege probe confirmed the authenticated SYSTEM helper.
+
+**Coverage:** Android hardware acceptance used an API 30 emulator; physical
+phone/cable configurations and every OEM's camera/codec limits are not claimed.
+Four independent virtual microphone endpoints remain outside this update.
+See [capture validation](https://github.com/MBNpro-ir/localist/blob/v7.2.0/docs/VALIDATION_CAPTURE_DEVICE_SETTINGS.md)
+and [remote privilege validation](https://github.com/MBNpro-ir/localist/blob/v7.2.0/docs/VALIDATION_REMOTE_PRIVILEGE.md).
+
 ## [7.1.0] — Automatic multi-device capture and Remote Control IPC repair
 
 - **Automatic camera and microphone reception:** discover active Localist

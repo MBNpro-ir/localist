@@ -66,6 +66,40 @@ object CaptureRotationRegression {
             }
             // The source must still be valid after every replacement releases its reference.
             check(buffer.dataY.get(0).toInt() == 1)
+            val upright = JavaI420Buffer.allocate(8, 4)
+            for (y in 0..3) for (x in 0..7) upright.dataY.put(y*upright.strideY+x, (40+y*8+x).toByte())
+            val source = VideoFrame(upright, 90, 456L)
+            try {
+                val landscape = CaptureOrientation.FrameRotation("landscape", 90, false, 0)
+                for (physical in listOf(0,90,180,270)) {
+                    landscape.update(physical)
+                    val output = landscape.onFrame(source)
+                    try {
+                        check(output.rotation == 0 && output.buffer.width == 8 && output.buffer.height == 4)
+                        val pixels = checkNotNull(output.buffer.toI420())
+                        try {
+                            if (physical == 0 || physical == 180) {
+                                check(pixels.dataY.get(0).toInt() == 16) { "Portrait content must have black sidebars" }
+                                check((pixels.dataY.get(2).toInt() and 255) >= 40) { "Rotated image content missing" }
+                            }
+                        } finally { pixels.release() }
+                    } finally { if (output !== source) output.release() }
+                }
+            } finally { source.release() }
+            var failures = 0
+            val damaged = object : VideoFrame.Buffer {
+                override fun getWidth() = 8
+                override fun getHeight() = 4
+                override fun toI420(): VideoFrame.I420Buffer { throw OutOfMemoryError("QA allocation failure") }
+                override fun cropAndScale(x: Int, y: Int, w: Int, h: Int, ow: Int, oh: Int): VideoFrame.Buffer = this
+                override fun retain() {}
+                override fun release() {}
+            }
+            val unsafe = VideoFrame(damaged, 90, 0)
+            val guarded = CaptureOrientation.FrameRotation("landscape", 90, false, 0) { failures++ }
+            check(guarded.onFrame(unsafe) === unsafe)
+            check(guarded.onFrame(unsafe) === unsafe && failures == 1) { "Frame errors must stop capture once, without crashing" }
+            unsafe.release()
         } finally { frame.release() }
     }
 }

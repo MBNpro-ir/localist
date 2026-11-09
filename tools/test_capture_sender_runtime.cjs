@@ -9,6 +9,7 @@ const command=(...args)=>execFileSync(adb,['-s','emulator-5560',...args],{window
  const vm=new VM();await vm.start();let sender,web,browser;
  const savedRotation=command('shell','settings','get','system','user_rotation').trim();
  const savedAutomatic=command('shell','settings','get','system','accelerometer_rotation').trim();
+ const savedAcceleration=command('emu','sensor','get','acceleration').match(/acceleration\s*=\s*([^\r\n]+)/)?.[1].trim();
  try{
   const hub=await vm.eval(vm.library('/capture_hub_service.dart'),'CaptureHubService.instance');
   await vm.wait(await vm.eval(hub.id,'setEnabled(false)'));
@@ -29,8 +30,10 @@ const command=(...args)=>execFileSync(adb,['-s','emulator-5560',...args],{window
   await vm.wait(await vm.eval(sender.id,"setOrientation('auto')"));
   command('shell','settings','put','system','accelerometer_rotation','0');
   command('shell','settings','put','system','user_rotation','0');
+  command('emu','sensor','set','acceleration','0:9.81:0');
   await page.waitForFunction(()=>video.videoHeight>video.videoWidth);const automaticPortrait=await size();
   command('shell','settings','put','system','user_rotation','1');
+  command('emu','sensor','set','acceleration','9.81:0:0');
   await page.waitForFunction(()=>video.videoWidth>video.videoHeight);const automaticLandscape=await size();
   const media=await page.evaluate(async()=>({state:peer.connectionState,inbound:[...await peer.getStats()].map(([,s])=>s).filter(s=>s.type==='inbound-rtp').map(s=>({kind:s.kind,bytes:s.bytesReceived,frames:s.framesDecoded}))}));
   if(!media.inbound.some(s=>s.kind==='audio'&&s.bytes>0))throw Error('No inbound audio');
@@ -57,6 +60,7 @@ const command=(...args)=>execFileSync(adb,['-s','emulator-5560',...args],{window
   if(web)await vm.wait(await vm.eval(web.id,'stop()')).catch(()=>{});
   command('shell','settings','put','system','user_rotation',savedRotation);
   command('shell','settings','put','system','accelerometer_rotation',savedAutomatic);
+  if(savedAcceleration)command('emu','sensor','set','acceleration',savedAcceleration);
   for(const port of [45108,45130])try{command('forward','--remove','tcp:'+port);}catch(_){}
   vm.socket.close();
  }

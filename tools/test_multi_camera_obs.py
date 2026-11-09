@@ -12,6 +12,7 @@ import time
 import winreg
 
 ROOT = Path(__file__).resolve().parent.parent
+QA = Path(os.environ.get('LOCALIST_CAPTURE_QA_ROOT', ROOT / '.runlogs/multicapture-qa'))
 OBS = Path(os.environ.get('LOCALIST_OBS_ROOT', r'C:\Program Files\obs-studio'))
 P = c.c_void_p
 
@@ -29,7 +30,7 @@ class Frame(c.Structure):
 
 
 def main():
-    config = ROOT / '.runlogs/multicapture-qa/obs'
+    config = QA / 'obs'
     config.mkdir(exist_ok=True)
     handle = os.add_dll_directory(str(OBS / 'bin/64bit'))
     plugin_handle = os.add_dll_directory(str(OBS / 'obs-plugins/64bit'))
@@ -140,7 +141,7 @@ def main():
         finally:
             destroy_properties(props)
         report['isolated'] = True
-        (ROOT / '.runlogs/multicapture-qa/obs-four-results.json').write_text(json.dumps(report, indent=2))
+        (QA / 'obs-four-results.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         print('LOCALIST_OBS_CAMERA_OK', json.dumps(report))
     finally:
         if started: shutdown()

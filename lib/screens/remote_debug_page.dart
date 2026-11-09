@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/localist/connection_card.dart';
@@ -186,7 +187,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                     Text(
                       t('شناسه در حال آماده‌سازی است…', 'Preparing your ID…'),
                     ),
-                  if (Platform.isAndroid) ...[
+                  if (defaultTargetPlatform == TargetPlatform.android) ...[
                     const SizedBox(height: 16),
                     Text(
                       t(
@@ -213,23 +214,17 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                               ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          unawaited(_service.openInputPermission()),
-                      icon: const Icon(Icons.touch_app_outlined),
-                      label: Text(
-                        _service.inputEnabled
-                            ? t(
-                                'مجوز کنترل فعال است',
-                                'Input permission enabled',
-                              )
-                            : t(
-                                'فعال کردن مجوز کنترل',
-                                'Enable input permission',
-                              ),
+                    if (!_service.inputEnabled) ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            unawaited(_service.openInputPermission()),
+                        icon: const Icon(Icons.touch_app_outlined),
+                        label: Text(
+                          t('فعال کردن مجوز کنترل', 'Enable input permission'),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ],
               ),

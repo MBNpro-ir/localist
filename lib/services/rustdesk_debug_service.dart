@@ -45,6 +45,15 @@ class RustDeskDebugService extends ChangeNotifier {
       (Platform.isWindows && File(enginePath).existsSync());
   static const _native = MethodChannel('localist/remote');
   bool _disposed = false;
+  bool _listeningForInput = false;
+  void _inputPermissionChanged() {
+    final enabled = remote.gFFI.serverModel.inputOk;
+    if (inputEnabled != enabled && !_disposed) {
+      inputEnabled = enabled;
+      _notify();
+    }
+  }
+
   static const modes = [
     'connect',
     'file-transfer',
@@ -89,6 +98,9 @@ class RustDeskDebugService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    if (_listeningForInput) {
+      remote.gFFI.serverModel.removeListener(_inputPermissionChanged);
+    }
     _refreshTimer?.cancel();
     FeatureActivityService.instance.setActive(
       this,
@@ -138,6 +150,10 @@ class RustDeskDebugService extends ChangeNotifier {
     if (Platform.isAndroid) {
       try {
         await LocalistRemoteRuntime.ensureStarted();
+        if (!_listeningForInput) {
+          _listeningForInput = true;
+          remote.gFFI.serverModel.addListener(_inputPermissionChanged);
+        }
         await applyNativeRemoteProfile();
         await remote.gFFI.invokeMethod('check_service');
         localId = await bind.mainGetMyId();
@@ -388,6 +404,7 @@ class RustDeskDebugService extends ChangeNotifier {
       await FeaturePermissionService.instance.ensure([
         FeatureAccess.remoteInput,
       ]);
+      await refresh();
     }
   }
 

@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/live_capture_service.dart';
+import '../services/capture_capabilities.dart';
 import '../services/capture_hub_service.dart';
 import '../services/windows_virtual_devices_service.dart';
 import '../services/feature_permission_service.dart';
@@ -30,21 +32,20 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   final _virtual = WindowsVirtualDevicesService();
   bool _virtualBusy = false;
   List<MediaDeviceInfo> _outputs = [];
-  String _orientation = 'auto';
+  CaptureCapabilities _capabilities = const CaptureCapabilities();
+  CaptureMode? _mode;
+  String _orientation = 'landscape';
+  bool _loadingCapabilities = false;
+  int _capabilityRequest = 0;
   bool get _windows => defaultTargetPlatform == TargetPlatform.windows;
   bool get _android => defaultTargetPlatform == TargetPlatform.android;
   List<MediaDeviceInfo> _inputs = [];
   String? _cameraId, _microphoneId;
   bool _operationRunning = false, _previewSuspended = false;
-  bool _receiverControls = false;
   double? _zoomDraft;
-  bool _rendererReady = false, _camera = true, _microphone = true, _rear = true;
-  bool _echo = true,
-      _noise = true,
-      _gain = true,
-      _mirror = false,
-      _background = true;
-  int _width = 1280, _fps = 30, _bitrate = 2500;
+  bool _rendererReady = false, _camera = true, _microphone = true;
+  bool _echo = true, _noise = true, _gain = true, _mirror = false;
+  int _fps = 30, _bitrate = 0;
   String _notice = '';
   String t(String fa, String en) =>
       Localizations.localeOf(context).languageCode == 'fa' ? fa : en;
@@ -61,10 +62,10 @@ class _LiveCapturePageState extends State<LiveCapturePage>
 
   void _changed() {
     if (_rendererReady) {
-      _renderer.srcObject =
-          _android && _previewSuspended && _service.broadcasting
+      final stream = _android && _previewSuspended && _service.broadcasting
           ? null
           : _service.localStream ?? _service.remoteStream;
+      if (_renderer.srcObject != stream) _renderer.srcObject = stream;
     }
     if (mounted) setState(() {});
   }
@@ -82,22 +83,93 @@ class _LiveCapturePageState extends State<LiveCapturePage>
 
   Future<void> _refreshInputs({bool silent = false}) async {
     try {
-      final inputs = await LiveCaptureService.inputDevices();
-      if (mounted) {
-        setState(() {
-          _inputs = inputs
-              .where((device) => device.deviceId.isNotEmpty)
-              .toList();
-          if (!_inputs.any((device) => device.deviceId == _cameraId)) {
-            _cameraId = null;
-          }
-          if (!_inputs.any((device) => device.deviceId == _microphoneId)) {
-            _microphoneId = null;
-          }
-        });
-      }
+      final inputs = (await LiveCaptureService.inputDevices())
+          .where((d) => d.deviceId.isNotEmpty)
+          .toList();
+      if (!mounted) return;
+      final previous = _cameraId;
+      setState(() {
+        _inputs = inputs;
+        final cameras = inputs.where((d) => d.kind == 'videoinput').toList();
+        final microphones = inputs
+            .where((d) => d.kind == 'audioinput')
+            .toList();
+        if (!cameras.any((d) => d.deviceId == _cameraId)) {
+          _cameraId =
+              cameras
+                  .where(
+                    (d) => RegExp(
+                      r'back|rear|environment',
+                      caseSensitive: false,
+                    ).hasMatch(d.label),
+                  )
+                  .firstOrNull
+                  ?.deviceId ??
+              cameras.firstOrNull?.deviceId;
+        }
+        if (!microphones.any((d) => d.deviceId == _microphoneId)) {
+          _microphoneId = microphones.firstOrNull?.deviceId;
+        }
+      });
+      if (previous != _cameraId || _mode == null) await _loadCapabilities();
     } catch (error) {
       if (!silent && mounted) setState(() => _notice = '$error');
+    }
+  }
+
+  Future<void> _loadCapabilities() async {
+    final id = _cameraId;
+    final request = ++_capabilityRequest;
+    if (id == null) {
+      if (mounted) {
+        setState(() {
+          _mode = null;
+          _capabilities = const CaptureCapabilities();
+        });
+      }
+      return;
+    }
+    setState(() => _loadingCapabilities = true);
+    try {
+      var caps = await LiveCaptureService.deviceCapabilities(
+        id,
+        width: _mode?.width ?? 1280,
+        height: _mode?.height ?? 720,
+        fps: _fps,
+      );
+      final mode = caps.choose(
+        width: _mode?.width ?? 1280,
+        height: _mode?.height ?? 720,
+      );
+      final fps = mode == null ? _fps : _fps.clamp(mode.minFps, mode.maxFps);
+      if (mode != null) {
+        caps = await LiveCaptureService.deviceCapabilities(
+          id,
+          width: mode.width,
+          height: mode.height,
+          fps: fps,
+        );
+      }
+      if (!mounted || request != _capabilityRequest) return;
+      setState(() {
+        _mode = mode;
+        _fps = fps;
+        _capabilities = caps;
+        if (mode != null && _bitrate <= 0) {
+          _bitrate = caps.recommendedBitrate(mode, fps);
+        }
+        if (caps.hasBitrateRange) {
+          _bitrate = _bitrate.clamp(caps.minBitrate, caps.maxBitrate);
+        }
+      });
+    } catch (error) {
+      if (mounted && request == _capabilityRequest) {
+        setState(() => _notice = '$error');
+      }
+    } finally {
+      if (mounted && request == _capabilityRequest) {
+        setState(() => _loadingCapabilities = false);
+      }
     }
   }
 
@@ -113,20 +185,23 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     }
   }
 
-  void _profile(String profile) => setState(() {
-    _width = profile == 'battery'
-        ? 640
-        : profile == 'quality'
-        ? 1920
-        : 1280;
-    _fps = profile == 'battery' ? 15 : 30;
-    _bitrate = profile == 'battery'
-        ? 750
-        : profile == 'quality'
-        ? 6000
-        : 2500;
-    _background = true;
-  });
+  void _profile(String profile) {
+    if (_capabilities.modes.isEmpty) return;
+    setState(() {
+      _mode = profile == 'quality'
+          ? _capabilities.modes.last
+          : _capabilities.choose(
+              width: profile == 'battery' ? 640 : 1280,
+              height: profile == 'battery' ? 480 : 720,
+            );
+      _fps = (profile == 'battery' ? 15 : 30).clamp(
+        _mode!.minFps,
+        _mode!.maxFps,
+      );
+      _bitrate = _capabilities.recommendedBitrate(_mode!, _fps);
+    });
+    unawaited(_loadCapabilities());
+  }
 
   Future<void> _refreshVirtualDevices() async {
     try {
@@ -190,6 +265,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     try {
       await LiveCaptureService.initializeMedia();
       if (!_rendererReady) {
+        _renderer.onResize = () {
+          if (mounted) setState(() {});
+        };
         await _renderer.initialize();
         _rendererReady = true;
       }
@@ -202,6 +280,13 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     }
   }
 
+  Future<void> _switchCamera() async {
+    await _run(_service.switchCamera);
+    if (!mounted) return;
+    setState(() => _cameraId = _service.activeCameraId);
+    await _loadCapabilities();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -210,15 +295,6 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     if (_android) {
       _previewSuspended = state != AppLifecycleState.resumed;
       _changed();
-    }
-    if (state == AppLifecycleState.paused &&
-        _service.broadcasting &&
-        !_service.options.background) {
-      unawaited(_service.stop());
-      _notice = t(
-        'انتقال با خروج از برنامه متوقف شد؛ برای ادامه شروع را بزنید.',
-        'Capture stopped in background. Press Start to resume.',
-      );
     }
   }
 
@@ -259,13 +335,13 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     if (live && !video && !_service.options.microphone) {
       return const SizedBox.shrink();
     }
-    final inputs = _inputs.where((device) => device.kind == kind).toList();
+    final inputs = _inputs.where((d) => d.kind == kind).toList();
     final wanted = live
         ? (video ? _service.activeCameraId : _service.options.microphoneId)
         : (video ? _cameraId : _microphoneId);
-    final selected = inputs.any((device) => device.deviceId == wanted)
-        ? wanted!
-        : '';
+    final selected =
+        inputs.where((d) => d.deviceId == wanted).firstOrNull?.deviceId ??
+        inputs.firstOrNull?.deviceId;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
@@ -280,54 +356,34 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                   ? t('انتخاب دوربین', 'Camera input')
                   : t('انتخاب میکروفون', 'Microphone input'),
             ),
+            hint: Text(t('ورودی در دسترس نیست', 'No input available')),
             items: [
-              DropdownMenuItem(
-                value: '',
-                child: Text(t('خودکار', 'Automatic')),
-              ),
               for (final input in inputs)
                 DropdownMenuItem(
                   value: input.deviceId,
                   child: Text(input.label, overflow: TextOverflow.ellipsis),
                 ),
             ],
-            onChanged: _operationRunning || _service.busy
+            onChanged: _operationRunning || _service.busy || inputs.isEmpty
                 ? null
-                : (value) async {
-                    final id = value?.isEmpty == true ? null : value;
+                : (id) async {
+                    if (id == null) return;
                     if (live) {
-                      if (video) {
-                        await _run(() => _service.switchCamera(cameraId: id));
-                        if (mounted) {
-                          setState(() => _cameraId = _service.activeCameraId);
-                        }
-                      } else if (inputs.isNotEmpty) {
-                        final chosen =
-                            id ??
-                            inputs
-                                .firstWhere(
-                                  (input) => input.label.toLowerCase().contains(
-                                    'built-in',
-                                  ),
-                                  orElse: () => inputs.first,
-                                )
-                                .deviceId;
-                        await _run(() => _service.selectMicrophone(chosen));
-                        if (mounted) {
-                          setState(
-                            () => _microphoneId = _service.options.microphoneId,
-                          );
-                        }
-                      }
-                    } else if (mounted) {
-                      setState(() {
-                        if (video) {
-                          _cameraId = id;
-                        } else {
-                          _microphoneId = id;
-                        }
-                      });
+                      await _run(
+                        () => video
+                            ? _service.switchCamera(cameraId: id)
+                            : _service.selectMicrophone(id),
+                      );
                     }
+                    if (!mounted) return;
+                    setState(() {
+                      if (video) {
+                        _cameraId = id;
+                      } else {
+                        _microphoneId = id;
+                      }
+                    });
+                    if (video) await _loadCapabilities();
                   },
           ),
           if (!video)
@@ -351,6 +407,96 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       ),
     );
   }
+
+  List<Widget> _videoModeFields() => [
+    if (_loadingCapabilities) const LinearProgressIndicator(),
+    DropdownButtonFormField<String>(
+      key: ValueKey('capture-resolution-${_mode?.key}'),
+      isExpanded: true,
+      initialValue: _mode?.key,
+      decoration: InputDecoration(
+        labelText: t('رزولوشن دوربین', 'Camera resolution'),
+      ),
+      hint: Text(
+        t('در انتظار مشخصات دوربین', 'Waiting for camera capabilities'),
+      ),
+      items: [
+        for (final mode in _capabilities.modes)
+          DropdownMenuItem(
+            value: mode.key,
+            child: Text(mode.label, textDirection: TextDirection.ltr),
+          ),
+      ],
+      onChanged: _loadingCapabilities
+          ? null
+          : (key) {
+              setState(
+                () =>
+                    _mode = _capabilities.modes.firstWhere((m) => m.key == key),
+              );
+              unawaited(_loadCapabilities());
+            },
+    ),
+    const SizedBox(height: 12),
+    DropdownButtonFormField<int>(
+      key: ValueKey('capture-fps-${_mode?.key}-$_fps'),
+      isExpanded: true,
+      initialValue: _mode == null ? null : _fps,
+      decoration: InputDecoration(labelText: t('نرخ فریم', 'Frame rate')),
+      items: [
+        for (final fps in _mode?.frameRates ?? <int>[])
+          DropdownMenuItem(
+            value: fps,
+            child: Text('$fps FPS', textDirection: TextDirection.ltr),
+          ),
+      ],
+      onChanged: _loadingCapabilities
+          ? null
+          : (value) {
+              if (value == null) return;
+              setState(() => _fps = value);
+              unawaited(_loadCapabilities());
+            },
+    ),
+    const SizedBox(height: 14),
+    Text('${t('بیت‌ریت هدف', 'Target bitrate')}: $_bitrate kbps'),
+    if (_capabilities.hasBitrateRange) ...[
+      Text(
+        '${_capabilities.minBitrate}–${_capabilities.maxBitrate} kbps · ${_capabilities.codecs}',
+        textDirection: TextDirection.ltr,
+      ),
+      if (_capabilities.maxBitrate > _capabilities.minBitrate)
+        Slider(
+          min: math.log(_capabilities.minBitrate.toDouble()),
+          max: math.log(_capabilities.maxBitrate.toDouble()),
+          value: math.log(
+            _bitrate
+                .clamp(_capabilities.minBitrate, _capabilities.maxBitrate)
+                .toDouble(),
+          ),
+          onChanged: _loadingCapabilities
+              ? null
+              : (value) => setState(() => _bitrate = math.exp(value).round()),
+        ),
+    ] else
+      TextFormField(
+        key: ValueKey('capture-bitrate-$_bitrate'),
+        initialValue: _bitrate > 0 ? '$_bitrate' : '',
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          suffixText: 'kbps',
+          helperMaxLines: 3,
+          helperText: t(
+            'این درایور محدودهٔ بیت‌ریت اعلام نمی‌کند؛ مقدار هدف با کنترل نرخ WebRTC اعمال می‌شود.',
+            'This driver does not report bitrate bounds; WebRTC applies the target rate.',
+          ),
+        ),
+        onChanged: (v) {
+          final rate = int.tryParse(v);
+          if (rate != null && rate > 0 && rate <= 1000000) _bitrate = rate;
+        },
+      ),
+  ];
 
   Widget _heading(IconData icon, String title, String subtitle) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -416,67 +562,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       final video = _settingsGroup(
         Icons.videocam_outlined,
         t('تصویر', 'Video'),
-        [
-          _inputSelector('videoinput'),
-          if (_android)
-            SwitchListTile(
-              title: Text(t('دوربین پشت', 'Rear camera')),
-              value: _rear,
-              onChanged: (v) => setState(() => _rear = v),
-            ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<int>(
-            key: ValueKey('capture-resolution-$_width'),
-            isExpanded: true,
-            initialValue: _width,
-            decoration: InputDecoration(
-              labelText: t('وضوح درخواستی', 'Requested resolution'),
-            ),
-            items: [
-              for (final w in [320, 640, 1280, 1920])
-                DropdownMenuItem(
-                  value: w,
-                  child: Text(
-                    w == 320
-                        ? '320 × 240'
-                        : w == 640
-                        ? '640 × 480'
-                        : w == 1280
-                        ? '1280 × 720'
-                        : '1920 × 1080',
-                    textDirection: TextDirection.ltr,
-                  ),
-                ),
-            ],
-            onChanged: (v) => setState(() => _width = v!),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<int>(
-            key: ValueKey('capture-fps-$_fps'),
-            isExpanded: true,
-            initialValue: _fps,
-            decoration: InputDecoration(
-              labelText: t('نرخ فریم درخواستی', 'Requested frame rate'),
-            ),
-            items: [
-              for (final fps in [10, 15, 24, 30, 60])
-                DropdownMenuItem(
-                  value: fps,
-                  child: Text('$fps FPS', textDirection: TextDirection.ltr),
-                ),
-            ],
-            onChanged: (v) => setState(() => _fps = v!),
-          ),
-          const SizedBox(height: 14),
-          Text('${t('سقف بیت‌ریت', 'Maximum bitrate')}: $_bitrate kbps'),
-          Slider(
-            min: 250,
-            max: 8000,
-            divisions: 31,
-            value: _bitrate.toDouble(),
-            onChanged: (v) => setState(() => _bitrate = v.round()),
-          ),
-        ],
+        [_inputSelector('videoinput'), ..._videoModeFields()],
       );
       final audio = _settingsGroup(Icons.mic_none, t('صدا', 'Audio'), [
         _inputSelector('audioinput'),
@@ -614,66 +700,53 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         ),
         const SizedBox(height: 16),
         _captureSettings(),
-        if (_android && _camera) _orientationSelector(),
-        const SizedBox(height: 12),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(
-            t(
-              'کنترل تنظیمات توسط گیرنده / OBS',
-              'Allow receiver / OBS capture controls',
-            ),
-          ),
-          subtitle: Text(
-            t(
-              'با اجازهٔ شما، گیرندهٔ لینک می‌تواند تنظیمات ضبط را تغییر دهد.',
-              'Let a paired viewer adjust the capture settings.',
-            ),
-          ),
-          value: _receiverControls,
-          onChanged: (value) => setState(() => _receiverControls = value),
-        ),
-        if (_android)
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
+        if ((_camera && (_cameraId == null || _capabilities.modes.isEmpty)) ||
+            (_microphone && _microphoneId == null))
+          OutlinedButton.icon(
+            onPressed: _operationRunning
+                ? null
+                : () => _run(() async {
+                    if (await FeaturePermissionService.instance.ensure([
+                      if (_camera) FeatureAccess.camera,
+                      if (_microphone) FeatureAccess.microphone,
+                    ])) {
+                      await _refreshInputs();
+                    }
+                  }),
+            icon: const Icon(Icons.perm_camera_mic_outlined),
+            label: Text(
               t(
-                'ادامهٔ انتقال در پس‌زمینه با اعلان توقف',
-                'Continue in background with a Stop notification',
+                'دسترسی و تازه‌سازی ورودی‌ها',
+                'Allow access and refresh inputs',
               ),
             ),
-            value: _background,
-            onChanged: (v) => setState(() => _background = v),
           ),
+        if (_android && _camera) _orientationSelector(),
         const SizedBox(height: 12),
         FilledButton.icon(
           onPressed:
-              _operationRunning || _service.busy || (!_camera && !_microphone)
+              _operationRunning ||
+                  _service.busy ||
+                  _loadingCapabilities ||
+                  (!_camera && !_microphone) ||
+                  (_camera && (_cameraId == null || _mode == null)) ||
+                  (_microphone && _microphoneId == null)
               ? null
               : () => _run(
                   () => _service.start(
                     LiveCaptureOptions(
-                      background: _background,
                       camera: _camera,
                       microphone: _microphone,
-                      rearCamera: _rear,
                       cameraId: _cameraId,
+                      orientation: _orientation,
                       microphoneId: _microphoneId,
-                      width: _width,
-                      height: _width == 320
-                          ? 240
-                          : _width == 640
-                          ? 480
-                          : _width == 1280
-                          ? 720
-                          : 1080,
+                      width: _mode?.width ?? 1280,
+                      height: _mode?.height ?? 720,
                       fps: _fps,
-                      bitrateKbps: _bitrate,
+                      bitrateKbps: _bitrate > 0 ? _bitrate : 1,
                       echoCancellation: _echo,
                       noiseSuppression: _noise,
                       autoGain: _gain,
-                      receiverControls: _receiverControls,
-                      orientation: _orientation,
                     ),
                   ),
                 ),
@@ -695,13 +768,21 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         const SizedBox(height: 16),
         if (_rendererReady &&
             (_service.localStream != null || _service.remoteStream != null))
-          Container(
-            height: MediaQuery.sizeOf(context).width < 600 ? 240 : 380,
-            color: Colors.black,
-            child: RTCVideoView(
-              _renderer,
-              mirror: _mirror,
-              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+          AspectRatio(
+            aspectRatio: _renderer.videoWidth > 0 && _renderer.videoHeight > 0
+                ? _renderer.videoWidth / _renderer.videoHeight
+                : _service.options.orientation == 'portrait'
+                ? math.min(_service.options.width, _service.options.height) /
+                      math.max(_service.options.width, _service.options.height)
+                : math.max(_service.options.width, _service.options.height) /
+                      math.min(_service.options.width, _service.options.height),
+            child: ColoredBox(
+              color: Colors.black,
+              child: RTCVideoView(
+                _renderer,
+                mirror: _mirror,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+              ),
             ),
           ),
         const SizedBox(height: 12),
@@ -713,7 +794,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           spacing: 8,
           runSpacing: 8,
           children: [
-            if (_service.broadcasting && _microphone)
+            if (_service.broadcasting && _service.options.microphone)
               IconButton.filledTonal(
                 tooltip: t('قطع/وصل میکروفون', 'Mute microphone'),
                 isSelected: _service.microphoneMuted,
@@ -722,7 +803,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                 onPressed: () =>
                     _service.muteMicrophone(!_service.microphoneMuted),
               ),
-            if (_service.broadcasting && _camera) ...[
+            if (_service.broadcasting && _service.options.camera) ...[
               IconButton.filledTonal(
                 tooltip: t('توقف/ادامه تصویر', 'Pause camera'),
                 isSelected: _service.cameraPaused,
@@ -733,9 +814,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               IconButton.filledTonal(
                 tooltip: t('تعویض دوربین', 'Switch camera'),
                 icon: const Icon(Icons.cameraswitch_outlined),
-                onPressed: _service.busy
-                    ? null
-                    : () => _run(_service.switchCamera),
+                onPressed: _service.busy ? null : _switchCamera,
               ),
             ],
             IconButton.filledTonal(
@@ -764,7 +843,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             ),
           ],
         ),
-        if (_android && _service.broadcasting && _camera) ...[
+        if (_android && _service.broadcasting && _service.options.camera) ...[
           const SizedBox(height: 12),
           _orientationSelector(live: true),
         ],
@@ -830,24 +909,6 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             ),
           ),
         ],
-        if (_service.broadcasting)
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              t(
-                'کنترل تنظیمات توسط گیرنده / OBS',
-                'Allow receiver / OBS capture controls',
-              ),
-            ),
-            subtitle: Text(
-              t(
-                'گیرندهٔ لینک جفت‌شده می‌تواند کیفیت، میکروفون، حذف نویز و زوم را تغییر دهد.',
-                'Paired viewers can change capture quality, microphone, audio processing and zoom.',
-              ),
-            ),
-            value: _service.options.receiverControls,
-            onChanged: _service.allowReceiverControls,
-          ),
         for (final link in _service.links)
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -957,8 +1018,8 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           padding: const EdgeInsets.all(16),
           child: Text(
             t(
-              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای میکروفون، درایور را از همین صفحه نصب و CABLE Input را برای خروجی و CABLE Output را در برنامهٔ مقصد انتخاب کنید.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ فرستنده باید اجازهٔ کنترل داده باشد. دریافت مستقیم در Browser Source هم امکان دارد.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. برای ادامه در پس‌زمینه گزینهٔ مربوط را روشن کنید؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
-              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For microphone input, install the driver from this page, choose CABLE Input for output and CABLE Output in the target app.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls an authorized sender. Direct reception in a Browser Source is also available.\n4. Actual quality/FPS depend on hardware and network. Enable background mode to continue with a silent notification and Stop action.',
+              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای میکروفون، درایور را از همین صفحه نصب و CABLE Input را برای خروجی و CABLE Output را در برنامهٔ مقصد انتخاب کنید.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ کنترل تنظیمات فرستنده در دسترس است. دریافت مستقیم در Browser Source هم امکان دارد.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. انتقال در پس‌زمینه ادامه دارد؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
+              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For microphone input, install the driver from this page, choose CABLE Input for output and CABLE Output in the target app.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls the paired sender. Direct reception in a Browser Source is also available.\n4. Actual quality/FPS depend on hardware and network. Background sharing stays active with a silent notification and Stop action.',
             ),
           ),
         ),
@@ -1012,9 +1073,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                     ),
                   ),
                   const SizedBox(height: 22),
-                  if (_notice.isNotEmpty) ...[
+                  if (_notice.isNotEmpty || _service.error.isNotEmpty) ...[
                     Text(
-                      _notice,
+                      _notice.isNotEmpty ? _notice : _service.error,
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
                       ),

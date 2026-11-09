@@ -18,10 +18,13 @@ import java.util.concurrent.atomic.AtomicInteger
 /** Owns visible, explicitly started camera/microphone capture in the background. */
 class CaptureForegroundService : Service() {
     private var wake: PowerManager.WakeLock? = null
+    private var intentionalStop = false
+    override fun onCreate() { super.onCreate(); current = this }
     override fun onBind(intent: Intent?): IBinder? = null
     @SuppressLint("WakelockTimeout") // Owned only by explicit foreground capture; released below and on process death.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) {
+            intentionalStop = true
             channel?.invokeMethod("stopCapture", null)
             stopSelf()
             return START_NOT_STICKY
@@ -44,6 +47,7 @@ class CaptureForegroundService : Service() {
                 wake = (getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Localist:Capture").apply { setReferenceCounted(false); acquire() }
             }
             completeStart(intent?.getIntExtra(REQUEST, 0) ?: 0, null)
+            if (stopping.isNotEmpty()) { intentionalStop = true; stopSelf(startId) }
         } catch (error: RuntimeException) {
             completeStart(intent?.getIntExtra(REQUEST, 0) ?: 0, error)
             stopSelf(startId)
@@ -56,7 +60,10 @@ class CaptureForegroundService : Service() {
         LocalistNotifications.stop(this)
         if (wake?.isHeld == true) wake?.release()
         wake = null
-        channel?.invokeMethod("stopCapture", null)
+        if (!intentionalStop) channel?.invokeMethod("stopCapture", null)
+        if (current === this) current = null
+        val stopped = stopping.toList(); stopping.clear()
+        stopped.forEach { it.success(true) }
         super.onDestroy()
     }
     companion object {
@@ -67,10 +74,30 @@ class CaptureForegroundService : Service() {
         private val handler = Handler(Looper.getMainLooper())
         private data class Pending(val result: MethodChannel.Result, val timeout: Runnable)
         private val pending = mutableMapOf<Int, Pending>()
+        private var current: CaptureForegroundService? = null
+        private val stopping = mutableListOf<MethodChannel.Result>()
+
+        // A stop acknowledgement means onDestroy completed. Returning at
+        // stopService() races the next startForegroundService() and can kill
+        // a new capture through the previous instance's stop callback.
+        fun requestStop(context: Context, result: MethodChannel.Result) {
+            val service = current
+            if (service == null && pending.isEmpty()) { context.stopService(Intent(context, CaptureForegroundService::class.java)); result.success(true); return }
+            service?.intentionalStop = true
+            stopping.add(result)
+            if (service != null) context.stopService(Intent(context, CaptureForegroundService::class.java))
+            handler.postDelayed({
+                if (stopping.remove(result)) result.error("CAPTURE_STOP", "Capture service did not stop in time", null)
+            }, 3000)
+        }
 
         // Returning only after startForeground avoids moving the activity to
         // background before Android 14 checks while-in-use camera/mic access.
         fun requestStart(context: Context, camera: Boolean, microphone: Boolean, result: MethodChannel.Result) {
+            if (current?.intentionalStop == true || stopping.isNotEmpty()) {
+                result.error("CAPTURE_STOPPING", "Previous capture service is still stopping", null)
+                return
+            }
             val id = sequence.incrementAndGet()
             val timeout = Runnable { completeStart(id, IllegalStateException("Capture service did not become ready")) }
             pending[id] = Pending(result, timeout)

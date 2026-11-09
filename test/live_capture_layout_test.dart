@@ -96,7 +96,19 @@ void main() {
     );
     messenger.setMockMethodCallHandler(
       bridge,
-      (call) async => call.method == 'getWindowsVirtualCameraStatus'
+      (call) async => call.method == 'getCaptureDeviceCapabilities'
+          ? {
+              'modes': [
+                {'width': 640, 'height': 480, 'minFps': 1, 'maxFps': 30},
+                {'width': 1280, 'height': 720, 'minFps': 1, 'maxFps': 60},
+                {'width': 1920, 'height': 1080, 'minFps': 1, 'maxFps': 60},
+                {'width': 3840, 'height': 2160, 'minFps': 1, 'maxFps': 30},
+              ],
+              'minBitrateKbps': 64,
+              'maxBitrateKbps': 80000,
+              'codecs': 'avc',
+            }
+          : call.method == 'getWindowsVirtualCameraStatus'
           ? {'installed': false}
           : null,
     );
@@ -236,6 +248,17 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      for (final label in [
+        'Rear camera',
+        'Automatic',
+        'Continue in background with a Stop notification',
+        'Allow receiver / OBS capture controls',
+        'Automatically receive devices',
+        'دوربین پشت',
+        'خودکار',
+      ]) {
+        expect(find.text(label), findsNothing);
+      }
       expect(tester.takeException(), isNull);
       final send = tester.getRect(
         find.byKey(const ValueKey('capture-send-card')),
@@ -304,12 +327,17 @@ void main() {
         app(capture, persian: false, scale: 1, brightness: Brightness.dark),
       );
       await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('High quality'));
+      await tester.pumpAndSettle();
       expect(find.byType(TextField), findsNothing);
       tester.view.physicalSize = const Size(900, 780);
       await tester.pumpAndSettle();
-      expect(find.text('1920 × 1080'), findsOneWidget);
-      expect(find.text('Automatically receive devices'), findsOneWidget);
+      expect(find.text('3840 × 2160'), findsOneWidget);
+      expect(find.text('Automatically receive devices'), findsNothing);
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Start live capture'));
@@ -327,15 +355,18 @@ void main() {
             .map((text) => text.data)
             .join(' | '),
       );
-      expect(capture.options.width, 1920);
-      expect(capture.options.bitrateKbps, 6000);
+      expect(capture.options.width, 3840);
+      expect(capture.options.bitrateKbps, 24883);
       tester.view.physicalSize = const Size(1844, 994);
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('capture-session-card')),
         findsOneWidget,
       );
-      expect(find.byKey(const ValueKey('capture-receive-card')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('capture-receive-card')),
+        findsOneWidget,
+      );
       expect(
         tester
             .getTopLeft(find.byKey(const ValueKey('capture-session-card')))

@@ -64,7 +64,7 @@ void LocalistVirtualCameraFrame(int64_t texture, libwebrtc::scoped_refptr<libweb
   const int rotation = static_cast<int>(frame->rotation());
   const int w = rotation == 90 || rotation == 270 ? source_height : source_width;
   const int h = rotation == 90 || rotation == 270 ? source_width : source_height;
-  if (w < 2 || h < 2 || w > 4096 || h > 4096 || !frame->DataY() || !frame->DataU() || !frame->DataV()) return;
+  if (w < 2 || h < 2 || w > 8192 || h > 8192 || !frame->DataY() || !frame->DataU() || !frame->DataV()) return;
   if (queue && (width != w || height != h)) camera.Close();
   if (!queue) {
     queue = video_queue_create(static_cast<uint32_t>(w), static_cast<uint32_t>(h), 10000000ULL / static_cast<uint64_t>(camera.fps));
