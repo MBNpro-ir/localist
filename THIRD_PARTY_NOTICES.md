@@ -231,3 +231,12 @@ Pinned source, corresponding native source archive, bridge and runtime hashes
 are in `third_party/localist_remote`. Source and rebuilding details are in
 [the integration document](docs/RUSTDESK_INTEGRATION.md). Native codec, TLS,
 Windows display and printer dependencies retain their upstream licenses/notices.
+
+# Localist virtual microphone driver
+
+The separately built WaveRT driver adapts MicyWMD, copyright 2025 Deniz Kiziroğlu,
+under MIT, including Microsoft SimpleAudioSample portions under MS-PL.
+The original notices are retained in `third_party/virtual_audio/upstream`.
+Both license texts and the pinned source manifest are in `third_party/virtual_audio`.
+Localist identities, four-slot PCM transport, validation and native WebRTC routing
+are maintained in `windows/virtual_audio`. No VB-CABLE binary is distributed.

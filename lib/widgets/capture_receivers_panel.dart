@@ -56,7 +56,7 @@ class CaptureReceiversPanel extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
-                '${peer.advertisement.model} · ${peer.online ? t(context, 'آنلاین', 'Online') : t(context, 'آفلاین', 'Offline')}\n${windows ? 'Localist Camera ${peer.slot + 1}' : t(context, 'گیرنده', 'Receiver')}',
+                '${peer.advertisement.model} · ${peer.online ? t(context, 'آنلاین', 'Online') : t(context, 'آفلاین', 'Offline')}\n${windows ? 'Localist Camera ${peer.slot + 1} · Localist Microphone ${peer.slot + 1}' : t(context, 'گیرنده', 'Receiver')}',
                 maxLines: 3,
               ),
               trailing: Switch.adaptive(
@@ -114,6 +114,11 @@ class CaptureReceiversPanel extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (peer.outputError.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(peer.outputError),
+                  ),
                 if (peer.error.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.all(12),

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:localist/services/capture_hub_service.dart';
 import 'package:localist/services/capture_discovery_service.dart';
@@ -53,14 +54,17 @@ Future<void> main(List<String> args) async {
     await hub.start();
     void discover() {
       for (var i = 0; i < 4; i++) {
+        final source = session['senders'] == null
+            ? session
+            : session['senders'][i] as Map;
         hub.observe(
           CaptureAdvertisement(
             id: 'windows-real-android-qa-$i',
             name: 'Android QA $i',
             model: 'Android hardware camera',
             host: '127.0.0.1',
-            port: session['port'] as int,
-            key: session['key'] as String,
+            port: source['port'] as int,
+            key: source['key'] as String,
             camera: true,
             microphone: true,
           ),
@@ -89,6 +93,29 @@ Future<void> main(List<String> args) async {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
       if (!ok) break;
+      if (session['requireMicrophones'] == true) {
+        ok = false;
+        final deadline = DateTime.now().add(const Duration(seconds: 25));
+        while (DateTime.now().isBefore(deadline)) {
+          final states = await Future.wait(
+            hub.receivers.map(
+              (r) => const MethodChannel('FlutterWebRTC.Method')
+                  .invokeMapMethod<String, dynamic>(
+                    'localistVirtualMicrophoneStatus',
+                    {'slot': r.slot},
+                  ),
+            ),
+          );
+          if (states.every(
+            (s) => (s?['frames'] as int? ?? 0) >= 48000 && s?['error'] == 0,
+          )) {
+            ok = true;
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        if (!ok) break;
+      }
       if (cycle == 0) {
         await Future.wait(
           hub.receivers.map((r) => hub.configure(r, enabled: false)),
@@ -112,6 +139,12 @@ Future<void> main(List<String> args) async {
             'output': r.output.cameraEnabled,
             'error': r.error,
             'mediaError': r.capture.error,
+            'outputError': r.outputError,
+            'microphone': await const MethodChannel('FlutterWebRTC.Method')
+                .invokeMapMethod<String, dynamic>(
+                  'localistVirtualMicrophoneStatus',
+                  {'slot': r.slot},
+                ),
             'inbound': await r.capture.connectionDiagnostics(),
           },
       ],

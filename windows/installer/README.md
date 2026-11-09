@@ -32,6 +32,13 @@ confirmed application exit, then invokes its maintenance mode in the existing
 installation directory. Setup registers all four x86/x64 virtual cameras before
 reporting success. Removal unregisters only this installation's cameras.
 Older ZIP-only updaters require one manual Setup upgrade to migrate.
+The pending dedicated microphone integration requires the signed
+`drivers/LocalistAudio/{LocalistAudio.inf,LocalistAudio.sys,localistaudio.cat}`
+package. Production packaging runs `Verify-LocalistAudioPackage.ps1`, checks
+catalog membership and Microsoft kernel signing policy, and fails before creating
+Setup if verification fails. `-Qa` only bypasses this for isolated installer
+fixtures; QA Setup never installs system drivers. See
+`docs/LOCALIST_VIRTUAL_MICROPHONE.md` for the signing and acceptance requirements.
 These executables are not Authenticode-signed unless a signing stage is supplied;
 the checksum verifies file integrity and does not establish a trusted publisher.
 

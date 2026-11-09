@@ -35,7 +35,7 @@ class CaptureReceiver {
   int failures = 0;
   String? attemptedLink;
   final Map<String, DateTime> failedRoutes = {};
-  String error = '';
+  String error = '', outputError = '';
   String? renderedVideoTrack;
   bool get online =>
       DateTime.now().difference(lastSeen) < const Duration(seconds: 12);
@@ -402,7 +402,7 @@ class CaptureHubService extends ChangeNotifier {
         receiver.renderedVideoTrack = videoTrack;
       }
       await receiver.capture.setPlaybackMuted(
-        !receiver.audio || !receiver.enabled || !enabled,
+        windows || !receiver.audio || !receiver.enabled || !enabled,
       );
       if (windows) {
         receiver.output.persian = persian;
@@ -422,12 +422,19 @@ class CaptureHubService extends ChangeNotifier {
         } else if (!show && receiver.output.cameraEnabled) {
           receiver.output.stopCamera();
         }
+        await receiver.output.setMicrophoneSource(
+          receiver.enabled && enabled && receiver.audio ? stream : null,
+        );
       }
+      receiver.outputError = '';
     } catch (e) {
-      receiver.error = '$e';
-      LogService.instance.warning(
-        'Camera receiver ${receiver.slot + 1} output: ${redactCaptureError('$e')}',
-      );
+      final changed = receiver.outputError != '$e';
+      receiver.outputError = '$e';
+      if (changed) {
+        LogService.instance.warning(
+          'Camera receiver ${receiver.slot + 1} output: ${redactCaptureError('$e')}',
+        );
+      }
     } finally {
       _syncing.remove(receiver);
       _changed();

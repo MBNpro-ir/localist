@@ -29,8 +29,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   late final _renderer = widget.renderer ?? RTCVideoRenderer();
   final _scroll = ScrollController();
   final _virtual = WindowsVirtualDevicesService();
-  bool _virtualBusy = false;
-  List<MediaDeviceInfo> _outputs = [];
+  Map<String, dynamic> _audioStatus = {};
   CaptureCapabilities _capabilities = const CaptureCapabilities();
   CaptureMode? _mode;
   String _orientation = 'landscape';
@@ -226,57 +225,10 @@ class _LiveCapturePageState extends State<LiveCapturePage>
 
   Future<void> _refreshVirtualDevices() async {
     try {
-      final outputs = await _virtual.audioOutputs();
-      if (mounted) setState(() => _outputs = outputs);
+      final status = await _virtual.microphoneStatus();
+      if (mounted) setState(() => _audioStatus = status);
     } catch (error) {
       if (mounted) setState(() => _notice = '$error');
-    }
-  }
-
-  Future<void> _virtualWork(Future<void> Function() operation) async {
-    setState(() => _virtualBusy = true);
-    try {
-      await operation();
-      if (mounted) setState(() => _notice = '');
-    } catch (error) {
-      if (mounted) setState(() => _notice = '$error');
-    } finally {
-      if (mounted) {
-        await _refreshVirtualDevices();
-        if (mounted) setState(() => _virtualBusy = false);
-      }
-    }
-  }
-
-  Future<void> _installMicrophone() async {
-    final accepted = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          t('نصب ورودی میکروفون ویندوز', 'Install Windows microphone input'),
-        ),
-        content: Text(
-          t(
-            'درایور امضاشدهٔ VB-CABLE از وب‌سایت رسمی VB-Audio دانلود می‌شود و نصب‌کنندهٔ اصلی باز می‌شود. این درایور متعلق به VB-Audio و تابع مجوز Donationware آن است. نصب را در پنجرهٔ آن تکمیل کنید؛ ممکن است ری‌استارت ویندوز لازم شود. درایور همراه Localist بازتوزیع نمی‌شود.',
-            'The signed VB-CABLE driver is downloaded from VB-Audio and its original installer opens. It belongs to VB-Audio under its Donationware license. Complete installation there; Windows may need a restart. The driver is not redistributed with Localist.',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(t('لغو', 'Cancel')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              t('دانلود و باز کردن نصب‌کننده', 'Download & open installer'),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (accepted == true && mounted) {
-      await _virtualWork(_virtual.downloadMicrophoneInstaller);
     }
   }
 
@@ -922,62 +874,31 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           ),
         ),
         const SizedBox(height: 12),
-        for (final slot in [1, 2, 3, 4]) Text('Localist Camera $slot'),
-        const SizedBox(height: 12),
-        Text(
-          t(
-            'قطع/وصل صدای هر گیرنده مستقل است. ورودی میکروفون برای نرم‌افزارهای دیگر به درایور صوتی نیاز دارد.',
-            'Each receiver has independent audio controls. Microphone input for other applications requires a virtual audio driver.',
-          ),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          key: ValueKey(
-            'capture-mixed-output-${_virtual.microphoneOutput}-${_outputs.length}',
-          ),
-          isExpanded: true,
-          initialValue:
-              _outputs.any((d) => d.deviceId == _virtual.microphoneOutput)
-              ? _virtual.microphoneOutput
-              : null,
-          decoration: InputDecoration(
-            labelText: t(
-              'خروجی ترکیبی صدا برای میکروفون مجازی',
-              'Mixed audio output for a virtual microphone',
+        for (final slot in [1, 2, 3, 4])
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'Localist Camera $slot · Localist Microphone $slot',
+              textDirection: TextDirection.ltr,
             ),
           ),
-          items: [
-            for (final device in _outputs)
-              DropdownMenuItem(
-                value: device.deviceId,
-                child: Text(
-                  device.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
-          onChanged: _virtualBusy
-              ? null
-              : (id) {
-                  if (id != null) {
-                    unawaited(_virtualWork(() => _virtual.routeMicrophone(id)));
-                  }
-                },
-        ),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: _virtualBusy ? null : _installMicrophone,
-          icon: const Icon(Icons.mic_external_on_outlined),
-          label: Text(t('نصب درایور صوتی', 'Install audio driver')),
+        Text(
+            _audioStatus['available'] == true
+              ? t(
+                  'میکروفون‌های اختصاصی آماده‌اند؛ در برنامهٔ مقصد میکروفون همان دستگاه را انتخاب کنید.',
+                  'Dedicated microphones are installed. Select the matching device microphone in your target app.',
+                )
+              : t(
+                  'درایور میکروفون اختصاصی نصب نیست. نصب عمومی آن به بستهٔ امضاشدهٔ Localist Setup نیاز دارد.',
+                  'Dedicated microphone driver is not installed. It requires a signed Localist Setup package.',
+                ),
         ),
-        if (_virtual.microphoneOutput != null)
-          TextButton.icon(
-            onPressed: () => _virtualWork(_virtual.stopMicrophone),
-            icon: const Icon(Icons.speaker_outlined),
-            label: Text(t('برگرداندن خروجی صدا', 'Restore audio output')),
-          ),
-        if (_virtualBusy) const LinearProgressIndicator(),
+        TextButton.icon(
+          onPressed: _refreshVirtualDevices,
+          icon: const Icon(Icons.refresh),
+          label: Text(t('بررسی وضعیت دستگاه‌ها', 'Refresh device status')),
+        ),
       ],
     ),
   );
@@ -996,8 +917,8 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           padding: const EdgeInsets.all(16),
           child: Text(
             t(
-              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای میکروفون، درایور را از همین صفحه نصب و CABLE Input را برای خروجی و CABLE Output را در برنامهٔ مقصد انتخاب کنید.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ کنترل تنظیمات فرستنده در دسترس است.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. انتقال در پس‌زمینه ادامه دارد؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
-              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For microphone input, install the driver from this page, choose CABLE Input for output and CABLE Output in the target app.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls the paired sender.\n4. Actual quality/FPS depend on hardware and network. Background sharing stays active with a silent notification and Stop action.',
+              '۱. برای Wi-Fi هر دو دستگاه را به یک شبکه وصل کنید. برای کابل، USB tethering گوشی را روشن کنید و Localist را در دو دستگاه باز کنید تا اتصال خودکار برقرار شود. اینترنت لازم نیست.\n۲. در ویندوز در برنامهٔ مقصد Localist Camera 1 تا 4 را انتخاب کنید؛ خروجی خودکار آماده می‌شود. برای صدا، Localist Microphone همان شماره را در برنامهٔ مقصد انتخاب کنید؛ نصب درایور امضاشده با Setup لازم است.\n۳. در OBS یک Video Capture Device با Localist Camera بسازید. وضوح و FPS خروجی در Properties و کنترل فرستنده در Configure Video هستند؛ کنترل تنظیمات فرستنده در دسترس است.\n۴. کیفیت و FPS واقعی به سخت‌افزار و شبکه وابسته‌اند. انتقال در پس‌زمینه ادامه دارد؛ اعلان بی‌صدا و دکمهٔ توقف در دسترس است.',
+              '1. Use the same Wi-Fi, or enable phone USB tethering and open Localist on both devices for automatic reception. Internet is not needed.\n2. Select Localist Camera 1–4 in the target app; outputs are registered automatically. For audio, select the matching Localist Microphone. Its signed driver is installed by Setup.\n3. In OBS add a Video Capture Device with Localist Camera. Properties sets output resolution/FPS; Configure Video controls the paired sender.\n4. Actual quality/FPS depend on hardware and network. Background sharing stays active with a silent notification and Stop action.',
             ),
           ),
         ),

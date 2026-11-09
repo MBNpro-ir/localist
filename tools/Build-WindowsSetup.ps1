@@ -20,6 +20,11 @@ $appId = 'PRS.Localist.Windows'
 $displayName = 'Localist'
 $registryExe = $exe
 $accent = '#9DCCFF'
+# Production packages must contain a Microsoft kernel-policy signed driver.
+# QA Setup is a separate installer identity and never installs system devices.
+if (-not $Qa) {
+    & (Join-Path $PSScriptRoot 'Verify-LocalistAudioPackage.ps1') -Package (Join-Path $bundlePath 'drivers/LocalistAudio')
+}
 if ($Qa) { $appId += '.InstallerQA'; $displayName += ' Installer QA'; $registryExe = "$product-InstallerQA.exe" }
 foreach ($required in @($exe, 'flutter_windows.dll', 'data/app.so', 'data/icudtl.dat', 'LocalistUpdater.exe', 'LocalistRemote.exe', 'librustdesk.dll', "LocalistCamera64-$version.$build.dll", "LocalistCamera32-$version.$build.dll")) {
     if (-not (Test-Path -LiteralPath (Join-Path $bundlePath $required))) { throw "Bundle missing: $required" }

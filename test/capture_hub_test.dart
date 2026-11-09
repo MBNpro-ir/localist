@@ -8,6 +8,7 @@ import 'package:localist/services/capture_discovery_service.dart';
 import 'package:localist/services/capture_hub_service.dart';
 import 'package:localist/services/lan_network_service.dart';
 import 'package:localist/services/live_capture_service.dart';
+import 'package:localist/services/windows_virtual_devices_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _Discovery extends CaptureDiscoveryService {
@@ -70,6 +71,31 @@ class _MutableStream extends Fake implements MediaStream {
   final videos = <MediaStreamTrack>[];
   @override
   List<MediaStreamTrack> getVideoTracks() => videos;
+}
+
+class _OutputRenderer extends _Renderer {
+  @override
+  int? get textureId => 1;
+}
+
+class _MissingMicrophone extends WindowsVirtualDevicesService {
+  _MissingMicrophone(int slot) : super(slot: slot);
+  @override
+  Future<void> setCameraInstalled(bool installed) async {}
+  @override
+  void startCamera(int texture, {int fps = 30}) {
+    cameraEnabled = true;
+  }
+
+  @override
+  void stopCamera() {
+    cameraEnabled = false;
+  }
+
+  @override
+  Future<void> setMicrophoneSource(MediaStream? stream) async {
+    throw StateError('Dedicated driver is not installed');
+  }
 }
 
 class _VideoTrack extends Fake implements MediaStreamTrack {
@@ -143,6 +169,40 @@ void main() {
     await hub.tick();
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
+
+  test(
+    'a missing microphone driver preserves the received video and RTC session',
+    () async {
+      final capture = _Capture();
+      final stream = _MutableStream()..videos.add(_VideoTrack());
+      capture.remoteStream = stream;
+      final service = CaptureHubService(
+        discovery: _Discovery(),
+        receiverFactory: () => capture,
+        rendererFactory: _OutputRenderer.new,
+        outputFactory: _MissingMicrophone.new,
+        windows: true,
+      );
+      await service.start();
+      try {
+        service.observe(ad(98));
+        await settle(service);
+        final receiver = service.receivers.single;
+        expect(capture.receiving, isTrue);
+        expect(receiver.renderer.srcObject, same(stream));
+        expect(receiver.output.cameraEnabled, isTrue);
+        expect(receiver.error, isEmpty);
+        expect(
+          receiver.outputError,
+          contains('Dedicated driver is not installed'),
+        );
+        expect(capture.playbackMuted, isTrue);
+        expect(capture.linksUsed.length, 1);
+      } finally {
+        await service.stop();
+      }
+    },
+  );
 
   test(
     'a video track arriving during audio/output sync is rebound to the same stream',

@@ -17,6 +17,7 @@
 #include "embedded_remote.h"
 #include "elevated_startup.h"
 #include "virtual_devices.h"
+#include "virtual_audio_driver.h"
 #include "utils.h"
 
 namespace {
@@ -346,9 +347,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   ::SetCurrentDirectoryW(ExeDirectory().c_str());
   const auto arguments = GetCommandLineArguments();
   if (std::find(arguments.begin(), arguments.end(), "--install-windows-integration") != arguments.end()) {
+    if (!InstallLocalistMicrophones(ExeDirectory())) return EXIT_FAILURE;
+    const bool microphoneReboot = GetLastError() == ERROR_SUCCESS_REBOOT_REQUIRED;
     if (!InstallLocalistCameras(ExeDirectory())) return EXIT_FAILURE;
     if (!ConfigureLocalistLanAccess(ExeDirectory(), true)) return EXIT_FAILURE;
-    return MigrateLegacyLocalistStartup(JoinPath(ExeDirectory(), L"Localist.exe")) ? EXIT_SUCCESS : EXIT_FAILURE;
+    if (!MigrateLegacyLocalistStartup(JoinPath(ExeDirectory(), L"Localist.exe"))) return EXIT_FAILURE;
+    return microphoneReboot ? ERROR_SUCCESS_REBOOT_REQUIRED : EXIT_SUCCESS;
   }
   if (std::find(arguments.begin(), arguments.end(), "--repair-elevated-startup") != arguments.end()) {
     return MigrateLegacyLocalistStartup(JoinPath(ExeDirectory(), L"Localist.exe")) ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -360,7 +364,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     for (int slot = 0; slot < 4; ++slot)
       camera = ConfigureLocalistCamera(ExeDirectory(), false, slot) && camera;
     const bool firewall = ConfigureLocalistLanAccess(ExeDirectory(), false);
-    return task && camera && firewall ? EXIT_SUCCESS : EXIT_FAILURE;
+    const bool microphone = RemoveLocalistMicrophones(ExeDirectory());
+    return task && camera && firewall && microphone ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   bool startup = false;
   for (const auto& argument : arguments) {

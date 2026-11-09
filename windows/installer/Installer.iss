@@ -18,7 +18,7 @@ PrivilegesRequired=admin
 #endif
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-MinVersion=10.0
+MinVersion=10.0.19041
 UsePreviousAppDir=yes
 UsePreviousTasks=yes
 DisableProgramGroupPage=yes
@@ -68,6 +68,12 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#Regis
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#RegistryExe}"; ValueType: string; ValueName: "Path"; ValueData: "{app}"
 
 [Code]
+var IntegrationNeedsRestart: Boolean;
+function NeedRestart(): Boolean;
+begin
+  Result := IntegrationNeedsRestart;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var Key: String; ResultCode: Integer;
 begin
@@ -75,9 +81,11 @@ begin
   if CurStep = ssPostInstall then
     if not Exec(ExpandConstant('{app}\{#Executable}'), '--install-windows-integration',
        ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-      RaiseException('ثبت وبکم‌های Localist اجرا نشد. نصب را دوباره انجام دهید.')
+      RaiseException('نصب وبکم و میکروفون‌های Localist اجرا نشد. نصب را دوباره انجام دهید.')
+    else if ResultCode = 3010 then
+      IntegrationNeedsRestart := True
     else if ResultCode <> 0 then
-      RaiseException('ثبت وبکم‌های Localist کامل نشد. دسترسی ادمین و برنامه‌های استفاده‌کننده از دوربین را بررسی کنید.');
+      RaiseException('نصب دستگاه‌های Localist کامل نشد. امضای درایور، دسترسی ادمین و برنامه‌های استفاده‌کننده از دوربین و صدا را بررسی کنید.');
 #endif
   if CurStep <> ssDone then Exit;
   Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1';

@@ -2,6 +2,7 @@
 #include "remote_host_process.h"
 #include "elevated_startup.h"
 #include "virtual_devices.h"
+#include "virtual_audio_driver.h"
 #include "capture_capabilities.h"
 #include "../virtual_camera/capture_controls.h"
 
@@ -900,6 +901,15 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     return;
   }
 
+  if (method == "getWindowsVirtualMicrophoneStatus") {
+    const auto state = GetLocalistMicrophoneStatus();
+    result->Success(EncodableValue(EncodableMap{
+      {EncodableValue("installed"), EncodableValue(state.installed)},
+      {EncodableValue("available"), EncodableValue(state.available)},
+      {EncodableValue("error"), EncodableValue(static_cast<int32_t>(state.error))},
+    }));
+    return;
+  }
   if (method == "getWindowsVirtualCameraStatus") {
     const auto directory = ParentDirectory(GetModulePath());
     const int slot = static_cast<int>(GetIntegerArgument(arguments, "slot"));
@@ -951,11 +961,6 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     PublishLocalistCaptureState(state, slot);
     char command[1024] = {};
     result->Success(EncodableValue(TakeLocalistCaptureCommand(command, sizeof(command), slot) ? command : ""));
-    return;
-  }
-  if (method == "launchWindowsMicrophoneInstaller") {
-    const auto path = Utf8ToWide(GetStringArgument(arguments, "path"));
-    result->Success(EncodableValue(LaunchSignedMicrophoneInstaller(path)));
     return;
   }
   if (method == "setWindowsVirtualCameraInstalled") {

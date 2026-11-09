@@ -1,36 +1,34 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:localist/services/windows_virtual_devices_service.dart';
+
+class _Track extends Fake implements MediaStreamTrack {
+  _Track(this.id);
+  @override
+  final String id;
+}
+
+class _Stream extends Fake implements MediaStream {
+  _Stream(this.ownerTag, String id) : track = _Track(id);
+  @override
+  final String ownerTag;
+  final _Track track;
+  @override
+  List<MediaStreamTrack> getAudioTracks() => [track];
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const native = MethodChannel('com.prs.localist.vpn');
   const webrtc = MethodChannel('FlutterWebRTC.Method');
-  final selected = <String>[];
+  final calls = <MethodCall>[];
   setUp(() {
-    selected.clear();
+    calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(webrtc, (call) async {
-          if (call.method == 'getSources') {
-            return {
-              'sources': [
-                {
-                  'deviceId': 'speaker',
-                  'label': 'Default speakers',
-                  'kind': 'audiooutput',
-                },
-                {
-                  'deviceId': 'cable',
-                  'label': 'CABLE Input',
-                  'kind': 'audiooutput',
-                },
-              ],
-            };
-          }
-          if (call.method == 'selectAudioOutput') {
-            selected.add((call.arguments as Map)['deviceId'] as String);
-          }
-          return null;
+          calls.add(call);
+          return true;
         });
   });
   tearDown(() {
@@ -40,34 +38,118 @@ void main() {
     messenger.setMockMethodCallHandler(webrtc, null);
   });
 
-  test('microphone routing restores playback after the stream stops', () async {
-    final service = WindowsVirtualDevicesService();
-    await service.routeMicrophone('cable');
-    expect(service.microphoneOutput, 'cable');
-    await service.stop();
-    expect(selected, ['cable', 'speaker']);
-    expect(service.microphoneOutput, isNull);
+  test(
+    'four received streams bind independently without changing system playback',
+    () async {
+      final services = List.generate(
+        4,
+        (i) => WindowsVirtualDevicesService(slot: i),
+      );
+      for (var i = 0; i < 4; i++) {
+        final stream = _Stream('peer-$i', 'audio');
+        await services[i].setMicrophoneSource(stream);
+        await services[i].setMicrophoneSource(stream);
+      }
+      expect(calls.length, 4);
+      for (var i = 0; i < 4; i++) {
+        expect(calls[i].method, 'localistVirtualMicrophone');
+        expect(calls[i].arguments, {
+          'slot': i,
+          'ownerTag': 'peer-$i',
+          'trackId': 'audio',
+        });
+      }
+      await services[1].stopMicrophone();
+      expect(calls.last.arguments, {'slot': 1, 'trackId': ''});
+      final before = calls.length;
+      await services[1].stopMicrophone();
+      expect(calls.length, before);
+      expect(calls.any((c) => c.method == 'selectAudioOutput'), isFalse);
+    },
+  );
+
+  test(
+    'a replacement peer with the same track ID rebinds using its owner',
+    () async {
+      final service = WindowsVirtualDevicesService(slot: 3);
+      await service.setMicrophoneSource(_Stream('old-peer', 'audio'));
+      await service.setMicrophoneSource(_Stream('new-peer', 'audio'));
+      expect(calls.length, 2);
+      expect((calls.last.arguments as Map)['ownerTag'], 'new-peer');
+      await service.setMicrophoneSource(null);
+      expect(calls.last.arguments, {'slot': 3, 'trackId': ''});
+    },
+  );
+
+  test(
+    'missing driver is an output error and repeated retries are throttled',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(webrtc, (call) async {
+            calls.add(call);
+            throw PlatformException(code: 'LOCALIST_MICROPHONE_UNAVAILABLE');
+          });
+      final service = WindowsVirtualDevicesService();
+      final stream = _Stream('peer', 'audio');
+      await expectLater(
+        service.setMicrophoneSource(stream),
+        throwsA(isA<PlatformException>()),
+      );
+      await expectLater(service.setMicrophoneSource(stream), throwsStateError);
+      expect(calls.length, 1);
+      await service.stopMicrophone();
+      expect(calls.length, 1);
+    },
+  );
+
+  test('native rejection cannot be recorded as a successful binding', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(webrtc, (_) async => false);
+    await expectLater(
+      WindowsVirtualDevicesService().setMicrophoneSource(
+        _Stream('peer', 'audio'),
+      ),
+      throwsStateError,
+    );
   });
 
   test(
-    'a removed audio endpoint cannot silently route to another device',
+    'a broken driver handle rebinds without reconnecting the RTC peer',
     () async {
+      var error = 6;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(webrtc, (call) async {
+            calls.add(call);
+            if (call.method == 'localistVirtualMicrophoneStatus') {
+              return {'error': error};
+            }
+            return true;
+          });
       final service = WindowsVirtualDevicesService();
-      await expectLater(service.routeMicrophone('removed'), throwsStateError);
-      expect(selected, isEmpty);
-      expect(service.microphoneOutput, isNull);
+      final stream = _Stream('same-peer', 'same-track');
+      await service.setMicrophoneSource(stream);
+      await Future<void>.delayed(const Duration(milliseconds: 2050));
+      await service.setMicrophoneSource(stream);
+      expect(calls.map((c) => c.method), [
+        'localistVirtualMicrophone',
+        'localistVirtualMicrophoneStatus',
+        'localistVirtualMicrophone',
+      ]);
+      error = 0;
+      await Future<void>.delayed(const Duration(milliseconds: 2050));
+      await service.setMicrophoneSource(stream);
+      expect(calls.length, 4);
+      expect(calls.last.method, 'localistVirtualMicrophoneStatus');
+      await service.stopMicrophone();
     },
   );
 
-  test(
-    'camera registration failure is visible instead of reporting success',
-    () async {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(native, (_) async => false);
-      await expectLater(
-        WindowsVirtualDevicesService().setCameraInstalled(true),
-        throwsStateError,
-      );
-    },
-  );
+  test('camera registration failure is visible', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(native, (_) async => false);
+    await expectLater(
+      WindowsVirtualDevicesService().setCameraInstalled(true),
+      throwsStateError,
+    );
+  });
 }

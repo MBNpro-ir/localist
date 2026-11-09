@@ -1,9 +1,6 @@
 #include "virtual_devices.h"
 #include <windows.h>
 #include <shellapi.h>
-#include <bcrypt.h>
-#include <wintrust.h>
-#include <softpub.h>
 #include <vector>
 
 namespace {
@@ -81,7 +78,6 @@ bool ConfigureLocalistCamera(const std::wstring& directory, bool install, int sl
   }
   return success && (!install || IsLocalistCameraInstalled(directory, slot));
 }
-
 bool InstallLocalistCameras(const std::wstring& directory) {
   std::vector<std::wstring> previous;
   for (int slot = 0; slot < 4; ++slot)
@@ -100,40 +96,4 @@ bool InstallLocalistCameras(const std::wstring& directory) {
     return false;
   }
   return true;
-}
-
-bool LaunchSignedMicrophoneInstaller(const std::wstring& path) {
-  // Pin both vendor package (Dart) and executable (native). Hold a non-writable
-  // handle through verification/launch so another process cannot replace it.
-  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-  if (file == INVALID_HANDLE_VALUE) return false;
-  LARGE_INTEGER size{};
-  bool valid = GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= 4 * 1024 * 1024;
-  std::vector<BYTE> data(valid ? static_cast<size_t>(size.QuadPart) : 0);
-  DWORD read = 0;
-  if (valid) valid = ReadFile(file, data.data(), static_cast<DWORD>(data.size()), &read, nullptr) && read == data.size();
-  BCRYPT_ALG_HANDLE algorithm = nullptr;
-  BYTE digest[32] = {};
-  if (valid) valid = BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) == 0;
-  if (valid) valid = BCryptHash(algorithm, nullptr, 0, data.data(), static_cast<ULONG>(data.size()), digest, sizeof(digest)) == 0;
-  if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
-  const BYTE expected[] = {0x73,0x4c,0x35,0xdf,0xa6,0xd9,0x8f,0x48,0x78,0x2a,0x45,0x16,0x33,0xce,0xb4,0x71,0x16,0x6e,0xc7,0x0d,0x60,0x48,0x2f,0xd8,0x9a,0x11,0x23,0xd0,0xee,0x3c,0x4f,0x41};
-  valid = valid && memcmp(digest, expected, sizeof(digest)) == 0;
-  if (valid) {
-    SetFilePointer(file, 0, nullptr, FILE_BEGIN);
-    WINTRUST_FILE_INFO info{}; info.cbStruct = sizeof(info); info.pcwszFilePath = path.c_str(); info.hFile = file;
-    WINTRUST_DATA trust{}; trust.cbStruct = sizeof(trust); trust.dwUIChoice = WTD_UI_NONE;
-    trust.dwUnionChoice = WTD_CHOICE_FILE; trust.pFile = &info;
-    trust.dwStateAction = WTD_STATEACTION_VERIFY;
-    GUID policy = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-    valid = WinVerifyTrust(nullptr, &policy, &trust) == ERROR_SUCCESS;
-    trust.dwStateAction = WTD_STATEACTION_CLOSE;
-    WinVerifyTrust(nullptr, &policy, &trust);
-  }
-  if (valid) {
-    const auto directory = path.substr(0, path.find_last_of(L"\\/"));
-    valid = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, directory.c_str(), SW_SHOWNORMAL)) > 32;
-  }
-  CloseHandle(file);
-  return valid;
 }

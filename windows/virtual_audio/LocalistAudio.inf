@@ -1,0 +1,155 @@
+[Version]
+Signature="$Windows NT$"
+Class=MEDIA
+ClassGUID={4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider=%Provider%
+DriverVer=11/09/2026,7.3.0.77
+CatalogFile=LocalistAudio.cat
+PnpLockDown=1
+
+[Manufacturer]
+%Provider%=Localist,NTamd64.10.0...19041
+[Localist.NTamd64.10.0...19041]
+%Device%=LocalistAudio,ROOT\LocalistAudio
+
+[SourceDisksNames]
+1=%Disk%,,,
+[SourceDisksFiles]
+LocalistAudio.sys=1
+[DestinationDirs]
+Audio.Copy=13
+[Audio.Copy]
+LocalistAudio.sys
+
+[LocalistAudio.NT]
+Include=ks.inf,wdmaudio.inf
+Needs=KS.Registration,WDMAUDIO.Registration
+CopyFiles=Audio.Copy
+AddReg=Audio.Reg
+[Audio.Reg]
+HKR,,AssociatedFilters,,"wdmaud"
+HKR,,Driver,,LocalistAudio.sys
+HKR,,DoNotCreateDataFiles,0x10001,1
+HKR,,DisableToneGenerator,0x10001,1
+HKR,Drivers,SubClasses,,"wave,mixer"
+HKR,Drivers\wave\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\wave\wdmaud.drv,Description,,%Device%
+HKR,Drivers\mixer\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\mixer\wdmaud.drv,Description,,%Device%
+
+[LocalistAudio.NT.Services]
+AddService=LocalistAudio,0x2,Audio.Service
+[Audio.Service]
+DisplayName=%Device%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\LocalistAudio.sys
+
+[LocalistAudio.NT.Wdf]
+KmdfService=LocalistAudio,Audio.Wdf
+[Audio.Wdf]
+KmdfLibraryVersion=1.15
+
+[LocalistAudio.NT.Interfaces]
+AddInterface=%KSCATEGORY_AUDIO%,WaveMicArray1,Audio.Wave1
+AddInterface=%KSCATEGORY_REALTIME%,WaveMicArray1,Audio.Wave1
+AddInterface=%KSCATEGORY_CAPTURE%,WaveMicArray1,Audio.Wave1
+AddInterface=%KSCATEGORY_AUDIO%,TopologyMicArray1,Audio.Topo1
+AddInterface=%KSCATEGORY_TOPOLOGY%,TopologyMicArray1,Audio.Topo1
+AddInterface=%KSCATEGORY_AUDIO%,WaveMicArray2,Audio.Wave2
+AddInterface=%KSCATEGORY_REALTIME%,WaveMicArray2,Audio.Wave2
+AddInterface=%KSCATEGORY_CAPTURE%,WaveMicArray2,Audio.Wave2
+AddInterface=%KSCATEGORY_AUDIO%,TopologyMicArray2,Audio.Topo2
+AddInterface=%KSCATEGORY_TOPOLOGY%,TopologyMicArray2,Audio.Topo2
+AddInterface=%KSCATEGORY_AUDIO%,WaveMicArray3,Audio.Wave3
+AddInterface=%KSCATEGORY_REALTIME%,WaveMicArray3,Audio.Wave3
+AddInterface=%KSCATEGORY_CAPTURE%,WaveMicArray3,Audio.Wave3
+AddInterface=%KSCATEGORY_AUDIO%,TopologyMicArray3,Audio.Topo3
+AddInterface=%KSCATEGORY_TOPOLOGY%,TopologyMicArray3,Audio.Topo3
+AddInterface=%KSCATEGORY_AUDIO%,WaveMicArray4,Audio.Wave4
+AddInterface=%KSCATEGORY_REALTIME%,WaveMicArray4,Audio.Wave4
+AddInterface=%KSCATEGORY_CAPTURE%,WaveMicArray4,Audio.Wave4
+AddInterface=%KSCATEGORY_AUDIO%,TopologyMicArray4,Audio.Topo4
+AddInterface=%KSCATEGORY_TOPOLOGY%,TopologyMicArray4,Audio.Topo4
+
+[Audio.Wave1]
+AddReg=Audio.Wave1.Reg
+[Audio.Wave1.Reg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Mic1%
+[Audio.Topo1]
+AddReg=Audio.Topo1.Reg
+[Audio.Topo1.Reg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Mic1%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x10001,1
+
+[Audio.Wave2]
+AddReg=Audio.Wave2.Reg
+[Audio.Wave2.Reg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Mic2%
+[Audio.Topo2]
+AddReg=Audio.Topo2.Reg
+[Audio.Topo2.Reg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Mic2%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x10001,1
+
+[Audio.Wave3]
+AddReg=Audio.Wave3.Reg
+[Audio.Wave3.Reg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Mic3%
+[Audio.Topo3]
+AddReg=Audio.Topo3.Reg
+[Audio.Topo3.Reg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Mic3%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x10001,1
+
+[Audio.Wave4]
+AddReg=Audio.Wave4.Reg
+[Audio.Wave4.Reg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Mic4%
+[Audio.Topo4]
+AddReg=Audio.Topo4.Reg
+[Audio.Topo4.Reg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Mic4%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x10001,1
+
+[Strings]
+Provider="Localist / MBN"
+Device="Localist Virtual Audio"
+Disk="Localist Audio Driver"
+Proxy.CLSID="{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
+KSCATEGORY_AUDIO="{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_RENDER="{65E8773E-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_CAPTURE="{65E8773D-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_REALTIME ="{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
+KSCATEGORY_TOPOLOGY = "{DDA54A40-1E4C-11D1-A050-405705C10000}"
+
+KSNODETYPE_ANY   = "{00000000-0000-0000-0000-000000000000}"
+
+PKEY_AudioEndpoint_Association               = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
+PKEY_AudioEndpoint_Supports_EventDriven_Mode = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},7"
+PKEY_AudioEndpoint_Icon                      = "{259ABFFC-50A7-47CE-AF08-68C9A7D73366},12"
+
+
+
+MEDIA_CATEGORIES = "MediaCategories"
+
+MicArray1CustomNameGUID = {6ae81ff4-203e-4fe1-88aa-f2d57775cd4a}
+
+
+Mic1="Localist Microphone 1"
+Mic2="Localist Microphone 2"
+Mic3="Localist Microphone 3"
+Mic4="Localist Microphone 4"
