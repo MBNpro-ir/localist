@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'log_service.dart';
 
 import '../models/service_state.dart';
 
@@ -18,12 +19,16 @@ Future<String> localistDiscoveryDeviceId() async {
   final prefs = await SharedPreferences.getInstance();
   final stored = prefs.getString(_deviceIdKey);
   if (stored != null && stored.isNotEmpty) {
+    LogService.instance.debug('Local discovery persistent identity reused');
     return stored;
   }
   final random = Random.secure();
   final bytes = List<int>.generate(15, (_) => random.nextInt(256));
   final id = base64Url.encode(bytes).replaceAll('=', '');
   await prefs.setString(_deviceIdKey, id);
+  LogService.instance.debug(
+    'Local discovery persistent identity generated and saved',
+  );
   return id;
 }
 
@@ -54,6 +59,7 @@ Future<String> localistDiscoveryDeviceName() async {
 }
 
 String encodeLocalistDiscoveryQuery({required String deviceId}) {
+  LogService.instance.debug('Local discovery protocol query encoded');
   return jsonEncode({
     'type': localistDiscoveryType,
     'op': localistDiscoveryQueryOp,
@@ -67,6 +73,9 @@ String encodeLocalistDiscoveryAnnouncement({
   required String platform,
   required List<SmartProxyEndpoint> endpoints,
 }) {
+  LogService.instance.debug(
+    'Local discovery protocol announcement encoded endpoints=${endpoints.length} platform=$platform',
+  );
   return jsonEncode({
     'type': localistDiscoveryType,
     'op': localistDiscoveryAnnounceOp,
@@ -81,9 +90,15 @@ Map<Object?, Object?>? decodeLocalistDiscoveryPacket(List<int> data) {
   try {
     final decoded = jsonDecode(utf8.decode(data));
     if (decoded is Map<Object?, Object?>) {
+      LogService.instance.debug(
+        'Local discovery protocol decoded packet bytes=${data.length}',
+      );
       return decoded;
     }
-  } catch (_) {
+  } catch (error) {
+    LogService.instance.debug(
+      'Local discovery protocol packet decode failed type=${error.runtimeType}',
+    );
     return null;
   }
   return null;

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'log_service.dart';
 
 class CaptureMode {
   const CaptureMode(this.width, this.height, this.minFps, this.maxFps);
@@ -72,6 +73,9 @@ class CaptureCapabilities {
       ..sort((a, b) => (a.width * a.height).compareTo(b.width * b.height));
     final min = number(data, 'minBitrateKbps');
     final max = number(data, 'maxBitrateKbps');
+    LogService.instance.debug(
+      'Capture capabilities: parsed modes=${sorted.length} bitrateMin=$min bitrateMax=$max codecsPresent=${data['codecs'] != null}',
+    );
     return CaptureCapabilities(
       modes: sorted,
       minBitrate: min > 0 ? min : 0,
@@ -81,16 +85,28 @@ class CaptureCapabilities {
   }
   CaptureMode? choose({int width = 1280, int height = 720}) {
     for (final mode in modes) {
-      if (mode.width == width && mode.height == height) return mode;
+      if (mode.width == width && mode.height == height) {
+        LogService.instance.debug(
+          'Capture capabilities: exact mode ${mode.key} fps=${mode.maxFps}',
+        );
+        return mode;
+      }
     }
-    if (modes.isEmpty) return null;
-    return modes.reduce(
+    if (modes.isEmpty) {
+      LogService.instance.debug('Capture capabilities: no modes available');
+      return null;
+    }
+    final chosen = modes.reduce(
       (a, b) =>
           (a.width * a.height - width * height).abs() <=
               (b.width * b.height - width * height).abs()
           ? a
           : b,
     );
+    LogService.instance.debug(
+      'Capture capabilities: fallback mode=${chosen.key} requested=${width}x$height',
+    );
+    return chosen;
   }
 
   int recommendedBitrate(CaptureMode mode, int fps) {

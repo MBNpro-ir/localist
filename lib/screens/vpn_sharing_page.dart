@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
+import '../services/log_service.dart';
 
 class VpnSharingPage extends StatefulWidget {
   const VpnSharingPage({
@@ -43,7 +44,12 @@ class _VpnSharingPageState extends State<VpnSharingPage> {
               selected: {receiving},
               onSelectionChanged: widget.busy
                   ? null
-                  : (v) => setState(() => _receive = v.single),
+                  : (v) {
+                      LogService.instance.debug(
+                        'VPN page: selected mode=${v.single ? 'receive' : 'share'}',
+                      );
+                      setState(() => _receive = v.single);
+                    },
             ),
           ),
         Expanded(child: receiving ? widget.receiving : widget.sharing),

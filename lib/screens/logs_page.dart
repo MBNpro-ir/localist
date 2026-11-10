@@ -97,12 +97,19 @@ class _LogsBodyState extends State<_LogsBody> {
 
   Future<void> _saveLogs() async {
     if (_saving) {
+      LogService.instance.debug('Log save ignored: already saving');
       return;
     }
+    LogService.instance.debug(
+      'Log save requested visibleFilter=${_filter?.name ?? 'all'}',
+    );
     setState(() => _saving = true);
     final l10n = context.l10n;
     try {
       final result = await LogExportService.instance.saveDebugLog();
+      LogService.instance.debug(
+        'Log save returned saved=${result.saved} canceled=${result.canceled}',
+      );
       if (!mounted) {
         return;
       }
@@ -181,10 +188,13 @@ class _LogsBodyState extends State<_LogsBody> {
           debugModeEnabled: debugModeEnabled,
           saving: _saving,
           onSave: _saveLogs,
-          onFilterChanged: (value) => setState(() {
-            _filter = value;
-            _debugFilterTouched = true;
-          }),
+          onFilterChanged: (value) {
+            logs.debug('Log filter changed to=${value?.name ?? 'all'}');
+            setState(() {
+              _filter = value;
+              _debugFilterTouched = true;
+            });
+          },
         );
         final list = _LogList(entries: entries);
 

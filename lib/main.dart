@@ -67,6 +67,22 @@ Future<void> main(List<String> args) async {
           ) ||
           (args.isNotEmpty &&
               (args.first == 'multi_window' || args.first == '--cm')))) {
+    WidgetsFlutterBinding.ensureInitialized();
+    try {
+      final remoteSettings = await AppSettings.load();
+      remote_engine.localistLanguageOverride =
+          (AppLocalizations.resolve(
+                    remoteSettings.locale ??
+                        WidgetsBinding.instance.platformDispatcher.locale,
+                    AppLocalizations.supportedLocales,
+                  ) ??
+                  const Locale('en'))
+              .languageCode;
+    } catch (error) {
+      LogService.instance.debug(
+        'Remote process language initialization failed type=${error.runtimeType}',
+      );
+    }
     configureEmbeddedDesktop(host: isRetainedDesktopHostLaunch(args));
     await embedded.main(args);
     return;
@@ -88,6 +104,15 @@ Future<void> main(List<String> args) async {
         if (!useSimpleTheme) {
           await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
         }
+        final settings = await AppSettings.load();
+        remote_engine.localistLanguageOverride =
+            (AppLocalizations.resolve(
+                      settings.locale ?? binding.platformDispatcher.locale,
+                      AppLocalizations.supportedLocales,
+                    ) ??
+                    const Locale('en'))
+                .languageCode;
+        // Set the language before the embedded remote engine starts.
         unawaited(
           LocalistRemoteRuntime.ensureStarted().catchError((
             Object error,
@@ -96,7 +121,6 @@ Future<void> main(List<String> args) async {
             LogService.instance.debug('Remote hosting startup failed: $error');
           }),
         );
-        final settings = await AppSettings.load();
         LogService.instance.debug(
           'App bootstrap complete platform=${Platform.operatingSystem} version=${Platform.version}',
         );
@@ -167,8 +191,34 @@ class _LocalistAppState extends State<_LocalistApp>
   }
 
   @override
+  void didChangeLocales(List<Locale>? locales) {
+    if (widget.settings.locale != null) return;
+    final deviceLocale =
+        locales?.firstOrNull ??
+        WidgetsBinding.instance.platformDispatcher.locale;
+    remote_engine.localistLanguageOverride =
+        (AppLocalizations.resolve(
+                  deviceLocale,
+                  AppLocalizations.supportedLocales,
+                ) ??
+                const Locale('en'))
+            .languageCode;
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     final currentSettings = context.watch<AppSettings>();
+    // The embedded remote engine reads this override outside Flutter's
+    // Localizations tree. Keep it synchronized with the app's selected locale.
+    remote_engine.localistLanguageOverride =
+        (AppLocalizations.resolve(
+                  currentSettings.locale ??
+                      WidgetsBinding.instance.platformDispatcher.locale,
+                  AppLocalizations.supportedLocales,
+                ) ??
+                const Locale('en'))
+            .languageCode;
     final motionStyle = _disableAnimations
         ? AnimationStyle.noAnimation
         : const AnimationStyle(
@@ -1116,7 +1166,7 @@ class _LocalistShellState extends State<LocalistShell>
   void _showQuickSendRequestNotice(QuickSendPendingRequest pending) {
     final persian = _usePersianText;
     final title = persian
-        ? 'درخواست جدید Quick Send'
+        ? 'درخواست جدید ارسال سریع'
         : 'New Quick Send request';
     final message = persian
         ? 'از ${pending.sender.alias} برای دریافت ${pending.files.length} مورد درخواست دارید.'
@@ -1149,7 +1199,7 @@ class _LocalistShellState extends State<LocalistShell>
       unawaited(
         _bridge.showQuickSendRequestNotification(
           title: persian
-              ? 'دریافت خودکار Quick Send'
+              ? 'دریافت خودکار ارسال سریع'
               : 'Quick Send auto receive',
           message: message,
           soundEnabled: widget.settings.soundEffectsEnabled,
@@ -1322,7 +1372,6 @@ class _LocalistShellState extends State<LocalistShell>
   String _serviceErrorMessage(Object error, {required String fallback}) {
     final l10n = context.l10n;
     if (error is PlatformException) {
-      final message = error.message;
       return switch (error.code) {
         'port_unavailable' => l10n.portUnavailable,
         'local_proxy_port_unavailable' => l10n.localProxyPortUnavailable,
@@ -1338,7 +1387,8 @@ class _LocalistShellState extends State<LocalistShell>
         'proxy_service_start_failed' ||
         'receiving_service_start_failed' ||
         'local_proxy_start_failed' => l10n.androidServiceStartFailed,
-        _ => message ?? fallback,
+        // Native messages are not localized and may contain technical details.
+        _ => fallback,
       };
     }
     final text = error.toString();
@@ -1386,7 +1436,7 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(_syncDiscoveryLifecycle());
     try {
       _logs.debug(
-        'Sharing start flow root=${widget.settings.rootRoutingEnabled} protocols=${widget.settings.enabledProtocols.map((value) => value.name).join(',')} ports=${widget.settings.protocolPorts} shareAll=${widget.settings.shareAllRoutes} selectedIps=${widget.settings.selectedLocalIps}',
+        'Sharing start flow root=${widget.settings.rootRoutingEnabled} protocols=${widget.settings.enabledProtocols.map((value) => value.name).join(',')} ports=${widget.settings.protocolPorts} shareAll=${widget.settings.shareAllRoutes} selectedIpCount=${widget.settings.selectedLocalIps.length}',
       );
       if (!Platform.isWindows && widget.settings.rootRoutingEnabled) {
         if (!widget.settings.shareAllRoutes &&
@@ -1410,11 +1460,16 @@ class _LocalistShellState extends State<LocalistShell>
             'Root VPN sharing started on ${root.vpnInterface} for ${root.clientSubnets.join(', ')}',
           );
         } else {
-          final message = root.lastError.isEmpty
-              ? l10n.rootVpnDidNotStart
-              : root.lastError;
-          _logs.error(message);
-          _showInAppNotice(message, tone: InAppNoticeTone.error);
+          if (root.lastError.isNotEmpty) {
+            _logs.debug(
+              'Root VPN sharing failed with native message length=${root.lastError.length}',
+            );
+          }
+          _logs.error('Root VPN sharing did not start.');
+          _showInAppNotice(
+            l10n.rootVpnDidNotStart,
+            tone: InAppNoticeTone.error,
+          );
         }
         await _refreshState();
         return;
@@ -1563,7 +1618,7 @@ class _LocalistShellState extends State<LocalistShell>
   Future<void> _startReceiving(RemoteProxyConfig config) async {
     if (!_activities.allows(LocalistFeature.vpnSharing)) return;
     _logs.debug(
-      'Start receiving VPN button pressed config=${config.url} busy=$_busy',
+      'Start receiving VPN button pressed protocol=${config.protocol.name} port=${config.port} busy=$_busy',
     );
     if (_busy) {
       _logs.debug('Start receiving VPN ignored: busy');
@@ -1581,7 +1636,9 @@ class _LocalistShellState extends State<LocalistShell>
     try {
       final reachable = await _testProxyConnection(config);
       if (!reachable) {
-        _logs.warning('Remote proxy is not reachable: ${config.url}');
+        _logs.warning(
+          'Remote VPN proxy is not reachable (protocol=${config.protocol.name} port=${config.port})',
+        );
         if (mounted) {
           showLocalistNotice(
             context,
@@ -1613,7 +1670,9 @@ class _LocalistShellState extends State<LocalistShell>
       }
       final started = await _bridge.startReceivingVpn(config);
       if (started) {
-        _logs.info('prstun VPN started with ${config.url}');
+        _logs.info(
+          'prstun VPN started protocol=${config.protocol.name} port=${config.port}',
+        );
       }
       await _refreshState();
     } catch (error) {
@@ -1638,7 +1697,7 @@ class _LocalistShellState extends State<LocalistShell>
   Future<void> _startLocalProxy(RemoteProxyConfig config) async {
     if (!_activities.allows(LocalistFeature.vpnSharing)) return;
     _logs.debug(
-      'Start local proxy button pressed config=${config.url} busy=$_busy',
+      'Start local proxy button pressed protocol=${config.protocol.name} port=${config.port} busy=$_busy',
     );
     if (_busy) {
       _logs.debug('Start local proxy ignored: busy');
@@ -1656,7 +1715,9 @@ class _LocalistShellState extends State<LocalistShell>
     try {
       final reachable = await _testProxyConnection(config);
       if (!reachable) {
-        _logs.warning('Remote proxy is not reachable: ${config.url}');
+        _logs.warning(
+          'Remote local proxy is not reachable (protocol=${config.protocol.name} port=${config.port})',
+        );
         if (mounted) {
           showLocalistNotice(
             context,
@@ -1668,7 +1729,9 @@ class _LocalistShellState extends State<LocalistShell>
       }
       final started = await _bridge.startLocalProxy(config);
       if (started) {
-        _logs.info('Local proxy started on 127.0.0.1:3781 via ${config.url}');
+        _logs.info(
+          'Local proxy started on 127.0.0.1:3781 via ${config.protocol.name}:${config.port}',
+        );
       }
       await _refreshState();
     } catch (error) {
@@ -1693,7 +1756,7 @@ class _LocalistShellState extends State<LocalistShell>
   Future<void> _startSystemProxy(RemoteProxyConfig config) async {
     if (!_activities.allows(LocalistFeature.vpnSharing)) return;
     _logs.debug(
-      'Start system proxy button pressed config=${config.url} busy=$_busy',
+      'Start system proxy button pressed protocol=${config.protocol.name} port=${config.port} busy=$_busy',
     );
     if (_busy) {
       _logs.debug('Start system proxy ignored: busy');
@@ -1711,7 +1774,9 @@ class _LocalistShellState extends State<LocalistShell>
     try {
       final reachable = await _testProxyConnection(config);
       if (!reachable) {
-        _logs.warning('Remote proxy is not reachable: ${config.url}');
+        _logs.warning(
+          'Remote system proxy is not reachable (protocol=${config.protocol.name} port=${config.port})',
+        );
         if (mounted) {
           showLocalistNotice(
             context,
@@ -1723,7 +1788,9 @@ class _LocalistShellState extends State<LocalistShell>
       }
       final started = await _bridge.startSystemProxy(config);
       if (started) {
-        _logs.info('Windows system proxy started via ${config.url}');
+        _logs.info(
+          'Windows system proxy started via ${config.protocol.name}:${config.port}',
+        );
       }
       await _refreshState();
     } catch (error) {
@@ -1747,7 +1814,9 @@ class _LocalistShellState extends State<LocalistShell>
 
   Future<bool> _testProxyConnection(RemoteProxyConfig config) async {
     try {
-      _logs.debug('Proxy reachability test started ${config.url}');
+      _logs.debug(
+        'Proxy reachability test started protocol=${config.protocol.name} port=${config.port}',
+      );
       final socket = await Socket.connect(
         config.host,
         config.port,
@@ -1765,15 +1834,17 @@ class _LocalistShellState extends State<LocalistShell>
         socket.destroy();
         final ok =
             response.length == 2 && response[0] == 0x05 && response[1] == 0;
-        _logs.debug('SOCKS5 reachability test result ${config.url} ok=$ok');
+        _logs.debug(
+          'SOCKS5 reachability test result port=${config.port} ok=$ok',
+        );
         return ok;
       }
       socket.destroy();
-      _logs.debug('TCP reachability test result ${config.url} ok=true');
+      _logs.debug('TCP reachability test result port=${config.port} ok=true');
       return true;
     } catch (error, stack) {
       _logs.debug(
-        'Proxy reachability test failed ${config.url}',
+        'Proxy reachability test failed protocol=${config.protocol.name} port=${config.port}',
         error: error,
         stack: stack,
       );
@@ -2237,32 +2308,20 @@ class _LocalistShellState extends State<LocalistShell>
 
   List<_NavItem> _navItems(AppLocalizations l10n) {
     final items = <_NavItem>[
-      _NavItem(
-        l10n.isPersian ? 'ارسال سریع' : 'Quick Send',
-        Icons.send_outlined,
-        Icons.send,
-      ),
+      _NavItem(l10n.quickSend, Icons.send_outlined, Icons.send),
       if (Platform.isAndroid || Platform.isWindows)
         _NavItem(
-          l10n.isPersian ? 'کنترل از راه دور' : 'Remote Control',
+          l10n.remoteControl,
           Icons.desktop_windows_outlined,
           Icons.desktop_windows,
         ),
+      _NavItem(l10n.vpnSharing, Icons.share_outlined, Icons.share),
       _NavItem(
-        l10n.isPersian ? 'اشتراک VPN' : 'VPN Sharing',
-        Icons.share_outlined,
-        Icons.share,
-      ),
-      _NavItem(
-        l10n.isPersian ? 'دوربین و صدا' : 'Camera & Mic',
+        l10n.cameraAndMic,
         Icons.video_camera_back_outlined,
         Icons.video_camera_back,
       ),
-      _NavItem(
-        l10n.isPersian ? 'استریم' : 'Stream',
-        Icons.cast_outlined,
-        Icons.cast,
-      ),
+      _NavItem(l10n.streaming, Icons.cast_outlined, Icons.cast),
     ];
     return items;
   }
@@ -2309,7 +2368,7 @@ class _LocalistShellState extends State<LocalistShell>
         ),
         content: Text(
           context.l10n.isPersian
-              ? 'لوکالیست با دسترسی ادمین و از طریق تسک ورود ویندوز اجرا می‌شود؛ هنگام ورود، تأیید UAC تکرار نمی‌شود. این گزینه بعداً در تنظیمات قابل تغییر است.'
+              ? 'لوکالیست با دسترسی مدیر و از طریق وظیفهٔ ورود ویندوز اجرا می‌شود؛ هنگام ورود، تأیید دوبارهٔ دسترسی مدیر لازم نیست. این گزینه بعداً در تنظیمات قابل تغییر است.'
               : 'Localist starts as administrator using a Windows logon task, without another UAC prompt at sign-in. '
                     'You can change this later in App behavior.',
         ),
@@ -2387,7 +2446,7 @@ class _QuickSendIncomingRequestDialog extends StatelessWidget {
                       children: [
                         Text(
                           persian
-                              ? 'درخواست جدید Quick Send'
+                              ? 'درخواست جدید ارسال سریع'
                               : 'New Quick Send request',
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(fontWeight: FontWeight.w800),

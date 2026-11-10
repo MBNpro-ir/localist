@@ -33,6 +33,16 @@ IconData quickSendAvatarIcon(String preset) {
   };
 }
 
+String quickSendAvatarPresetLabel(BuildContext context, String preset) =>
+    switch (preset) {
+      'face' => _t(context, 'چهره', 'Face'),
+      'pets' => _t(context, 'حیوانات', 'Pets'),
+      'rocket' => _t(context, 'موشک', 'Rocket'),
+      'gaming' => _t(context, 'بازی', 'Gaming'),
+      'spark' => _t(context, 'درخشش', 'Spark'),
+      _ => _t(context, 'شخص', 'Person'),
+    };
+
 class QuickSendAvatar extends StatelessWidget {
   const QuickSendAvatar({
     super.key,
@@ -300,7 +310,7 @@ class QuickSendProfileEditor extends StatelessWidget {
         return;
       }
       onImageChanged(destination.path);
-    } catch (error) {
+    } catch (_) {
       if (!context.mounted) {
         return;
       }
@@ -309,8 +319,8 @@ class QuickSendProfileEditor extends StatelessWidget {
           content: Text(
             _t(
               context,
-              'انتخاب تصویر انجام نشد: $error',
-              'The profile photo could not be selected: $error',
+              'تصویر پروفایل انتخاب نشد. یک تصویر دیگر امتحان کنید.',
+              'The profile photo could not be selected. Try another image.',
             ),
           ),
         ),
@@ -510,7 +520,7 @@ class _AvatarPresetButton extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: preset,
+      label: quickSendAvatarPresetLabel(context, preset),
       child: Material(
         color: selected ? scheme.primaryContainer : scheme.surfaceContainerHigh,
         shape: CircleBorder(
@@ -552,7 +562,11 @@ class _AvatarColorButton extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: color.toARGB32().toRadixString(16),
+      label: _t(
+        context,
+        'رنگ آواتار ${color.toARGB32().toRadixString(16)}',
+        'Avatar color ${color.toARGB32().toRadixString(16)}',
+      ),
       child: InkResponse(
         onTap: onPressed,
         radius: 25,

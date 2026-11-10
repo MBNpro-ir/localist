@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_update_service.dart';
 import 'native_bridge_service.dart';
 import 'feature_permission_service.dart';
+import 'log_service.dart';
 import '../remote/embedded_remote_app.dart';
 
 enum AutomaticUpdateState {
@@ -74,6 +75,9 @@ class AutomaticUpdateController extends ChangeNotifier {
       !promptOpen &&
       !installRequested;
   Future<void> defer() async {
+    LogService.instance.debug(
+      'Auto update: user deferred installation state=${state.name}',
+    );
     deferred = true;
     installRequested = false;
     await (await SharedPreferences.getInstance()).setString(
@@ -84,6 +88,9 @@ class AutomaticUpdateController extends ChangeNotifier {
   }
 
   Future<void> accept() async {
+    LogService.instance.debug(
+      'Auto update: installation accepted state=${state.name}',
+    );
     deferred = false;
     installRequested = true;
     await (await SharedPreferences.getInstance()).remove(
@@ -100,6 +107,11 @@ class AutomaticUpdateController extends ChangeNotifier {
   }.contains(state);
   double? get progress => total > 0 ? (received / total).clamp(0, 1) : null;
   void _state(AutomaticUpdateState value) {
+    if (state != value) {
+      LogService.instance.debug(
+        'Auto update: state ${state.name} -> ${value.name}',
+      );
+    }
     state = value;
     notifyListeners();
   }
@@ -107,20 +119,32 @@ class AutomaticUpdateController extends ChangeNotifier {
   Future<void> checkAndPrepare() =>
       _running ??= _prepare().whenComplete(() => _running = null);
   Future<void> _prepare() async {
-    if (state == AutomaticUpdateState.installing) return;
+    if (state == AutomaticUpdateState.installing) {
+      LogService.instance.debug(
+        'Auto update: preparation skipped, installer active',
+      );
+      return;
+    }
     error = null;
     _state(AutomaticUpdateState.checking);
     try {
       check = await _service.checkForUpdate();
+      LogService.instance.debug(
+        'Auto update: check complete available=${check!.updateAvailable} windows=$windows',
+      );
       if (!check!.updateAvailable) {
         _state(AutomaticUpdateState.current);
         return;
       }
       final asset = windows ? check!.windowsAsset : check!.androidAsset;
       if (asset == null) {
+        LogService.instance.debug('Auto update: no compatible release asset');
         throw StateError('No update package supports this device.');
       }
       if (_assetUrl != asset.downloadUrl) {
+        LogService.instance.debug(
+          'Auto update: release asset changed; clearing prior preparation',
+        );
         promptHandled = false;
         package = null;
         bundle = null;
@@ -133,23 +157,43 @@ class AutomaticUpdateController extends ChangeNotifier {
             'updates.deferred.asset',
           ) ==
           _assetUrl;
+      LogService.instance.debug(
+        'Auto update: deferred=$deferred expectedBytes=${asset.size}',
+      );
       // A completed download may already be prepared by the startup check.
       if (package != null && await package!.exists()) {
         try {
           await validateUpdateFile(package!, asset);
-        } catch (_) {
+        } catch (e) {
+          LogService.instance.debug(
+            'Auto update: cached package validation failed type=${e.runtimeType}',
+          );
           package = null;
           bundle = null;
         }
       }
       if (package == null) {
+        LogService.instance.debug(
+          'Auto update: beginning package download expectedBytes=${asset.size}',
+        );
         received = 0;
         total = asset.size;
         _state(AutomaticUpdateState.downloading);
         var lastProgress = DateTime(1970);
+        var lastLoggedPercent = -1;
         void progress(int bytes, int size) {
           received = bytes;
           total = size;
+          if (LogService.instance.debugModeEnabled && size > 0) {
+            final percentBucket =
+                ((bytes * 100 ~/ size).clamp(0, 100) ~/ 25) * 25;
+            if (percentBucket > lastLoggedPercent) {
+              lastLoggedPercent = percentBucket;
+              LogService.instance.debug(
+                'Auto update: download reached $percentBucket% received=$bytes total=$size',
+              );
+            }
+          }
           final now = DateTime.now();
           if (bytes == size ||
               now.difference(lastProgress).inMilliseconds >= 150) {
@@ -163,6 +207,9 @@ class AutomaticUpdateController extends ChangeNotifier {
             : await _service.downloadAndroidUpdate(asset, onProgress: progress);
       }
       if (windows) {
+        LogService.instance.debug(
+          'Auto update: preparing Windows installation bundle',
+        );
         _state(AutomaticUpdateState.preparing);
         bundle = await _service.prepareWindowsUpdate(
           package!,
@@ -170,8 +217,12 @@ class AutomaticUpdateController extends ChangeNotifier {
         );
       }
       _state(AutomaticUpdateState.ready);
+      LogService.instance.debug('Auto update: package validated and ready');
     } catch (e) {
       error = '$e';
+      LogService.instance.debug(
+        'Auto update: preparation failed type=${e.runtimeType}',
+      );
       _state(AutomaticUpdateState.failed);
     }
   }
@@ -180,7 +231,12 @@ class AutomaticUpdateController extends ChangeNotifier {
     bool automatic = false,
     bool verifyLatest = true,
   }) async {
-    if (_installing) return false;
+    if (_installing) {
+      LogService.instance.debug(
+        'Auto update: installer launch ignored, already running',
+      );
+      return false;
+    }
     _installing = true;
     try {
       return await _installPrepared(
@@ -197,17 +253,41 @@ class AutomaticUpdateController extends ChangeNotifier {
     required bool automatic,
     required bool verifyLatest,
   }) async {
+    LogService.instance.debug(
+      'Auto update: install request automatic=$automatic verifyLatest=$verifyLatest state=${state.name}',
+    );
     if (verifyLatest) {
       await checkAndPrepare();
-      if (state != AutomaticUpdateState.ready) return false;
+      if (state != AutomaticUpdateState.ready) {
+        LogService.instance.debug(
+          'Auto update: fresh validation did not yield ready package',
+        );
+        return false;
+      }
     }
-    if (state != AutomaticUpdateState.ready || package == null) return false;
-    if (automatic && _automaticInstallUrl == _assetUrl) return false;
+    if (state != AutomaticUpdateState.ready || package == null) {
+      LogService.instance.debug(
+        'Auto update: install blocked, package unavailable',
+      );
+      return false;
+    }
+    if (automatic && _automaticInstallUrl == _assetUrl) {
+      LogService.instance.debug(
+        'Auto update: duplicate automatic launch suppressed',
+      );
+      return false;
+    }
     error = null;
     if (!windows && !await _canInstallPackages()) {
       installPermissionNeeded = true;
+      LogService.instance.debug(
+        'Auto update: installation permission required',
+      );
       notifyListeners();
       if (!await _requestInstallPermission()) {
+        LogService.instance.debug(
+          'Auto update: installation permission declined',
+        );
         return false;
       }
     }
@@ -217,6 +297,9 @@ class AutomaticUpdateController extends ChangeNotifier {
     try {
       bool started;
       if (windows) {
+        LogService.instance.debug(
+          'Auto update: stopping background services for Windows installer',
+        );
         await LocalistRemoteRuntime.stop();
         await _bridge.stopRootSharing();
         await _bridge.stopProxyService();
@@ -226,6 +309,7 @@ class AutomaticUpdateController extends ChangeNotifier {
           bundlePath: bundle,
         );
       } else {
+        LogService.instance.debug('Auto update: dispatching Android installer');
         started = await _installAndroidPackage(package!.path);
       }
       if (!started) {
@@ -235,9 +319,15 @@ class AutomaticUpdateController extends ChangeNotifier {
       }
       installRequested = false;
       if (!windows) _state(AutomaticUpdateState.ready);
+      LogService.instance.debug(
+        'Auto update: installer launch succeeded windows=$windows',
+      );
       return true;
     } catch (e) {
       error = '$e';
+      LogService.instance.debug(
+        'Auto update: installer launch failed type=${e.runtimeType}',
+      );
       _state(AutomaticUpdateState.ready);
       return false;
     }

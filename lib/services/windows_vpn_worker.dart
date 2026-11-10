@@ -4,10 +4,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
+import 'log_service.dart';
 
 /// A scoped elevated worker owns only tun2socks and its routes. Localist's UI,
 /// navigator and pending operation stay in the original unelevated process.
 class WindowsVpnWorker {
+  final LogService _logs = LogService.instance;
   Directory? _lease;
   Timer? _monitor;
   bool ready = false;
@@ -17,8 +19,12 @@ class WindowsVpnWorker {
     Map<String, String>? route,
     required void Function() onExit,
   }) async {
+    _logs.debug(
+      'Windows VPN worker start requested routeProvided=${route != null} argumentCount=${arguments.length}',
+    );
     await stop();
     final lease = await Directory.systemTemp.createTemp('localist-vpn-');
+    _logs.debug('Windows VPN worker lease created');
     _lease = lease;
     final config = {
       'exe': executable,
@@ -34,28 +40,43 @@ class WindowsVpnWorker {
       '-Command',
       "try { Start-Process -FilePath (Join-Path \$PSHOME 'powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile -NonInteractive -EncodedCommand $encoded' -ErrorAction Stop | Out-Null } catch { exit 1 }",
     ]);
+    _logs.debug(
+      'Windows VPN elevation process returned exitCode=${launch.exitCode}',
+    );
     if (launch.exitCode != 0) {
+      _logs.debug('Windows VPN elevation declined or failed');
       throw PlatformException(
         code: 'windows_admin_required',
         message: 'Administrator permission was cancelled.',
       );
     }
     final deadline = DateTime.now().add(const Duration(seconds: 45));
+    var attempts = 0;
     while (DateTime.now().isBefore(deadline)) {
+      attempts++;
       final status = await _status(lease);
       if (status?['ready'] == true) {
         ready = true;
+        _logs.debug(
+          'Windows VPN worker ready after $attempts readiness checks',
+        );
         _monitor = Timer.periodic(const Duration(seconds: 1), (_) async {
           if ((await _status(lease))?['ready'] == false &&
               identical(_lease, lease)) {
             ready = false;
             _monitor?.cancel();
+            _logs.debug(
+              'Windows VPN worker readiness lost; invoking exit callback',
+            );
             onExit();
           }
         });
         return;
       }
       if (status?['error'] is String) {
+        _logs.debug(
+          'Windows VPN worker reported startup error after $attempts checks',
+        );
         throw PlatformException(
           code: 'wintun_start_failed',
           message: status!['error'] as String,
@@ -64,6 +85,9 @@ class WindowsVpnWorker {
       await Future<void>.delayed(const Duration(milliseconds: 150));
     }
     await stop();
+    _logs.debug(
+      'Windows VPN worker readiness timed out after $attempts checks',
+    );
     throw PlatformException(
       code: 'wintun_start_failed',
       message: 'The elevated VPN worker did not become ready.',
@@ -84,14 +108,21 @@ class WindowsVpnWorker {
   }
 
   Future<void> stop() async {
+    _logs.debug(
+      'Windows VPN worker stop requested active=${_lease != null} ready=$ready',
+    );
     _monitor?.cancel();
     final lease = _lease;
     _lease = null;
     ready = false;
     if (lease == null) return;
     await File('${lease.path}/stop').writeAsString('stop');
+    _logs.debug('Windows VPN worker stop signal written');
     for (var n = 0; n < 50; n++) {
-      if ((await _status(lease))?['ready'] == false) break;
+      if ((await _status(lease))?['ready'] == false) {
+        _logs.debug('Windows VPN worker stopped after ${n + 1} checks');
+        break;
+      }
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
   }

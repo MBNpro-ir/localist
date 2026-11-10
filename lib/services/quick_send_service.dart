@@ -347,6 +347,9 @@ class QuickSendService extends ChangeNotifier {
   int get receiveBatchCompletions => _receiveBatchCompletions;
   void completeBrowserBatch() {
     _receiveBatchCompletions++;
+    _logs.debug(
+      'Quick Send browser receive batch completed count=$_receiveBatchCompletions',
+    );
     notifyListeners();
   }
 
@@ -357,6 +360,9 @@ class QuickSendService extends ChangeNotifier {
     required int totalBytes,
     QuickSendDirection direction = QuickSendDirection.receiving,
   }) {
+    _logs.debug(
+      'Quick Send browser transfer starting direction=${direction.name} totalBytes=$totalBytes',
+    );
     final id = 'browser-${_randomToken()}';
     _putTransfer(
       QuickSendTransfer(
@@ -417,6 +423,9 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> _initialize() async {
+    _logs.debug(
+      'Quick Send initialization started platform=${Platform.operatingSystem}',
+    );
     await _loadDeviceIdentity();
     await _loadReceivedHistory();
     if (Platform.isAndroid) {
@@ -448,6 +457,9 @@ class QuickSendService extends ChangeNotifier {
     _avatarImageBase64 = await _readProfileAvatar(_settings!.profileImagePath);
     await ensureReceiveStorageAccess(request: false);
     await _startNetwork();
+    _logs.debug(
+      'Quick Send initialization finished receiveEnabled=${_settings?.receiveEnabled} serverRunning=$serverRunning localAddresses=${_localAddresses.length} historyEntries=${_receivedHistory.length}',
+    );
     notifyListeners();
   }
 
@@ -457,10 +469,14 @@ class QuickSendService extends ChangeNotifier {
       });
 
   Future<void> _readRemoteReceivedFiles() async {
+    _logs.debug('Quick Send remote receive history import started');
     try {
       final records = await NativeBridgeService.instance
           .getRemoteReceivedFiles();
-      if (records.isEmpty) return;
+      if (records.isEmpty) {
+        _logs.debug('Quick Send remote receive history empty');
+        return;
+      }
       for (final record in records) {
         final id = record['id'] as String;
         if (_receivedHistory.any((item) => item.id == id)) continue;
@@ -486,9 +502,15 @@ class QuickSendService extends ChangeNotifier {
       await NativeBridgeService.instance.acknowledgeRemoteReceivedFiles(
         records.map((record) => record['id'] as String).toList(),
       );
+      _logs.debug(
+        'Quick Send remote receive history imported records=${records.length} stored=${_receivedHistory.length}',
+      );
       notifyListeners();
     } catch (error) {
-      _logs.warning('Cannot import completed remote files: $error');
+      _logs.debug(
+        'Quick Send remote receive history import failed type=${error.runtimeType}',
+      );
+      _logs.warning('Cannot import completed remote files.');
     }
   }
 
@@ -514,6 +536,9 @@ class QuickSendService extends ChangeNotifier {
         old.avatarPreset != normalized.avatarPreset ||
         old.avatarColorValue != normalized.avatarColorValue ||
         old.profileImagePath != normalized.profileImagePath;
+    _logs.debug(
+      'Quick Send settings saved networkChanged=$networkChanged profileChanged=$profileChanged receiveEnabled=${normalized.receiveEnabled} encryption=${normalized.encryption}',
+    );
     if (networkChanged) {
       await restart();
     } else if (profileChanged) {
@@ -522,6 +547,9 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<bool> ensureReceiveStorageAccess({bool request = true}) async {
+    _logs.debug(
+      'Quick Send storage access check requested platform=${Platform.operatingSystem} interactive=$request',
+    );
     if (!Platform.isAndroid) {
       _storageAccessGranted = true;
       return true;
@@ -537,9 +565,15 @@ class QuickSendService extends ChangeNotifier {
         status = await permission.status;
       }
       _storageAccessGranted = status.isGranted;
+      _logs.debug(
+        'Quick Send storage permission evaluated granted=$_storageAccessGranted',
+      );
     } catch (error) {
       _storageAccessGranted = false;
-      _logs.warning('Quick Send storage permission check failed: $error');
+      _logs.debug(
+        'Quick Send storage permission check failed type=${error.runtimeType}',
+      );
+      _logs.warning('Quick Send storage permission check failed.');
     }
     notifyListeners();
     return _storageAccessGranted;
@@ -561,8 +595,10 @@ class QuickSendService extends ChangeNotifier {
 
   Future<void> restart() async {
     if (_restarting) {
+      _logs.debug('Quick Send network restart skipped already in progress');
       return;
     }
+    _logs.debug('Quick Send network restarting');
     _restarting = true;
     notifyListeners();
     try {
@@ -570,11 +606,15 @@ class QuickSendService extends ChangeNotifier {
       await _startNetwork();
     } finally {
       _restarting = false;
+      _logs.debug(
+        'Quick Send network restart finished serverRunning=$serverRunning sockets=${_discoverySockets.length}',
+      );
       notifyListeners();
     }
   }
 
   Future<void> disposeService() async {
+    _logs.debug('Quick Send disposing network and remote receive subscription');
     await _remoteFilesSubscription?.cancel();
     _remoteFilesSubscription = null;
     await _stopNetwork();
@@ -585,6 +625,9 @@ class QuickSendService extends ChangeNotifier {
     () => _refreshing = null,
   );
   Future<void> _refreshDiscovery() async {
+    _logs.debug(
+      'Quick Send discovery refresh requested knownDevices=${_devices.length}',
+    );
     await initialize();
     _scanning = true;
     _devices.clear();
@@ -593,7 +636,7 @@ class QuickSendService extends ChangeNotifier {
       final routes = await _networkRoutes();
       _setLocalAddresses(routes);
       _logs.info(
-        'Quick Send refresh is scanning ${routes.map((route) => route.address.address).join(', ')}',
+        'Quick Send refresh is scanning ${routes.length} LAN route(s).',
       );
       await Future.wait([
         _sendAnnouncementBurst(routes),
@@ -601,6 +644,9 @@ class QuickSendService extends ChangeNotifier {
       ]);
     } finally {
       _scanning = false;
+      _logs.debug(
+        'Quick Send discovery refresh completed discovered=${_devices.length}',
+      );
       notifyListeners();
     }
   }
@@ -618,8 +664,12 @@ class QuickSendService extends ChangeNotifier {
   void acceptPending({Set<String>? fileIds}) {
     final pending = _pendingRequest;
     if (pending == null || pending.decision.isCompleted) {
+      _logs.debug('Quick Send receive accept ignored no pending decision');
       return;
     }
+    _logs.debug(
+      'Quick Send receive accepted requestedFiles=${pending.files.length} selectedFiles=${fileIds?.length ?? pending.files.length}',
+    );
     pending.decision.complete(
       fileIds ?? pending.files.map((file) => file.id).toSet(),
     );
@@ -628,8 +678,12 @@ class QuickSendService extends ChangeNotifier {
   void declinePending() {
     final pending = _pendingRequest;
     if (pending == null || pending.decision.isCompleted) {
+      _logs.debug('Quick Send receive decline ignored no pending decision');
       return;
     }
+    _logs.debug(
+      'Quick Send receive declined fileCount=${pending.files.length}',
+    );
     pending.decision.complete(null);
   }
 
@@ -663,6 +717,9 @@ class QuickSendService extends ChangeNotifier {
     required int port,
     required bool https,
   }) async {
+    _logs.debug(
+      'Quick Send manual device registration requested port=$port secure=$https',
+    );
     await initialize();
     final device = await _discoverTarget(
       host: host,
@@ -675,11 +732,17 @@ class QuickSendService extends ChangeNotifier {
       throw StateError('The target is this Localist device.');
     }
     _devices[device.id] = device;
+    _logs.debug(
+      'Quick Send manual device registered totalDevices=${_devices.length}',
+    );
     notifyListeners();
     return device;
   }
 
   Future<QuickSendDevice?> _registerWithDevice(QuickSendDevice device) async {
+    _logs.debug(
+      'Quick Send peer registration requested secure=${device.https} port=${device.port}',
+    );
     final discovered = await _discoverTarget(
       host: device.ip,
       port: device.port,
@@ -690,6 +753,9 @@ class QuickSendService extends ChangeNotifier {
     );
     if (discovered != null) {
       _devices[discovered.id] = discovered;
+      _logs.debug(
+        'Quick Send peer registration completed totalDevices=${_devices.length}',
+      );
       notifyListeners();
     }
     return discovered;
@@ -703,6 +769,11 @@ class QuickSendService extends ChangeNotifier {
     String expectedFingerprint = '',
     bool suppressErrors = true,
   }) async {
+    if (!suppressErrors) {
+      _logs.debug(
+        'Quick Send target discovery started secure=$https timeoutMs=${timeout.inMilliseconds} fingerprintExpected=${expectedFingerprint.isNotEmpty}',
+      );
+    }
     String certificateHash = '';
     final client = HttpClient()..connectionTimeout = timeout;
     client.badCertificateCallback = (certificate, _, _) {
@@ -720,6 +791,11 @@ class QuickSendService extends ChangeNotifier {
       request.headers.contentType = ContentType.json;
       request.add(utf8.encode(jsonEncode(_registerInfo(includeAvatar: true))));
       final response = await request.close().timeout(timeout);
+      if (!suppressErrors) {
+        _logs.debug(
+          'Quick Send registration response status=${response.statusCode}',
+        );
+      }
       final certificate = response.certificate;
       if (certificate != null) {
         certificateHash = sha256.convert(certificate.der).toString();
@@ -763,10 +839,17 @@ class QuickSendService extends ChangeNotifier {
         );
       }
       if (device.fingerprint == _ownFingerprint) {
+        if (!suppressErrors) {
+          _logs.debug('Quick Send registration skipped self');
+        }
         return null;
       }
+      if (!suppressErrors) _logs.debug('Quick Send registration validated');
       return device;
     } catch (error) {
+      if (!suppressErrors) {
+        _logs.debug('Quick Send registration failed type=${error.runtimeType}');
+      }
       if (!suppressErrors) {
         rethrow;
       }
@@ -807,15 +890,22 @@ class QuickSendService extends ChangeNotifier {
       this,
       LocalistFeature.quickSend,
     )) {
+      _logs.debug('Quick Send outgoing file batch blocked by active feature');
       throw StateError(
         'ابتدا سرویس فعال را متوقف کنید. / Stop the active service first.',
       );
     }
+    _logs.debug(
+      'Quick Send outgoing file batch requested selectedFiles=${paths.length} pinProvided=${pin?.isNotEmpty == true} activeOperations=${_sendingOperations + 1}',
+    );
     _sendingOperations++;
     try {
       await _sendFilesImpl(device, paths, offeredNames: offeredNames, pin: pin);
     } finally {
       _sendingOperations--;
+      _logs.debug(
+        'Quick Send outgoing file batch released activeOperations=$_sendingOperations',
+      );
       notifyListeners();
     }
   }
@@ -827,11 +917,16 @@ class QuickSendService extends ChangeNotifier {
     String? pin,
   }) async {
     await initialize();
+    _logs.debug(
+      'Quick Send preparing outgoing file selection entries=${paths.length}',
+    );
     final files = <QuickSendOfferedFile>[];
     final fileById = <String, File>{};
+    var missingFiles = 0;
     for (final value in paths) {
       final file = File(value);
       if (!await file.exists()) {
+        missingFiles++;
         continue;
       }
       final id = _randomToken();
@@ -864,7 +959,16 @@ class QuickSendService extends ChangeNotifier {
       );
     }
     if (files.isEmpty) {
+      _logs.debug(
+        'Quick Send no readable outgoing files missing=$missingFiles',
+      );
       throw StateError('No readable files were selected.');
+    }
+    if (_logs.debugModeEnabled) {
+      final totalBytes = files.fold<int>(0, (total, file) => total + file.size);
+      _logs.debug(
+        'Quick Send outgoing offers built count=${files.length} missing=$missingFiles bytes=$totalBytes',
+      );
     }
 
     await _sendOffers(
@@ -882,6 +986,9 @@ class QuickSendService extends ChangeNotifier {
     String? pin,
   }) async {
     final legacy = device.version == '1.0';
+    _logs.debug(
+      'Quick Send offer negotiation started count=${files.length} protocol=${legacy ? 'v1' : 'v2'} pinProvided=${pin?.isNotEmpty == true}',
+    );
     final client = _clientFor(device);
     try {
       final query = pin == null || pin.isEmpty ? null : {'pin': pin};
@@ -899,11 +1006,16 @@ class QuickSendService extends ChangeNotifier {
           'files': {for (final file in files) file.id: file.toWire()},
         },
       );
+      _logs.debug(
+        'Quick Send offer negotiation response status=${prepare.statusCode}',
+      );
       if (prepare.statusCode == HttpStatus.unauthorized) {
+        _logs.debug('Quick Send offer negotiation requires PIN');
         await prepare.drain<void>();
         throw const QuickSendPinRequiredException();
       }
       if (prepare.statusCode == HttpStatus.noContent) {
+        _logs.debug('Quick Send offers accepted inline count=${files.length}');
         for (final file in files) {
           _updateTransfer(
             'send-${file.id}',
@@ -927,12 +1039,19 @@ class QuickSendService extends ChangeNotifier {
           ? _asStringMap(response)
           : _asStringMap(response['files']);
       if ((!legacy && sessionId.isEmpty) || tokens.isEmpty) {
+        _logs.debug(
+          'Quick Send offer negotiation invalid response hasSession=${sessionId.isNotEmpty} acceptedFileCount=${tokens.length}',
+        );
         throw const FormatException('Invalid prepare-upload response.');
       }
+      _logs.debug(
+        'Quick Send offers negotiated requested=${files.length} accepted=${tokens.length}',
+      );
 
       for (final file in files) {
         final token = tokens[file.id];
         if (token == null) {
+          _logs.debug('Quick Send file upload skipped receiver decision');
           _updateTransfer(
             'send-${file.id}',
             state: QuickSendTransferState.completed,
@@ -957,8 +1076,14 @@ class QuickSendService extends ChangeNotifier {
         );
       }
       _sendBatchCompletions++;
+      _logs.debug(
+        'Quick Send outgoing batch completed count=$_sendBatchCompletions files=${files.length}',
+      );
       notifyListeners();
     } catch (error) {
+      _logs.debug(
+        'Quick Send outgoing batch failed type=${error.runtimeType} files=${files.length}',
+      );
       _failedBatchCompletions++;
       notifyListeners();
       for (final file in files) {
@@ -973,6 +1098,7 @@ class QuickSendService extends ChangeNotifier {
       }
       rethrow;
     } finally {
+      _logs.debug('Quick Send outgoing batch HTTP client closing');
       client.close(force: true);
     }
   }
@@ -986,10 +1112,14 @@ class QuickSendService extends ChangeNotifier {
       this,
       LocalistFeature.quickSend,
     )) {
+      _logs.debug('Quick Send outgoing message blocked by active feature');
       throw StateError(
         'ابتدا سرویس فعال را متوقف کنید. / Stop the active service first.',
       );
     }
+    _logs.debug(
+      'Quick Send outgoing message requested characters=${text.length} pinProvided=${pin?.isNotEmpty == true}',
+    );
     _sendingOperations++;
     try {
       await _sendTextImpl(device, text, pin: pin);
@@ -1006,11 +1136,13 @@ class QuickSendService extends ChangeNotifier {
   }) async {
     final clean = text.trim();
     if (clean.isEmpty) {
+      _logs.debug('Quick Send outgoing message skipped empty text');
       return;
     }
     await initialize();
     final id = _randomToken();
     final bytes = utf8.encode(clean).length;
+    _logs.debug('Quick Send outgoing message prepared bytes=$bytes');
     final offer = QuickSendOfferedFile(
       id: id,
       fileName: 'message.txt',
@@ -1043,8 +1175,12 @@ class QuickSendService extends ChangeNotifier {
   Future<void> _startNetwork() async {
     final current = _settings;
     if (current == null) {
+      _logs.debug('Quick Send network start skipped settings unavailable');
       return;
     }
+    _logs.debug(
+      'Quick Send network starting receiveEnabled=${current.receiveEnabled} encryption=${current.encryption} port=${current.port}',
+    );
     _lastError = '';
     if (Platform.isAndroid &&
         !await FeaturePermissionService.instance.ensure([
@@ -1052,11 +1188,15 @@ class QuickSendService extends ChangeNotifier {
         ])) {
       _lastError =
           'Local network access is required before Quick Send can start.';
+      _logs.debug('Quick Send network start denied local network permission');
       await NativeBridgeService.instance.setQuickSendBackgroundService(false);
       return;
     }
     if (current.receiveEnabled) {
       try {
+        _logs.debug(
+          'Quick Send HTTP listener binding secure=${current.encryption}',
+        );
         if (current.encryption) {
           final security = _security ?? await _loadSecurity();
           _security = security;
@@ -1078,18 +1218,28 @@ class QuickSendService extends ChangeNotifier {
         }
         _server!.listen(_handleHttpRequest, onError: _handleNetworkError);
         _logs.info('Quick Send HTTP server listening on ${current.port}');
+        _logs.debug(
+          'Quick Send HTTP listener ready secure=${current.encryption}',
+        );
       } catch (error) {
+        _logs.debug(
+          'Quick Send HTTP listener failed type=${error.runtimeType}',
+        );
         _lastError = 'HTTP ${current.port}: $error';
-        _logs.warning('Quick Send server failed: $error');
+        _logs.warning('Quick Send server failed.');
       }
     }
     await NativeBridgeService.instance.setQuickSendBackgroundService(
       _server != null && current.receiveEnabled,
       deviceName: current.alias,
     );
+    _logs.debug(
+      'Quick Send background service synchronized active=${_server != null && current.receiveEnabled}',
+    );
     try {
       await NativeBridgeService.instance.setQuickSendMulticastLock(true);
       final routes = await _networkRoutes();
+      _logs.debug('Quick Send discovery binding routes=${routes.length}');
       _setLocalAddresses(routes);
       final joinedInterfaces = <String>{};
       for (final route in routes) {
@@ -1115,17 +1265,18 @@ class QuickSendService extends ChangeNotifier {
             );
           _discoverySockets.add(socket);
           _logs.debug(
-            'Quick Send UDP listener joined ${route.interface.name} '
-            '(${route.address.address})',
+            'Quick Send UDP listener joined interface sockets=${_discoverySockets.length}',
           );
         } catch (error) {
           _logs.debug(
-            'Quick Send multicast join skipped for '
-            '${route.interface.name}: $error',
+            'Quick Send multicast join skipped type=${error.runtimeType}',
           );
         }
       }
       if (_discoverySockets.isEmpty) {
+        _logs.debug(
+          'Quick Send multicast unavailable binding fallback UDP listener',
+        );
         final socket = await RawDatagramSocket.bind(
           InternetAddress.anyIPv4,
           current.port,
@@ -1140,10 +1291,13 @@ class QuickSendService extends ChangeNotifier {
         _discoverySockets.add(socket);
       }
     } catch (error) {
+      _logs.debug(
+        'Quick Send discovery listener failed type=${error.runtimeType}',
+      );
       _lastError = _lastError.isEmpty
           ? 'UDP ${current.port}: $error'
           : '$_lastError; UDP ${current.port}: $error';
-      _logs.warning('Quick Send discovery failed: $error');
+      _logs.warning('Quick Send discovery failed.');
     }
     _announceTimer = Timer.periodic(
       const Duration(seconds: 7),
@@ -1154,9 +1308,15 @@ class QuickSendService extends ChangeNotifier {
       (_) => _pruneDevices(),
     );
     unawaited(_sendDiscoveryPacket(announce: true));
+    _logs.debug(
+      'Quick Send network started UDP sockets=${_discoverySockets.length} serverRunning=$serverRunning',
+    );
   }
 
   Future<void> _stopNetwork() async {
+    _logs.debug(
+      'Quick Send network stopping UDP sockets=${_discoverySockets.length} serverRunning=$serverRunning',
+    );
     await NativeBridgeService.instance.setQuickSendBackgroundService(false);
     _announceTimer?.cancel();
     _announceTimer = null;
@@ -1176,6 +1336,7 @@ class QuickSendService extends ChangeNotifier {
     _pendingRequest = null;
     _session = null;
     _localAddresses = const [];
+    _logs.debug('Quick Send network stopped');
   }
 
   bool _setLocalAddresses(Iterable<_QuickSendNetworkRoute> routes) {
@@ -1204,10 +1365,14 @@ class QuickSendService extends ChangeNotifier {
     try {
       final decoded = jsonDecode(utf8.decode(datagram.data));
       if (decoded is! Map<String, dynamic>) {
+        _logs.debug('Quick Send discovery ignored non-object packet');
         return;
       }
       final fingerprint = decoded['fingerprint'] as String? ?? '';
       if (fingerprint.isEmpty || fingerprint == _ownFingerprint) {
+        _logs.debug(
+          'Quick Send discovery ignored missing or local fingerprint',
+        );
         return;
       }
       final device = QuickSendDevice.fromWire(
@@ -1216,13 +1381,18 @@ class QuickSendService extends ChangeNotifier {
         fallbackPort: _settings?.port ?? 53317,
       );
       _devices[device.id] = device;
+      _logs.debug(
+        'Quick Send discovery device announced totalDevices=${_devices.length} secure=${device.https}',
+      );
       notifyListeners();
       if ((decoded['announce'] == true || decoded['announcement'] == true) &&
           serverRunning) {
         unawaited(_answerAnnouncement(device));
       }
     } catch (error) {
-      _logs.debug('Ignored invalid Quick Send discovery packet: $error');
+      _logs.debug(
+        'Ignored invalid Quick Send discovery packet type=${error.runtimeType}',
+      );
     }
   }
 
@@ -1231,7 +1401,7 @@ class QuickSendService extends ChangeNotifier {
       await _registerWithDevice(device);
     } catch (error) {
       _logs.debug(
-        'Quick Send TCP discovery response to ${device.ip} failed: $error',
+        'Quick Send TCP discovery response failed type=${error.runtimeType}; falling back to UDP',
       );
       await _sendDiscoveryPacket(
         announce: false,
@@ -1260,9 +1430,13 @@ class QuickSendService extends ChangeNotifier {
   }) async {
     final current = _settings;
     if (current == null) {
+      _logs.debug('Quick Send discovery packet skipped settings unavailable');
       return;
     }
     final activeRoutes = routes ?? await _networkRoutes();
+    _logs.debug(
+      'Quick Send discovery packet preparing announce=$announce direct=${directAddress != null} routes=${activeRoutes.length}',
+    );
     if (activeRoutes.isEmpty) {
       _logs.debug('Quick Send announcement skipped: no LAN interface.');
       return;
@@ -1275,6 +1449,7 @@ class QuickSendService extends ChangeNotifier {
       }),
     );
     var sent = 0;
+    var failed = 0;
     for (final route in activeRoutes) {
       RawDatagramSocket? socket;
       try {
@@ -1302,13 +1477,17 @@ class QuickSendService extends ChangeNotifier {
           );
         }
       } catch (error) {
+        failed++;
         _logs.debug(
-          'Quick Send announcement failed on ${route.address.address}: $error',
+          'Quick Send discovery datagram send failed type=${error.runtimeType}',
         );
       } finally {
         socket?.close();
       }
     }
+    _logs.debug(
+      'Quick Send discovery packet completed announce=$announce bytesSent=$sent failedRoutes=$failed',
+    );
     if (sent == 0) {
       _logs.warning('Quick Send could not send on any LAN interface.');
     }
@@ -1327,6 +1506,10 @@ class QuickSendService extends ChangeNotifier {
     );
     var cursor = 0;
     final workerCount = min(48, targets.length);
+    _logs.debug(
+      'Quick Send active subnet probing started targets=${targets.length} workers=$workerCount',
+    );
+    var discovered = 0;
     await Future.wait(
       List.generate(workerCount, (_) async {
         while (cursor < targets.length) {
@@ -1343,12 +1526,16 @@ class QuickSendService extends ChangeNotifier {
             );
             if (device != null) {
               _devices[device.id] = device;
+              discovered++;
               notifyListeners();
               break;
             }
           }
         }
       }),
+    );
+    _logs.debug(
+      'Quick Send active subnet probing finished attemptedTargets=$cursor discovered=$discovered',
     );
   }
 
@@ -1372,6 +1559,9 @@ class QuickSendService extends ChangeNotifier {
       }
     }
     routes.sort((a, b) => a.priority.compareTo(b.priority));
+    _logs.debug(
+      'Quick Send network routes enumerated interfaces=${interfaces.length} eligible=${routes.length}',
+    );
     return routes.take(8).toList(growable: false);
   }
 
@@ -1407,6 +1597,11 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> _handleHttpRequest(HttpRequest request) async {
+    // Record only the route template: query parameters contain upload secrets.
+    final path = request.uri.path;
+    _logs.debug(
+      'Quick Send HTTP request method=${request.method} knownRoute=${path.startsWith('/api/localsend/')}',
+    );
     try {
       switch ((request.method, request.uri.path)) {
         case ('GET', '/api/localsend/v2/info'):
@@ -1433,11 +1628,13 @@ class QuickSendService extends ChangeNotifier {
           await request.response.close();
           return;
         default:
+          _logs.debug('Quick Send HTTP request route rejected');
           request.response.statusCode = HttpStatus.notFound;
           await request.response.close();
       }
     } catch (error) {
-      _logs.error('Quick Send request failed: $error');
+      _logs.debug('Quick Send HTTP request failed type=${error.runtimeType}');
+      _logs.error('Quick Send request failed.');
       try {
         request.response.statusCode = HttpStatus.internalServerError;
         request.response.write(error.toString());
@@ -1450,6 +1647,7 @@ class QuickSendService extends ChangeNotifier {
 
   Future<void> _handleRegister(HttpRequest request) async {
     final body = await _readRequestMap(request);
+    _logs.debug('Quick Send registration request parsed fields=${body.length}');
     final remoteIp = _remoteIp(request);
     if (body.isNotEmpty && remoteIp.isNotEmpty) {
       final device = QuickSendDevice.fromWire(
@@ -1459,6 +1657,9 @@ class QuickSendService extends ChangeNotifier {
       );
       if (device.fingerprint != _ownFingerprint) {
         _devices[device.id] = device;
+        _logs.debug(
+          'Quick Send registration tracked device count=${_devices.length}',
+        );
         notifyListeners();
       }
     }
@@ -1466,7 +1667,9 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> _handlePrepareUpload(HttpRequest request) async {
+    _logs.debug('Quick Send inbound offer received');
     if (!FeatureActivityService.instance.allows(LocalistFeature.quickSend)) {
+      _logs.debug('Quick Send inbound offer rejected active feature conflict');
       await _writeError(
         request.response,
         HttpStatus.conflict,
@@ -1476,14 +1679,21 @@ class QuickSendService extends ChangeNotifier {
     }
     final current = _settings!;
     if (_session?.expired == true) {
+      _logs.debug(
+        'Quick Send existing receive session expired before new offer',
+      );
       _endReceiveSession('Receive session timed out.');
     }
     if (_session != null || _pendingRequest != null) {
+      _logs.debug(
+        'Quick Send inbound offer rejected busy session=${_session != null} pending=${_pendingRequest != null}',
+      );
       await _writeError(request.response, HttpStatus.conflict, 'Busy');
       return;
     }
     if (current.requirePin &&
         request.uri.queryParameters['pin'] != current.pin) {
+      _logs.debug('Quick Send inbound offer authentication rejected');
       await _writeError(
         request.response,
         HttpStatus.unauthorized,
@@ -1492,6 +1702,7 @@ class QuickSendService extends ChangeNotifier {
       return;
     }
     if (request.contentLength > 2 * 1024 * 1024) {
+      _logs.debug('Quick Send inbound offer rejected body too large');
       await _writeError(
         request.response,
         HttpStatus.badRequest,
@@ -1502,6 +1713,9 @@ class QuickSendService extends ChangeNotifier {
     final body = await _readRequestMap(request);
     final info = _asMap(body['info']);
     final fileMap = _asMap(body['files']);
+    _logs.debug(
+      'Quick Send inbound offer parsed offeredEntries=${fileMap.length}',
+    );
     if (fileMap.isEmpty) {
       await _writeError(request.response, HttpStatus.badRequest, 'No files');
       return;
@@ -1523,6 +1737,7 @@ class QuickSendService extends ChangeNotifier {
       }
     }
     if (files.isEmpty) {
+      _logs.debug('Quick Send inbound offer rejected no valid entries');
       await _writeError(
         request.response,
         HttpStatus.badRequest,
@@ -1538,6 +1753,9 @@ class QuickSendService extends ChangeNotifier {
         (current.quickSave ||
             (current.quickSaveFavorites &&
                 current.isFavorite(sender.fingerprint)));
+    _logs.debug(
+      'Quick Send inbound offer validation complete files=${files.length} inlineMessage=$inlineMessage autoAccept=$autoAccept',
+    );
     if (autoAccept) {
       accepted = files.map((file) => file.id).toSet();
       _lastAutoAcceptedRequest = QuickSendAutoAcceptedRequest(
@@ -1555,6 +1773,9 @@ class QuickSendService extends ChangeNotifier {
         createdAt: DateTime.now(),
       );
       _pendingRequest = pending;
+      _logs.debug(
+        'Quick Send inbound offer awaiting approval timeoutSeconds=60',
+      );
       notifyListeners();
       try {
         accepted = await pending.decision.future.timeout(
@@ -1569,6 +1790,7 @@ class QuickSendService extends ChangeNotifier {
       }
     }
     if (accepted == null) {
+      _logs.debug('Quick Send inbound offer rejected or approval timed out');
       await _writeError(request.response, HttpStatus.forbidden, 'Rejected');
       return;
     }
@@ -1577,11 +1799,15 @@ class QuickSendService extends ChangeNotifier {
         if (accepted.contains(file.id)) file.id: file,
     };
     if (chosen.isEmpty) {
+      _logs.debug('Quick Send inbound offer accepted zero files');
       request.response.statusCode = HttpStatus.noContent;
       await request.response.close();
       return;
     }
     if (chosen.length == 1 && chosen.values.single.isInlineMessage) {
+      _logs.debug(
+        'Quick Send inbound inline message accepted bytes=${chosen.values.single.size}',
+      );
       final message = chosen.values.single;
       _putTransfer(
         QuickSendTransfer(
@@ -1610,6 +1836,9 @@ class QuickSendService extends ChangeNotifier {
       files: chosen,
       tokens: tokens,
     );
+    _logs.debug(
+      'Quick Send inbound receive session created files=${chosen.length}',
+    );
     for (final offer in chosen.values) {
       _putTransfer(
         QuickSendTransfer(
@@ -1630,6 +1859,9 @@ class QuickSendService extends ChangeNotifier {
       'sessionId': sessionId,
       'files': tokens,
     });
+    _logs.debug(
+      'Quick Send inbound receive session tokens delivered files=${tokens.length}',
+    );
   }
 
   Future<void> _handleUpload(
@@ -1647,6 +1879,9 @@ class QuickSendService extends ChangeNotifier {
         token == null ||
         session.tokens[fileId] != token ||
         session.completed.contains(fileId)) {
+      _logs.debug(
+        'Quick Send inbound upload rejected invalid or expired authorization sessionActive=${session != null} legacy=$legacy',
+      );
       await _writeError(
         request.response,
         HttpStatus.forbidden,
@@ -1657,6 +1892,7 @@ class QuickSendService extends ChangeNotifier {
     final offer = session.files[fileId]!;
     final destination = await _destinationFile(offer.fileName, offer.fileType);
     if (!session.active.add(fileId)) {
+      _logs.debug('Quick Send inbound upload rejected duplicate active file');
       await _writeError(
         request.response,
         HttpStatus.conflict,
@@ -1679,6 +1915,9 @@ class QuickSendService extends ChangeNotifier {
         message: '',
         updatedAt: DateTime.now(),
       ),
+    );
+    _logs.debug(
+      'Quick Send inbound upload accepted size=${offer.size} activeFiles=${session.active.length} completedFiles=${session.completed.length}',
     );
     var received = 0;
     final partial = File('${destination.path}.localist-${_randomToken()}.part');
@@ -1705,6 +1944,9 @@ class QuickSendService extends ChangeNotifier {
       );
       await sink.flush();
       await sink.close();
+      _logs.debug(
+        'Quick Send inbound upload stream flushed receivedBytes=$received expectedBytes=${offer.size}',
+      );
       if (received != offer.size) {
         throw FormatException(
           'Expected ${offer.size} bytes, received $received.',
@@ -1714,6 +1956,9 @@ class QuickSendService extends ChangeNotifier {
         throw const HttpException('Receive session stopped.');
       }
       await partial.rename(destination.path);
+      _logs.debug(
+        'Quick Send inbound upload finalized filesystem move completed',
+      );
       session.completed.add(fileId);
       _updateTransfer(
         transferId,
@@ -1723,9 +1968,15 @@ class QuickSendService extends ChangeNotifier {
       if (session.completed.length == session.files.length) {
         _session = null;
         _receiveBatchCompletions++;
+        _logs.debug(
+          'Quick Send inbound receive batch completed files=${session.files.length} completedBatches=$_receiveBatchCompletions',
+        );
         notifyListeners();
       }
     } catch (error) {
+      _logs.debug(
+        'Quick Send inbound upload failed type=${error.runtimeType} receivedBytes=$received expectedBytes=${offer.size}',
+      );
       if (_failedReceiveBatches.add(session.id)) {
         _failedBatchCompletions++;
         if (_failedReceiveBatches.length > 100) {
@@ -1736,7 +1987,11 @@ class QuickSendService extends ChangeNotifier {
       await sink.close().catchError((_) {});
       try {
         await partial.delete();
-      } catch (_) {
+        _logs.debug('Quick Send partial receive file deleted after failure');
+      } catch (cleanupError) {
+        _logs.debug(
+          'Quick Send partial receive cleanup failed type=${cleanupError.runtimeType}',
+        );
         // A peer disconnect can race with destination cleanup.
       }
       _updateTransfer(
@@ -1748,6 +2003,9 @@ class QuickSendService extends ChangeNotifier {
       rethrow;
     } finally {
       session.active.remove(fileId);
+      _logs.debug(
+        'Quick Send inbound upload slot released remainingActive=${session.active.length}',
+      );
     }
     request.response.statusCode = HttpStatus.ok;
     await request.response.close();
@@ -1762,12 +2020,16 @@ class QuickSendService extends ChangeNotifier {
     required File file,
     required bool legacy,
   }) async {
+    _logs.debug(
+      'Quick Send outbound upload opening bytes=${offer.size} protocol=${legacy ? 'v1' : 'v2'}',
+    );
     final uri = _deviceUri(
       device,
       legacy ? '/api/localsend/v1/send' : '/api/localsend/v2/upload',
       {if (!legacy) 'sessionId': sessionId, 'fileId': offer.id, 'token': token},
     );
     final request = await client.postUrl(uri);
+    _logs.debug('Quick Send outbound upload request connection ready');
     request.contentLength = offer.size;
     request.headers.contentType = ContentType.binary;
     var sent = 0;
@@ -1790,7 +2052,13 @@ class QuickSendService extends ChangeNotifier {
         return chunk;
       }),
     );
+    _logs.debug(
+      'Quick Send outbound upload bytes queued sent=$sent expected=${offer.size}',
+    );
     final response = await request.close().timeout(const Duration(minutes: 10));
+    _logs.debug(
+      'Quick Send outbound upload response status=${response.statusCode}',
+    );
     await response.drain<void>();
     if (response.statusCode != HttpStatus.ok) {
       throw HttpException('Upload failed (${response.statusCode})');
@@ -1800,9 +2068,13 @@ class QuickSendService extends ChangeNotifier {
       transferredBytes: sent,
       state: QuickSendTransferState.completed,
     );
+    _logs.debug('Quick Send outbound upload completed bytes=$sent');
   }
 
   HttpClient _clientFor(QuickSendDevice device) {
+    _logs.debug(
+      'Quick Send HTTP client configured tls=${device.https} certificatePinned=${device.fingerprint.isNotEmpty}',
+    );
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 7)
       ..idleTimeout = const Duration(seconds: 20);
@@ -1814,7 +2086,9 @@ class QuickSendService extends ChangeNotifier {
       final actual = _normalizeFingerprint(
         sha256.convert(certificate.der).toString(),
       );
-      return expected == actual;
+      final matches = expected == actual;
+      _logs.debug('Quick Send TLS certificate verification matched=$matches');
+      return matches;
     };
     return client;
   }
@@ -1824,10 +2098,18 @@ class QuickSendService extends ChangeNotifier {
     Uri uri,
     Map<String, Object?> body,
   ) async {
+    _logs.debug(
+      'Quick Send HTTP JSON POST stage=connect requestFields=${body.length}',
+    );
     final request = await client.postUrl(uri);
     request.headers.contentType = ContentType.json;
     request.add(utf8.encode(jsonEncode(body)));
-    return request.close().timeout(const Duration(seconds: 70));
+    _logs.debug('Quick Send HTTP JSON POST stage=sent');
+    final response = await request.close().timeout(const Duration(seconds: 70));
+    _logs.debug(
+      'Quick Send HTTP JSON POST stage=response status=${response.statusCode}',
+    );
+    return response;
   }
 
   Uri _deviceUri(
@@ -1870,7 +2152,9 @@ class QuickSendService extends ChangeNotifier {
         model = 'Windows';
       }
     } catch (error) {
-      _logs.debug('Quick Send device identity fallback: $error');
+      _logs.debug(
+        'Quick Send device identity fallback type=${error.runtimeType}',
+      );
     }
     if (alias.isEmpty || alias.toLowerCase() == 'localhost') {
       alias = Platform.isAndroid ? 'Android device' : 'Localist device';
@@ -1896,7 +2180,9 @@ class QuickSendService extends ChangeNotifier {
       final downloads = await getDownloadsDirectory();
       return downloads?.path ?? '';
     } catch (error) {
-      _logs.debug('Quick Send legacy destination lookup skipped: $error');
+      _logs.debug(
+        'Quick Send legacy destination lookup skipped type=${error.runtimeType}',
+      );
       return '';
     }
   }
@@ -1916,7 +2202,9 @@ class QuickSendService extends ChangeNotifier {
       }
       return base64Encode(await file.readAsBytes());
     } catch (error) {
-      _logs.debug('Quick Send profile image could not be advertised: $error');
+      _logs.debug(
+        'Quick Send profile image could not be advertised type=${error.runtimeType}',
+      );
       return '';
     }
   }
@@ -2157,6 +2445,9 @@ class QuickSendService extends ChangeNotifier {
     final before = _devices.length;
     _devices.removeWhere((_, device) => device.lastSeen.isBefore(cutoff));
     if (_devices.length != before) {
+      _logs.debug(
+        'Quick Send device expiry pruned=${before - _devices.length} remaining=${_devices.length}',
+      );
       notifyListeners();
     }
     if (_session?.expired == true) {
@@ -2169,6 +2460,9 @@ class QuickSendService extends ChangeNotifier {
     final session = _session;
     _session = null;
     if (session == null) return;
+    _logs.debug(
+      'Quick Send receive session ended completed=${session.completed.length} offered=${session.files.length}',
+    );
     for (final offer in session.files.values) {
       if (!session.completed.contains(offer.id)) {
         _updateTransfer(
@@ -2183,6 +2477,9 @@ class QuickSendService extends ChangeNotifier {
 
   void _putTransfer(QuickSendTransfer transfer) {
     _transfers.insert(0, transfer);
+    _logs.debug(
+      'Quick Send transfer inserted direction=${transfer.direction.name} state=${transfer.state.name} totalBytes=${transfer.totalBytes} tracked=${_transfers.length}',
+    );
     if (_transfers.length > 250) {
       final terminal = _transfers.lastIndexWhere(
         (item) =>
@@ -2212,14 +2509,21 @@ class QuickSendService extends ChangeNotifier {
   }) {
     final index = _transfers.indexWhere((transfer) => transfer.id == id);
     if (index < 0) {
+      _logs.debug('Quick Send transfer update ignored missing record');
       return;
     }
+    final previous = _transfers[index];
     final updated = _transfers[index].copyWith(
       transferredBytes: transferredBytes,
       state: state,
       message: message,
     );
     _transfers[index] = updated;
+    if (_logs.debugModeEnabled && (state != null || transferredBytes != null)) {
+      _logs.debug(
+        'Quick Send transfer progress direction=${updated.direction.name} state=${previous.state.name}->${updated.state.name} bytes=${updated.transferredBytes}/${updated.totalBytes}',
+      );
+    }
     _recordReceivedHistory(updated);
     notifyListeners();
   }
@@ -2250,9 +2554,11 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void> _loadReceivedHistory() async {
+    _logs.debug('Quick Send received history load started');
     try {
       final file = await _receivedHistoryFile();
       if (!await file.exists()) {
+        _logs.debug('Quick Send received history file absent');
         return;
       }
       final decoded = jsonDecode(await file.readAsString());
@@ -2281,12 +2587,21 @@ class QuickSendService extends ChangeNotifier {
       _receivedHistory
         ..clear()
         ..addAll(records.take(250));
+      _logs.debug(
+        'Quick Send received history loaded records=${_receivedHistory.length}',
+      );
     } catch (error) {
-      _logs.warning('Could not load Quick Send transfer history: $error');
+      _logs.debug(
+        'Quick Send received history load failed type=${error.runtimeType}',
+      );
+      _logs.warning('Could not load Quick Send transfer history.');
     }
   }
 
   Future<void> _queueReceivedHistorySave() {
+    _logs.debug(
+      'Quick Send received history save queued entries=${_receivedHistory.length}',
+    );
     _historyWrite = _historyWrite.then((_) async {
       try {
         final file = await _receivedHistoryFile();
@@ -2297,8 +2612,14 @@ class QuickSendService extends ChangeNotifier {
           ),
           flush: true,
         );
+        _logs.debug(
+          'Quick Send received history save complete entries=${_receivedHistory.length}',
+        );
       } catch (error) {
-        _logs.warning('Could not save Quick Send transfer history: $error');
+        _logs.debug(
+          'Quick Send received history save failed type=${error.runtimeType}',
+        );
+        _logs.warning('Could not save Quick Send transfer history.');
       }
     });
     return _historyWrite;
@@ -2306,7 +2627,8 @@ class QuickSendService extends ChangeNotifier {
 
   void _handleNetworkError(Object error) {
     _lastError = error.toString();
-    _logs.warning('Quick Send network error: $error');
+    _logs.debug('Quick Send network error type=${error.runtimeType}');
+    _logs.warning('Quick Send network error.');
     notifyListeners();
   }
 }

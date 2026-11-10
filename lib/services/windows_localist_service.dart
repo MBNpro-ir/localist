@@ -61,7 +61,7 @@ class WindowsLocalistService {
     RemoteProxyConfig? upstreamProxy,
   }) async {
     _logs.debug(
-      'Windows sharing start requested protocols=${protocols.map((value) => value.name).join(',')} ports=$ports shareAllRoutes=$shareAllRoutes selectedLocalIps=$selectedLocalIps upstream=${upstreamProxy?.url}',
+      'Windows sharing start requested protocols=${protocols.map((value) => value.name).join(',')} ports=$ports shareAllRoutes=$shareAllRoutes selectedIpCount=${selectedLocalIps.length} upstreamProtocol=${upstreamProxy?.protocol.name} upstreamPort=${upstreamProxy?.port}',
     );
     await _ensureTotalsLoaded();
     final activeProtocols = protocols.isEmpty
@@ -96,13 +96,15 @@ class WindowsLocalistService {
     _sessionTxBytes = 0;
     await _discoveryResponder.start(_buildDiscoveryEndpoints);
     _logs.debug(
-      'Windows sharing started bindAddresses=$addresses protocols=${activeProtocols.map((value) => value.name).join(',')} ports=$_protocolPorts upstream=${effectiveUpstreamProxy?.url}',
+      'Windows sharing started bindAddressCount=${addresses.length} protocols=${activeProtocols.map((value) => value.name).join(',')} ports=$_protocolPorts upstreamProtocol=${effectiveUpstreamProxy?.protocol.name} upstreamPort=${effectiveUpstreamProxy?.port}',
     );
     return true;
   }
 
   Future<bool> startReceivingVpn(RemoteProxyConfig config) async {
-    _logs.debug('Windows receiving VPN start requested config=${config.url}');
+    _logs.debug(
+      'Windows receiving VPN start requested protocol=${config.protocol.name} port=${config.port}',
+    );
     await _ensureTotalsLoaded();
     await _discoveryResponder.stop();
     await _startLocalForwarder(config, localPort: _localProxyPort);
@@ -146,7 +148,7 @@ class WindowsLocalistService {
     int localPort = 3781,
   }) async {
     _logs.debug(
-      'Windows local proxy start requested config=${config.url} localPort=$localPort',
+      'Windows local proxy start requested protocol=${config.protocol.name} remotePort=${config.port} localPort=$localPort',
     );
     await _ensureTotalsLoaded();
     await _discoveryResponder.stop();
@@ -182,7 +184,7 @@ class WindowsLocalistService {
     int localPort = 3781,
   }) async {
     _logs.debug(
-      'Windows system proxy start requested config=${config.url} localPort=$localPort',
+      'Windows system proxy start requested protocol=${config.protocol.name} remotePort=${config.port} localPort=$localPort',
     );
     await _ensureTotalsLoaded();
     await _discoveryResponder.stop();
@@ -369,7 +371,7 @@ class WindowsLocalistService {
     required int localPort,
   }) async {
     _logs.debug(
-      'Windows local forwarder setup remote=${config.url} localPort=$localPort',
+      'Windows local forwarder setup protocol=${config.protocol.name} remotePort=${config.port} localPort=$localPort',
     );
     await _proxyServer?.stop();
     _proxyServer = null;
@@ -417,7 +419,7 @@ class WindowsLocalistService {
           ),
     ];
     _logs.debug(
-      'Windows discovery endpoints built: ${endpoints.map((endpoint) => endpoint.config.url).join(', ')}',
+      'Windows discovery endpoints built count=${endpoints.length} protocolCount=${_protocols.length} hostCount=${hosts.length}',
     );
     return endpoints;
   }
@@ -430,7 +432,9 @@ class WindowsLocalistService {
       final current = await _channel.invokeMapMethod<Object?, Object?>(
         'getWindowsSystemProxy',
       );
-      _logs.debug('Stored current Windows system proxy: $current');
+      _logs.debug(
+        'Stored current Windows system proxy enabled=${current?['enabled'] == true} hadServer=${(current?['server'] as String?)?.isNotEmpty == true} hadBypass=${(current?['bypass'] as String?)?.isNotEmpty == true}',
+      );
       await prefs.setBool(_restoreProxyStoredKey, true);
       await prefs.setBool(_restoreProxyEnabledKey, current?['enabled'] == true);
       await prefs.setString(
@@ -609,7 +613,7 @@ class WindowsLocalistService {
       return null;
     }
     _logs.debug(
-      'Windows upstream proxy validation started ${upstreamProxy.url}',
+      'Windows upstream proxy validation started protocol=${upstreamProxy.protocol.name} port=${upstreamProxy.port}',
     );
     if (upstreamProxy.port < 1024 || upstreamProxy.port > 65535) {
       _logs.warning(
@@ -632,11 +636,13 @@ class WindowsLocalistService {
     }
     if (!await _isTcpConnectable(upstreamProxy.host, upstreamProxy.port)) {
       _logs.warning(
-        'Internal VPN proxy is not reachable on ${upstreamProxy.host}:${upstreamProxy.port}; Sharing will continue without VPN upstream.',
+        'Internal VPN proxy is not reachable on port ${upstreamProxy.port}; Sharing will continue without VPN upstream.',
       );
       return null;
     }
-    _logs.debug('Windows upstream proxy is reachable ${upstreamProxy.url}');
+    _logs.debug(
+      'Windows upstream proxy is reachable protocol=${upstreamProxy.protocol.name} port=${upstreamProxy.port}',
+    );
     return upstreamProxy;
   }
 
@@ -704,7 +710,9 @@ class WindowsWintunController {
   bool get running => _running;
 
   Future<bool> start(RemoteProxyConfig config) async {
-    LogService.instance.debug('Wintun start requested proxy=${config.url}');
+    LogService.instance.debug(
+      'Wintun start requested protocol=${config.protocol.name} port=${config.port}',
+    );
     await stop();
     final tools = await _findTools();
     if (tools == null) {
@@ -1462,7 +1470,7 @@ class WindowsProxyServer {
     _running = true;
     final addresses = bindAddresses.isEmpty ? const ['0.0.0.0'] : bindAddresses;
     LogService.instance.debug(
-      'Windows proxy server starting protocols=${protocols.map((value) => value.name).join(',')} addresses=$addresses ports=$ports upstream=${upstreamProxy?.url}',
+      'Windows proxy server starting protocols=${protocols.map((value) => value.name).join(',')} listenerCount=${addresses.length} ports=$ports upstreamProtocol=${upstreamProxy?.protocol.name} upstreamPort=${upstreamProxy?.port}',
     );
     try {
       for (final protocol in protocols) {
@@ -1478,7 +1486,11 @@ class WindowsProxyServer {
           );
           server.listen(
             (client) => unawaited(_handleClient(protocol, client)),
-            onError: (_) {},
+            onError: (Object error, StackTrace stack) => LogService.instance.debug(
+              'Windows proxy listener socket error protocol=${protocol.name} port=$port',
+              error: error,
+              stack: stack,
+            ),
             cancelOnError: false,
           );
         }
@@ -1510,9 +1522,9 @@ class WindowsProxyServer {
 
   Future<void> _handleClient(ProxyProtocol protocol, Socket client) async {
     final reader = _SocketReader(client);
-    final peer = '${client.remoteAddress.address}:${client.remotePort}';
+    final connectionId = identityHashCode(client);
     LogService.instance.debug(
-      'Windows proxy client accepted protocol=${protocol.name} peer=$peer',
+      'Windows proxy client accepted protocol=${protocol.name} connectionId=$connectionId remotePort=${client.remotePort}',
     );
     try {
       client.setOption(SocketOption.tcpNoDelay, true);
@@ -1523,7 +1535,7 @@ class WindowsProxyServer {
       }
     } catch (error, stack) {
       LogService.instance.debug(
-        'Windows proxy client failed protocol=${protocol.name} peer=$peer',
+        'Windows proxy client failed protocol=${protocol.name} connectionId=$connectionId',
         error: error,
         stack: stack,
       );
@@ -1552,7 +1564,9 @@ class WindowsProxyServer {
     }
     final host = await _readSocksHost(reader, addressType);
     final targetPort = await reader.readPort();
-    LogService.instance.debug('SOCKS5 proxy request target=$host:$targetPort');
+    LogService.instance.debug(
+      'SOCKS5 proxy request targetPort=$targetPort hostLength=${host.length}',
+    );
     final remote = await _connectProxyTarget(upstreamProxy, host, targetPort);
     client.add([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
     await client.flush();
@@ -1580,7 +1594,7 @@ class WindowsProxyServer {
     if (firstParts[0].toUpperCase() == 'CONNECT') {
       final target = _parseHostPort(firstParts[1], 443);
       LogService.instance.debug(
-        'HTTP CONNECT proxy request target=${target.host}:${target.port}',
+        'HTTP CONNECT proxy request targetPort=${target.port} hostLength=${target.host.length}',
       );
       final remote = await _connectProxyTarget(
         upstreamProxy,
@@ -1616,7 +1630,7 @@ class WindowsProxyServer {
         ? uri.port
         : int.tryParse(hostHeader.substringAfter(':')) ?? 80;
     LogService.instance.debug(
-      'HTTP proxy request method=${firstParts[0]} target=$host:$targetPort',
+      'HTTP proxy request method=${firstParts[0]} targetPort=$targetPort hostLength=${host.length} headerBytes=${headerBytes.length}',
     );
     final path =
         '${uri.path.isEmpty ? '/' : uri.path}'
@@ -1658,11 +1672,13 @@ class WindowsProxyServer {
       input: leftReader,
       output: rightSocket,
       onBytes: (count) => onTraffic(count, 0),
+      direction: 'proxy-upload',
     );
     final download = _copyPipe(
       input: rightReader,
       output: leftSocket,
       onBytes: (count) => onTraffic(0, count),
+      direction: 'proxy-download',
     );
     await Future.any([upload, download]);
     LogService.instance.debug('Windows proxy relay closing');
@@ -1691,12 +1707,16 @@ class WindowsLocalProxyForwarder {
 
   Future<void> start() async {
     LogService.instance.debug(
-      'Windows local forwarder binding 127.0.0.1:$localPort remote=$remoteProtocol://$remoteHost:$remotePort',
+      'Windows local forwarder binding 127.0.0.1:$localPort protocol=${remoteProtocol.name} remotePort=$remotePort',
     );
     _server = await ServerSocket.bind(InternetAddress.loopbackIPv4, localPort);
     _server!.listen(
       (client) => unawaited(_handleClient(client)),
-      onError: (_) {},
+      onError: (Object error, StackTrace stack) => LogService.instance.debug(
+        'Windows local forwarder socket listener error localPort=$localPort',
+        error: error,
+        stack: stack,
+      ),
       cancelOnError: false,
     );
     LogService.instance.debug(
@@ -1713,8 +1733,10 @@ class WindowsLocalProxyForwarder {
 
   Future<void> _handleClient(Socket client) async {
     final reader = _SocketReader(client);
-    final peer = '${client.remoteAddress.address}:${client.remotePort}';
-    LogService.instance.debug('Windows local forwarder client accepted $peer');
+    final connectionId = identityHashCode(client);
+    LogService.instance.debug(
+      'Windows local forwarder client accepted connectionId=$connectionId remotePort=${client.remotePort}',
+    );
     try {
       client.setOption(SocketOption.tcpNoDelay, true);
       final first = await reader.readByte();
@@ -1726,7 +1748,7 @@ class WindowsLocalProxyForwarder {
       }
     } catch (error, stack) {
       LogService.instance.debug(
-        'Windows local forwarder client failed $peer',
+        'Windows local forwarder client failed connectionId=$connectionId',
         error: error,
         stack: stack,
       );
@@ -1756,7 +1778,7 @@ class WindowsLocalProxyForwarder {
     final targetHost = await _readSocksHost(reader, addressType);
     final targetPort = await reader.readPort();
     LogService.instance.debug(
-      'Local forwarder SOCKS5 request target=$targetHost:$targetPort',
+      'Local forwarder SOCKS5 request targetPort=$targetPort hostLength=${targetHost.length}',
     );
     final remote = await _connectRemoteProxy(targetHost, targetPort);
     client.add([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
@@ -1785,7 +1807,7 @@ class WindowsLocalProxyForwarder {
     if (firstParts[0].toUpperCase() == 'CONNECT') {
       final target = _parseHostPort(firstParts[1], 443);
       LogService.instance.debug(
-        'Local forwarder HTTP CONNECT target=${target.host}:${target.port}',
+        'Local forwarder HTTP CONNECT targetPort=${target.port} hostLength=${target.host.length}',
       );
       final remote = await _connectRemoteProxy(target.host, target.port);
       client.add(ascii.encode('HTTP/1.1 200 Connection Established\r\n\r\n'));
@@ -1817,7 +1839,7 @@ class WindowsLocalProxyForwarder {
         ? uri.port
         : int.tryParse(hostHeader.substringAfter(':')) ?? 80;
     LogService.instance.debug(
-      'Local forwarder HTTP request method=${firstParts[0]} target=$host:$targetPort',
+      'Local forwarder HTTP request method=${firstParts[0]} targetPort=$targetPort hostLength=${host.length} headerBytes=${headerBytes.length}',
     );
     final path =
         '${uri.path.isEmpty ? '/' : uri.path}'
@@ -1874,11 +1896,13 @@ class WindowsLocalProxyForwarder {
       input: leftReader,
       output: rightSocket,
       onBytes: (count) => onTraffic(count, 0),
+      direction: 'forwarder-upload',
     );
     final download = _copyPipe(
       input: rightReader,
       output: leftSocket,
       onBytes: (count) => onTraffic(0, count),
+      direction: 'forwarder-download',
     );
     await Future.any([upload, download]);
     LogService.instance.debug('Windows local forwarder relay closing');
@@ -1903,7 +1927,7 @@ Future<_ProxyConnection> _connectProxyTarget(
 ) async {
   if (proxy == null) {
     LogService.instance.debug(
-      'Direct TCP connect start $targetHost:$targetPort',
+      'Direct TCP connect start targetPort=$targetPort hostLength=${targetHost.length}',
     );
     final socket = await Socket.connect(
       targetHost,
@@ -1912,13 +1936,13 @@ Future<_ProxyConnection> _connectProxyTarget(
     );
     socket.setOption(SocketOption.tcpNoDelay, true);
     LogService.instance.debug(
-      'Direct TCP connect success $targetHost:$targetPort',
+      'Direct TCP connect success targetPort=$targetPort hostLength=${targetHost.length}',
     );
     return _ProxyConnection(socket: socket, reader: _SocketReader(socket));
   }
 
   LogService.instance.debug(
-    'Proxy TCP connect start proxy=${proxy.url} target=$targetHost:$targetPort',
+    'Proxy TCP connect start proxyProtocol=${proxy.protocol.name} proxyPort=${proxy.port} targetPort=$targetPort hostLength=${targetHost.length}',
   );
   final socket = await Socket.connect(
     proxy.host,
@@ -1930,7 +1954,7 @@ Future<_ProxyConnection> _connectProxyTarget(
   try {
     if (proxy.protocol == ProxyProtocol.http) {
       LogService.instance.debug(
-        'HTTP upstream CONNECT start $targetHost:$targetPort',
+        'HTTP upstream CONNECT start targetPort=$targetPort hostLength=${targetHost.length}',
       );
       socket.add(
         ascii.encode(
@@ -1945,11 +1969,11 @@ Future<_ProxyConnection> _connectProxyTarget(
         throw StateError('Remote HTTP proxy refused $targetHost:$targetPort');
       }
       LogService.instance.debug(
-        'HTTP upstream CONNECT accepted $targetHost:$targetPort',
+        'HTTP upstream CONNECT accepted targetPort=$targetPort',
       );
     } else {
       LogService.instance.debug(
-        'SOCKS5 upstream CONNECT start $targetHost:$targetPort',
+        'SOCKS5 upstream CONNECT start targetPort=$targetPort hostLength=${targetHost.length}',
       );
       socket.add([0x05, 0x01, 0x00]);
       await socket.flush();
@@ -1980,16 +2004,16 @@ Future<_ProxyConnection> _connectProxyTarget(
       await _readSocksHost(reader, addressType);
       await reader.readPort();
       LogService.instance.debug(
-        'SOCKS5 upstream CONNECT accepted $targetHost:$targetPort',
+        'SOCKS5 upstream CONNECT accepted targetPort=$targetPort',
       );
     }
     LogService.instance.debug(
-      'Proxy TCP connect success proxy=${proxy.url} target=$targetHost:$targetPort',
+      'Proxy TCP connect success proxyProtocol=${proxy.protocol.name} proxyPort=${proxy.port} targetPort=$targetPort',
     );
     return _ProxyConnection(socket: socket, reader: reader);
   } catch (error, stack) {
     LogService.instance.debug(
-      'Proxy TCP connect failed proxy=${proxy.url} target=$targetHost:$targetPort',
+      'Proxy TCP connect failed proxyProtocol=${proxy.protocol.name} proxyPort=${proxy.port} targetPort=$targetPort',
       error: error,
       stack: stack,
     );
@@ -2010,7 +2034,11 @@ Future<void> _copyPipe({
   required _SocketReader input,
   required Socket output,
   required void Function(int count) onBytes,
+  required String direction,
 }) async {
+  final tracing = LogService.instance.debugModeEnabled;
+  var totalBytes = 0;
+  var chunks = 0;
   while (true) {
     final chunk = await input.readChunk();
     if (chunk == null || chunk.isEmpty) {
@@ -2019,6 +2047,18 @@ Future<void> _copyPipe({
     output.add(chunk);
     await output.flush();
     onBytes(chunk.length);
+    if (tracing) {
+      totalBytes += chunk.length;
+      chunks++;
+      LogService.instance.debug(
+        'Windows proxy pipe chunk direction=$direction chunkBytes=${chunk.length} chunks=$chunks totalBytes=$totalBytes',
+      );
+    }
+  }
+  if (tracing) {
+    LogService.instance.debug(
+      'Windows proxy pipe completed direction=$direction chunks=$chunks totalBytes=$totalBytes',
+    );
   }
 }
 

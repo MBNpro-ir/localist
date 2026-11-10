@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 
 import '../services/feature_permission_service.dart';
+import '../services/log_service.dart';
 import '../services/rustdesk_debug_service.dart';
 import '../widgets/glass.dart';
 
@@ -24,6 +26,7 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
   @override
   void initState() {
     super.initState();
+    LogService.instance.debug('Permissions settings: page opened');
     WidgetsBinding.instance.addObserver(this);
     _remote.addListener(_remoteChanged);
     unawaited(_refresh());
@@ -31,6 +34,7 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
 
   @override
   void dispose() {
+    LogService.instance.debug('Permissions settings: page disposed');
     WidgetsBinding.instance.removeObserver(this);
     _remote.removeListener(_remoteChanged);
     _remote.dispose();
@@ -51,11 +55,15 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
   }
 
   Future<void> _refresh() async {
+    LogService.instance.debug('Permissions settings: refreshing access states');
     await _remote.initialize();
     final values = <FeatureAccess, bool>{};
     for (final item in FeatureAccess.values) {
       values[item] = await _access.granted(item);
     }
+    LogService.instance.debug(
+      'Permissions settings: refreshed granted=${values.values.where((granted) => granted).length} total=${values.length}',
+    );
     if (mounted) {
       setState(() {
         _granted.addAll(values);
@@ -64,16 +72,26 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
   }
 
   Future<void> _run(Future<void> Function() action) async {
-    if (_busy) return;
+    if (_busy) {
+      LogService.instance.debug(
+        'Permissions settings: operation ignored while busy',
+      );
+      return;
+    }
+    LogService.instance.debug('Permissions settings: operation started');
     setState(() => _busy = true);
     try {
       await action();
       await _refresh();
+      LogService.instance.debug('Permissions settings: operation finished');
     } catch (error) {
+      LogService.instance.debug(
+        'Permissions settings: operation failed type=${error.runtimeType}',
+      );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.permissionRequestFailed)),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -85,7 +103,13 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
     bool value, [
     FeatureAccess? permission,
   ]) async {
+    LogService.instance.debug(
+      'Permissions settings: engine option changed option=$key enable=$value permission=${permission?.name}',
+    );
     if (value && permission != null && !await _access.ensure([permission])) {
+      LogService.instance.debug(
+        'Permissions settings: option blocked by missing permission=${permission.name}',
+      );
       return;
     }
     await _remote.saveProfileValue(key, value ? 'Y' : 'N');
@@ -141,7 +165,7 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
               row(
                 t('کنترل لمس و صفحه‌کلید', 'Input control'),
                 t(
-                  'سرویس Accessibility خود Localist.',
+                  'سرویس دسترس‌پذیری لوکالیست.',
                   'Localist Accessibility service.',
                 ),
                 _granted[FeatureAccess.remoteInput] == true,
@@ -210,7 +234,7 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
               const SizedBox(height: 8),
               Text(
                 t(
-                  'اگر اندروید Accessibility را محدود کرده است: App info ← منوی سه‌نقطه ← Allow restricted settings؛ سپس سرویس Localist را در Accessibility فعال کنید.',
+                  'اگر اندروید دسترس‌پذیری را محدود کرده است: اطلاعات برنامه ← منوی سه‌نقطه ← اجازه تنظیمات محدودشده؛ سپس سرویس لوکالیست را در تنظیمات دسترس‌پذیری فعال کنید.',
                   'If Android restricts Accessibility: App info → three-dot menu → Allow restricted settings, then enable Localist in Accessibility.',
                 ),
               ),

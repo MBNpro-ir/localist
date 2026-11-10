@@ -71,13 +71,18 @@ class LocalistPeerService extends ChangeNotifier {
         : receiving && remote != null
         ? _PeerMode.client
         : _PeerMode.off;
+    _logs.debug(
+      'Peer registry update requested from=${_mode.name} to=${targetMode.name} remoteConfigured=${remote != null}',
+    );
     if (targetMode == _mode &&
         (targetMode != _PeerMode.client || remote?.url == _remote?.url)) {
+      _logs.debug('Peer registry update skipped unchanged state');
       return;
     }
     final generation = ++_generation;
     await _shutdown(sendDisconnect: _mode == _PeerMode.client);
     if (generation != _generation) {
+      _logs.debug('Peer registry update superseded during shutdown');
       return;
     }
     _mode = targetMode;
@@ -87,6 +92,7 @@ class LocalistPeerService extends ChangeNotifier {
     }
     await _loadIdentity();
     if (generation != _generation) {
+      _logs.debug('Peer registry update superseded during identity load');
       return;
     }
     if (targetMode == _PeerMode.host) {
@@ -97,6 +103,7 @@ class LocalistPeerService extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    _logs.debug('Peer registry explicit stop requested mode=${_mode.name}');
     ++_generation;
     await _shutdown(sendDisconnect: _mode == _PeerMode.client);
     _mode = _PeerMode.off;
@@ -107,9 +114,11 @@ class LocalistPeerService extends ChangeNotifier {
     _deviceId = await localistDiscoveryDeviceId();
     _deviceName = await localistDiscoveryDeviceName();
     _platform = localistDiscoveryPlatformName();
+    _logs.debug('Peer registry identity loaded platform=$_platform');
   }
 
   Future<void> _startHost() async {
+    _logs.debug('Peer registry UDP host binding');
     try {
       _socket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
@@ -125,12 +134,16 @@ class LocalistPeerService extends ChangeNotifier {
         'Connected-device registry listening on UDP $localistPeerPort',
       );
     } catch (error) {
-      _logs.warning('Connected-device registry could not start: $error');
+      _logs.debug(
+        'Connected-device registry start failed type=${error.runtimeType}',
+      );
+      _logs.warning('Connected-device registry could not start.');
       _mode = _PeerMode.off;
     }
   }
 
   Future<void> _startClient() async {
+    _logs.debug('Peer registry UDP client binding');
     try {
       _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       await _sendHeartbeat('connected');
@@ -138,9 +151,12 @@ class LocalistPeerService extends ChangeNotifier {
         const Duration(seconds: 4),
         (_) => unawaited(_sendHeartbeat('connected')),
       );
-      _logs.debug('Connected-device heartbeat started for ${_remote?.host}');
+      _logs.debug('Connected-device heartbeat timer started intervalSeconds=4');
     } catch (error) {
-      _logs.warning('Connected-device heartbeat could not start: $error');
+      _logs.debug(
+        'Connected-device heartbeat start failed type=${error.runtimeType}',
+      );
+      _logs.warning('Connected-device heartbeat could not start.');
       _mode = _PeerMode.off;
     }
   }
@@ -157,19 +173,27 @@ class LocalistPeerService extends ChangeNotifier {
 
   void _handlePeerPacket(Datagram datagram) {
     if (!_isPrivateAddress(datagram.address.address)) {
+      _logs.debug(
+        'Peer registry rejected packet outside private address range',
+      );
       return;
     }
     try {
       final value = jsonDecode(utf8.decode(datagram.data));
       if (value is! Map<String, dynamic> ||
           value['type'] != 'localist.peer.v1') {
+        _logs.debug('Peer registry ignored unrecognized packet');
         return;
       }
       final id = (value['deviceId'] as String? ?? '').trim();
       if (id.isEmpty || id == _deviceId) {
+        _logs.debug('Peer registry ignored missing or local device identity');
         return;
       }
       if (value['state'] == 'disconnected') {
+        _logs.debug(
+          'Peer registry disconnect received known=${_peers.containsKey(id)}',
+        );
         if (_peers.remove(id) != null) {
           notifyListeners();
         }
@@ -188,13 +212,18 @@ class LocalistPeerService extends ChangeNotifier {
         lastSeen: now,
       );
       if (previous == null || previous.address != datagram.address.address) {
+        _logs.debug(
+          'Peer registry peer addedOrMoved=${previous == null ? 'added' : 'moved'} tracked=${_peers.length}',
+        );
         _logs.info(
-          'Connected device ${_peers[id]!.name} at ${datagram.address.address}',
+          'Connected-device registry now tracks ${_peers.length} peer(s).',
         );
         notifyListeners();
       }
     } catch (error) {
-      _logs.debug('Ignored invalid connected-device packet: $error');
+      _logs.debug(
+        'Ignored invalid connected-device packet type=${error.runtimeType}',
+      );
     }
   }
 
@@ -202,6 +231,9 @@ class LocalistPeerService extends ChangeNotifier {
     final socket = _socket;
     final remote = _remote;
     if (socket == null || remote == null || _mode != _PeerMode.client) {
+      _logs.debug(
+        'Peer registry heartbeat skipped socketReady=${socket != null} remoteReady=${remote != null} mode=${_mode.name}',
+      );
       return;
     }
     final data = utf8.encode(
@@ -214,9 +246,16 @@ class LocalistPeerService extends ChangeNotifier {
       }),
     );
     try {
-      socket.send(data, InternetAddress(remote.host), localistPeerPort);
+      final bytes = socket.send(
+        data,
+        InternetAddress(remote.host),
+        localistPeerPort,
+      );
+      _logs.debug('Peer registry heartbeat state=$state sentBytes=$bytes');
     } catch (error) {
-      _logs.debug('Connected-device heartbeat failed: $error');
+      _logs.debug(
+        'Connected-device heartbeat failed type=${error.runtimeType}',
+      );
     }
   }
 
@@ -225,11 +264,17 @@ class LocalistPeerService extends ChangeNotifier {
     final before = _peers.length;
     _peers.removeWhere((_, peer) => peer.lastSeen.isBefore(cutoff));
     if (before != _peers.length) {
+      _logs.debug(
+        'Peer registry pruned expired count=${before - _peers.length} remaining=${_peers.length}',
+      );
       notifyListeners();
     }
   }
 
   Future<void> _shutdown({required bool sendDisconnect}) async {
+    _logs.debug(
+      'Peer registry shutting down mode=${_mode.name} sendDisconnect=$sendDisconnect knownPeers=${_peers.length}',
+    );
     if (sendDisconnect) {
       await _sendHeartbeat('disconnected');
     }
@@ -244,10 +289,12 @@ class LocalistPeerService extends ChangeNotifier {
       _peers.clear();
       notifyListeners();
     }
+    _logs.debug('Peer registry shutdown completed');
   }
 
   void _handleSocketError(Object error) {
-    _logs.warning('Connected-device socket error: $error');
+    _logs.debug('Connected-device socket error type=${error.runtimeType}');
+    _logs.warning('Connected-device socket error.');
   }
 
   bool _isPrivateAddress(String value) {

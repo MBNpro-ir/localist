@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../models/transfer_history_filter.dart';
 import '../services/native_bridge_service.dart';
 import '../services/quick_send_service.dart';
+import '../services/log_service.dart';
 import '../widgets/glass.dart';
 import '../widgets/received_media_preview.dart';
 
@@ -718,7 +719,12 @@ class _TransferHistoryPageState extends State<TransferHistoryPage> {
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Text(
-                transfer.message,
+                transfer.state == QuickSendTransferState.failed
+                    ? _t(
+                        'انتقال انجام نشد. اتصال دستگاه‌ها را بررسی و دوباره تلاش کنید.',
+                        'Transfer failed. Check the device connection and try again.',
+                      )
+                    : _t('وضعیت انتقال ثبت شد.', 'Transfer status recorded.'),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall,
@@ -823,13 +829,22 @@ class _TransferHistoryPageState extends State<TransferHistoryPage> {
   }
 
   Future<void> _openFile(QuickSendTransfer transfer) async {
+    LogService.instance.debug(
+      'Transfer history: opening local transfer item state=${transfer.state.name}',
+    );
     final opened = await _bridge.openFile(transfer.path);
+    LogService.instance.debug(
+      'Transfer history: local item open result=$opened',
+    );
     if (!opened && mounted) {
       _notice(_t('فایل باز نشد.', 'Could not open the file.'));
     }
   }
 
   Future<void> _openReceiveFolder(List<QuickSendTransfer> records) async {
+    LogService.instance.debug(
+      'Transfer history: opening received folder candidateCount=${records.length}',
+    );
     var opened = false;
     for (final transfer in records) {
       if (transfer.path.isNotEmpty && File(transfer.path).existsSync()) {
@@ -842,6 +857,9 @@ class _TransferHistoryPageState extends State<TransferHistoryPage> {
     if (!opened && Platform.isAndroid) {
       opened = await _bridge.openLocalistFolder();
     }
+    LogService.instance.debug(
+      'Transfer history: received folder launch result=$opened',
+    );
     if (!opened && mounted) {
       _notice(
         _t(
@@ -853,6 +871,7 @@ class _TransferHistoryPageState extends State<TransferHistoryPage> {
   }
 
   Future<void> _clearHistory() async {
+    LogService.instance.debug('Transfer history: clear confirmation requested');
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -876,8 +895,12 @@ class _TransferHistoryPageState extends State<TransferHistoryPage> {
         ],
       ),
     );
+    LogService.instance.debug(
+      'Transfer history: clear confirmation accepted=${confirmed == true}',
+    );
     if (confirmed == true) {
       await widget.service.clearReceivedHistory();
+      LogService.instance.debug('Transfer history: received history cleared');
     }
   }
 

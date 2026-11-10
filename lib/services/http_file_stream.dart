@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:mime/mime.dart';
+import 'log_service.dart';
 
 /// One byte range (RFC 9110). Multiple ranges are rejected rather than silently
 /// returning different bytes; suffix ranges and zero-length files are covered.
@@ -26,18 +27,25 @@ import 'package:mime/mime.dart';
 }
 
 Future<void> serveMediaFile(HttpRequest request, File file, String name) async {
+  final logs = LogService.instance;
   final response = request.response;
+  logs.debug('Media stream request method=${request.method}');
   if (request.method != 'GET' && request.method != 'HEAD') {
+    logs.debug('Media stream method rejected');
     response.statusCode = HttpStatus.methodNotAllowed;
     response.headers.set(HttpHeaders.allowHeader, 'GET, HEAD');
     return;
   }
   final length = await file.length();
   final rangeValue = request.headers.value(HttpHeaders.rangeHeader);
+  logs.debug(
+    'Media stream file opened size=$length rangeRequested=${rangeValue != null}',
+  );
   late final ({int start, int end}) range;
   try {
     range = parseFileRange(rangeValue, length)!;
   } on FormatException {
+    logs.debug('Media stream range rejected size=$length');
     response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
     response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
     return;
@@ -53,6 +61,9 @@ Future<void> serveMediaFile(HttpRequest request, File file, String name) async {
     )
     ..set('X-Content-Type-Options', 'nosniff');
   response.contentLength = range.end - range.start;
+  logs.debug(
+    'Media stream response status=${rangeValue == null ? 200 : 206} start=${range.start} end=${range.end} bytes=${range.end - range.start}',
+  );
   if (rangeValue != null) {
     response.statusCode = HttpStatus.partialContent;
     response.headers.set(
@@ -61,6 +72,14 @@ Future<void> serveMediaFile(HttpRequest request, File file, String name) async {
     );
   }
   if (request.method == 'GET' && range.end > range.start) {
-    await response.addStream(file.openRead(range.start, range.end));
+    try {
+      await response.addStream(file.openRead(range.start, range.end));
+      logs.debug(
+        'Media stream body completed bytes=${range.end - range.start}',
+      );
+    } catch (error) {
+      logs.debug('Media stream failed type=${error.runtimeType}');
+      rethrow;
+    }
   }
 }

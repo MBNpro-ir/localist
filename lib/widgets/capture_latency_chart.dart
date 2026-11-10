@@ -34,8 +34,11 @@ class CaptureLatencyChart extends StatelessWidget {
                 ),
               ),
               Text(
-                values.isEmpty ? '— ms' : '${values.last.round()} ms',
-                textDirection: TextDirection.ltr,
+                values.isEmpty
+                    ? (fa ? '— میلی‌ثانیه' : '— ms')
+                    : (fa
+                          ? '${values.last.round()} میلی‌ثانیه'
+                          : '${values.last.round()} ms'),
               ),
             ],
           ),
@@ -52,7 +55,7 @@ class CaptureLatencyChart extends StatelessWidget {
           ),
           if (values.isEmpty)
             Text(
-              fa ? 'در انتظار اتصال Player' : 'Waiting for a Player',
+              fa ? 'در انتظار اتصال گیرنده' : 'Waiting for a receiver',
               style: Theme.of(context).textTheme.bodySmall,
             ),
         ],

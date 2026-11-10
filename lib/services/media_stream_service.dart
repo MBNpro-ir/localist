@@ -10,6 +10,7 @@ import 'feature_activity_service.dart';
 import 'apple_web_transfer_service.dart';
 import 'media_stream_gallery.dart';
 import 'media_stream_player.dart';
+import 'log_service.dart';
 export 'media_stream_player.dart' show buildMediaPlayerHtml;
 
 class StreamMediaItem {
@@ -36,6 +37,7 @@ class MediaStreamService extends ChangeNotifier {
   int _selectedIndex = 0;
   String _token = '';
   List<String> _addresses = const [];
+  int _rangeRequests = 0;
 
   bool get active => _server != null && _items.isNotEmpty;
   List<StreamMediaItem> get items => List.unmodifiable(_items);
@@ -46,6 +48,9 @@ class MediaStreamService extends ChangeNotifier {
       throw RangeError.index(index, _items);
     }
     _selectedIndex = index;
+    LogService.instance.debug(
+      'Media stream: selected item index=$index count=${_items.length}',
+    );
     notifyListeners();
   }
 
@@ -73,7 +78,13 @@ class MediaStreamService extends ChangeNotifier {
   Future<void> start(File file) => startFiles([file]);
 
   Future<void> startFiles(List<File> files) async {
+    LogService.instance.debug(
+      'Media stream: start requested selected=${files.length} active=$active',
+    );
     if (!FeatureActivityService.instance.allows(LocalistFeature.stream)) {
+      LogService.instance.debug(
+        'Media stream: start rejected due to active feature',
+      );
       throw StateError(
         persian
             ? 'ابتدا سرویس فعال را متوقف کنید.'
@@ -85,10 +96,16 @@ class MediaStreamService extends ChangeNotifier {
     final paths = <String>{};
     for (final file in files) {
       if (!await file.exists()) {
+        LogService.instance.debug(
+          'Media stream: file validation failed, missing file',
+        );
         throw const FileSystemException('Media file does not exist.');
       }
       final item = StreamMediaItem(file);
       if (!['image/', 'video/', 'audio/'].any(item.mime.startsWith)) {
+        LogService.instance.debug(
+          'Media stream: file validation failed category=unsupported',
+        );
         throw FormatException(
           persian
               ? 'فقط عکس، فیلم یا موسیقی انتخاب کنید: ${item.name}'
@@ -97,7 +114,15 @@ class MediaStreamService extends ChangeNotifier {
       }
       if (paths.add(file.absolute.path)) selected.add(item);
     }
-    if (selected.isEmpty) throw const FormatException('No media selected.');
+    if (selected.isEmpty) {
+      LogService.instance.debug(
+        'Media stream: selection empty after deduplication',
+      );
+      throw const FormatException('No media selected.');
+    }
+    LogService.instance.debug(
+      'Media stream: validated ${selected.length} distinct media items',
+    );
     await stop();
     FeatureActivityService.instance.reserve(this, LocalistFeature.stream);
     try {
@@ -117,14 +142,25 @@ class MediaStreamService extends ChangeNotifier {
         onError: (_) {},
       );
       _addresses = await _privateAddresses();
+      LogService.instance.debug(
+        'Media stream: HTTP listener active items=${_items.length} interfaces=${_addresses.length}',
+      );
       notifyListeners();
-    } catch (_) {
+    } catch (e) {
+      LogService.instance.debug(
+        'Media stream: start failed errorType=${e.runtimeType}, cleaning up',
+      );
       await stop();
       rethrow;
     }
   }
 
   Future<void> stop() async {
+    if (active || _server != null) {
+      LogService.instance.debug(
+        'Media stream: stopping listener items=${_items.length}',
+      );
+    }
     await _server?.close(force: true);
     _server = null;
     _items = const [];
@@ -136,6 +172,7 @@ class MediaStreamService extends ChangeNotifier {
       false,
     );
     notifyListeners();
+    LogService.instance.debug('Media stream: stopped');
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
@@ -144,9 +181,15 @@ class MediaStreamService extends ChangeNotifier {
     // a new stream's files while the user replaces their selection.
     final items = _items;
     final token = _token;
+    if (LogService.instance.debugModeEnabled && request.method != 'GET') {
+      LogService.instance.debug('Media stream: HTTP method=${request.method}');
+    }
     try {
       if (request.method != 'GET' && request.method != 'HEAD') {
         response.statusCode = HttpStatus.methodNotAllowed;
+        LogService.instance.debug(
+          'Media stream: rejected unsupported HTTP method',
+        );
         return;
       }
       const webAssets = {
@@ -237,10 +280,23 @@ class MediaStreamService extends ChangeNotifier {
           : null;
       if (media == null) {
         response.statusCode = HttpStatus.notFound;
+        LogService.instance.debug('Media stream: unknown media route rejected');
         return;
       }
+      if (LogService.instance.debugModeEnabled &&
+          request.headers.value(HttpHeaders.rangeHeader) != null) {
+        _rangeRequests++;
+        if (_rangeRequests == 1 || _rangeRequests % 32 == 0) {
+          LogService.instance.debug(
+            'Media stream: range requests=$_rangeRequests itemIndex=${items.indexOf(media)}',
+          );
+        }
+      }
       await serveMediaFile(request, media.file, media.name);
-    } catch (_) {
+    } catch (e) {
+      LogService.instance.debug(
+        'Media stream: HTTP request failed errorType=${e.runtimeType}',
+      );
       try {
         response.statusCode = HttpStatus.internalServerError;
       } catch (_) {}
@@ -269,7 +325,11 @@ class MediaStreamService extends ChangeNotifier {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      LogService.instance.debug(
+        'Media stream: address enumeration failed type=${e.runtimeType}',
+      );
+    }
     return values.toList()..sort();
   }
 }

@@ -58,11 +58,13 @@ class _CaptureAudioControlsState extends State<CaptureAudioControls> {
             items: [
               DropdownMenuItem(
                 value: false,
-                child: Text(t('فشرده · Opus', 'Compressed · Opus')),
+                child: Text(t('صدای فشرده', 'Compressed · Opus')),
               ),
               DropdownMenuItem(
                 value: true,
-                child: Text(t('بدون فشرده‌سازی · PCM', 'Uncompressed · PCM')),
+                child: Text(
+                  t('صدای خام (بدون فشرده‌سازی)', 'Uncompressed · PCM'),
+                ),
               ),
             ],
             onChanged: widget.enabled
@@ -82,7 +84,7 @@ class _CaptureAudioControlsState extends State<CaptureAudioControls> {
                 for (final rate in CaptureAudioSettings.bitrates)
                   DropdownMenuItem(
                     value: rate,
-                    child: Text('$rate kb/s', textDirection: TextDirection.ltr),
+                    child: Text(t('$rate کیلوبیت در ثانیه', '$rate kb/s')),
                   ),
               ],
               onChanged: widget.enabled
@@ -128,14 +130,20 @@ class _CaptureAudioControlsState extends State<CaptureAudioControls> {
           ),
         const SizedBox(height: 12),
         Text(
-          '${t('گین دستی', 'Manual gain')}: ${(_gain ?? settings.gainDb).toStringAsFixed(0)} dB',
+          t(
+            'تقویت دستی صدا: ${(_gain ?? settings.gainDb).toStringAsFixed(0)} دسی‌بل',
+            'Manual gain: ${(_gain ?? settings.gainDb).toStringAsFixed(0)} dB',
+          ),
         ),
         Slider(
           min: -30,
           max: 40,
           divisions: 70,
           value: _gain ?? settings.gainDb,
-          label: '${(_gain ?? settings.gainDb).round()} dB',
+          label: t(
+            '${(_gain ?? settings.gainDb).round()} دسی‌بل',
+            '${(_gain ?? settings.gainDb).round()} dB',
+          ),
           onChanged: widget.enabled ? (v) => setState(() => _gain = v) : null,
           onChangeEnd: (v) {
             setState(() => _gain = null);
@@ -272,7 +280,10 @@ class _CaptureAudioControlsState extends State<CaptureAudioControls> {
           if (settings.bufferMode == 'custom') ...[
             const SizedBox(height: 12),
             Text(
-              '${t('حداقل بافر', 'Minimum buffer')}: ${(_minimum ?? settings.minBufferMs.toDouble()).round()} ms',
+              t(
+                'حداقل بافر: ${(_minimum ?? settings.minBufferMs.toDouble()).round()} میلی‌ثانیه',
+                'Minimum buffer: ${(_minimum ?? settings.minBufferMs.toDouble()).round()} ms',
+              ),
             ),
             Slider(
               min: 0,
@@ -293,7 +304,10 @@ class _CaptureAudioControlsState extends State<CaptureAudioControls> {
               },
             ),
             Text(
-              '${t('حداکثر بافر', 'Maximum buffer')}: ${(_maximum ?? settings.maxBufferMs.toDouble()).round()} ms',
+              t(
+                'حداکثر بافر: ${(_maximum ?? settings.maxBufferMs.toDouble()).round()} میلی‌ثانیه',
+                'Maximum buffer: ${(_maximum ?? settings.maxBufferMs.toDouble()).round()} ms',
+              ),
             ),
             Slider(
               min: 10,
@@ -323,7 +337,7 @@ class _CaptureAudioControlsState extends State<CaptureAudioControls> {
               if (!widget.sender && widget.windows)
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('EventSync'),
+                  title: Text(t('همگام‌سازی رویدادی', 'Event synchronization')),
                   value: settings.eventSync,
                   onChanged: widget.enabled
                       ? (v) => change({'audioEventSync': v})

@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 enum LogSeverity {
   debug('DEBUG'),
@@ -39,6 +41,7 @@ class LogService extends ChangeNotifier {
   static const _maxMessageCharacters = 12000;
   static const _maxDebugFileBytes = 5 * 1024 * 1024;
   static const _debugLogFileName = 'debug.log';
+  static const _nativeDebugChannel = MethodChannel('com.prs.localist.vpn');
 
   final List<LogEntry> _entries = [];
   bool _debugModeEnabled = false;
@@ -83,6 +86,12 @@ class LogService extends ChangeNotifier {
   }
 
   void setDebugMode(bool enabled, {bool announce = true}) {
+    if (Platform.isAndroid) {
+      // Avoid cross-process native log broadcasts when Debug is disabled.
+      // Sync even the initial false value: native state can survive a Flutter
+      // engine restart in the same Android process.
+      unawaited(_syncNativeDebugMode(enabled));
+    }
     if (_debugModeEnabled == enabled) {
       return;
     }
@@ -108,6 +117,16 @@ class LogService extends ChangeNotifier {
       _deleteWindowsDebugFile();
     }
     notifyListeners();
+  }
+
+  Future<void> _syncNativeDebugMode(bool enabled) async {
+    try {
+      await _nativeDebugChannel.invokeMethod<void>('setNativeDebugLogging', {
+        'enabled': enabled,
+      });
+    } catch (_) {
+      // Native logging is optional; logging must never block app startup.
+    }
   }
 
   void clear() {

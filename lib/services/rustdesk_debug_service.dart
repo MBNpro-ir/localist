@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'feature_activity_service.dart';
 import 'feature_permission_service.dart';
+import 'log_service.dart';
 import '../models/remote_control_settings.dart';
 import '../remote/embedded_remote_app.dart';
 import '../remote/remote_native_api.dart';
@@ -15,6 +16,7 @@ import 'package:flutter_hbb/common.dart' as remote;
 /// Remote-control bridge. The upstream engine keeps ownership of its session
 /// process and IPC; Localist provides discovery, settings and controls.
 class RustDeskDebugService extends ChangeNotifier {
+  final LogService _logs = LogService.instance;
   String enginePath = '';
   String localId = '';
   String localPassword = '';
@@ -50,6 +52,7 @@ class RustDeskDebugService extends ChangeNotifier {
     final enabled = remote.gFFI.serverModel.inputOk;
     if (inputEnabled != enabled && !_disposed) {
       inputEnabled = enabled;
+      _logs.debug('Remote input permission changed enabled=$enabled');
       _notify();
     }
   }
@@ -97,6 +100,9 @@ class RustDeskDebugService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _logs.debug(
+      'Remote control service disposing sessionActive=$sessionActive hosting=$hosting',
+    );
     _disposed = true;
     if (_listeningForInput) {
       remote.gFFI.serverModel.removeListener(_inputPermissionChanged);
@@ -111,6 +117,9 @@ class RustDeskDebugService extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    _logs.debug(
+      'Remote control initialization started platform=${Platform.operatingSystem}',
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     await _updateProfile((_) {});
@@ -123,6 +132,7 @@ class RustDeskDebugService extends ChangeNotifier {
           '${File(Platform.resolvedExecutable).parent.path}\\LocalistRemote.exe';
       enginePath = File(bundledEngine).existsSync() ? bundledEngine : '';
       if (enginePath.isNotEmpty && enginePath != storedEnginePath) {
+        _logs.debug('Remote control bundled engine detected and registered');
         await prefs.setString('remote.enginePath', enginePath);
       }
     }
@@ -136,6 +146,9 @@ class RustDeskDebugService extends ChangeNotifier {
     _refreshTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
       unawaited(refresh());
     });
+    _logs.debug(
+      'Remote control initialization finished ready=$ready online=$online engineAvailable=$engineAvailable',
+    );
   }
 
   Future<void> refresh() => _refreshing ??= _refresh().whenComplete(() {
@@ -144,6 +157,11 @@ class RustDeskDebugService extends ChangeNotifier {
 
   Future<void> _refresh() async {
     if (_disposed) return;
+    final wasReady = ready;
+    final wasOnline = online;
+    final wasActive = sessionActive;
+    final wasHosting = hosting;
+    final previousConnectionStatus = connectionStatus;
     profile = await RemoteControlProfile.load();
     options.clear();
     localPassword = '';
@@ -182,6 +200,9 @@ class RustDeskDebugService extends ChangeNotifier {
         ready = false;
         online = false;
         error = '$exception';
+        _logs.debug(
+          'Remote Android state refresh failed type=${exception.runtimeType}',
+        );
       }
     }
     if (Platform.isWindows && File(enginePath).existsSync()) {
@@ -217,12 +238,27 @@ class RustDeskDebugService extends ChangeNotifier {
         ready = false;
         online = false;
         error = '$exception';
+        _logs.debug(
+          'Remote Windows state refresh failed type=${exception.runtimeType}',
+        );
       }
+    }
+    if (wasReady != ready ||
+        wasOnline != online ||
+        wasActive != sessionActive ||
+        wasHosting != hosting ||
+        previousConnectionStatus != connectionStatus) {
+      _logs.debug(
+        'Remote control state changed ready=$ready online=$online active=$sessionActive hosting=$hosting connectionStatus=$connectionStatus',
+      );
     }
     _notify();
   }
 
   Future<void> saveProfileValue(String key, String value) async {
+    _logs.debug(
+      'Remote profile setting requested key=$key valueLength=${value.length}',
+    );
     final option = remoteSettings.where((s) => s.key == key).firstOrNull;
     if (option == null ||
         value.length > 2048 ||
@@ -259,7 +295,9 @@ class RustDeskDebugService extends ChangeNotifier {
       );
     }
     await _updateProfile((latest) => latest.values[key] = value);
+    _logs.debug('Remote profile setting persisted key=$key');
     await _applyProfileNow();
+    _logs.debug('Remote profile setting applied key=$key');
     if (key == 'share-rdp' && Platform.isWindows) {
       final api = await RemoteNativeApi.get();
       if (api.mainIsShareRdp() != (value == 'Y')) {
@@ -277,9 +315,11 @@ class RustDeskDebugService extends ChangeNotifier {
   }
 
   Future<void> saveServerConfig(RemoteServerConfig config) async {
+    _logs.debug('Remote server configuration update requested');
     config.validate();
     await _updateProfile((latest) => latest.server = config);
     await _applyProfileNow();
+    _logs.debug('Remote server configuration applied');
     applyStatus = 'Server configuration saved in Localist.';
     _notify();
   }
@@ -290,13 +330,18 @@ class RustDeskDebugService extends ChangeNotifier {
   /// periodic heartbeat remains only as a recovery path for edits made while
   /// the primary window is closed.
   Future<void> _applyProfileNow() async {
+    _logs.debug(
+      'Remote profile apply started platform=${Platform.operatingSystem}',
+    );
     if (Platform.isAndroid) {
       await applyNativeRemoteProfile();
+      _logs.debug('Remote profile applied via Android bridge');
       return;
     }
     if (Platform.isWindows && File(enginePath).existsSync()) {
       await LocalistRemoteRuntime.ensureStarted();
       await LocalistRemoteRuntime.desktopCommand({'command': 'syncProfile'});
+      _logs.debug('Remote profile synchronized with desktop host');
     }
   }
 
@@ -315,6 +360,9 @@ class RustDeskDebugService extends ChangeNotifier {
     bool relay = false,
     String password = '',
   }) async {
+    _logs.debug(
+      'Remote session launch requested mode=$mode relay=$relay passwordProvided=${password.isNotEmpty} targetProvided=${target?.trim().isNotEmpty == true}',
+    );
     if (target == null ||
         (target.trim().isEmpty ||
             target.length > 200 ||
@@ -326,11 +374,13 @@ class RustDeskDebugService extends ChangeNotifier {
       throw const FormatException('Unsupported connection mode');
     }
     await LocalistRemoteRuntime.ensureStarted();
+    _logs.debug('Remote session host confirmed running');
     profile = await RemoteControlProfile.load();
     final api = await RemoteNativeApi.get();
     // Sync the chosen server before session creation; never route an ID via
     // stale public-server options while the hidden host applies a new profile.
     await _applyProfileNow();
+    _logs.debug('Remote session profile synchronized');
     final targetId = normalizeRemoteTarget(target);
     // Repair off values written by Localist 6.0.0 to existing peer configs.
     for (final key in ['swap-left-right-mouse', 'i444', 'collapse_toolbar']) {
@@ -354,6 +404,7 @@ class RustDeskDebugService extends ChangeNotifier {
           'password': password,
         },
       });
+      _logs.debug('Remote desktop session open command accepted mode=$mode');
     } else if (Platform.isAndroid) {
       if (mode == 'rdp' || mode == 'port-forward') {
         throw UnsupportedError('This mode requires the desktop client.');
@@ -367,6 +418,7 @@ class RustDeskDebugService extends ChangeNotifier {
           if (password.isNotEmpty) 'password': password,
         }),
       );
+      _logs.debug('Remote Android session open command sent mode=$mode');
     }
     {
       recent = [
@@ -379,16 +431,21 @@ class RustDeskDebugService extends ChangeNotifier {
       );
       _notify();
     }
+    _logs.debug(
+      'Remote session launch finished mode=$mode recentCount=${recent.length}',
+    );
   }
 
   Future<void> setAndroidHosting(bool enabled) async {
     if (!Platform.isAndroid) return;
+    _logs.debug('Remote Android hosting requested enabled=$enabled');
     await LocalistRemoteRuntime.ensureStarted();
     if (enabled) {
       if (!await FeaturePermissionService.instance.ensure([
         FeatureAccess.notifications,
         FeatureAccess.screenCapture,
       ])) {
+        _logs.debug('Remote Android hosting denied required permissions');
         return;
       }
       await remote.gFFI.serverModel.startService();
@@ -397,9 +454,15 @@ class RustDeskDebugService extends ChangeNotifier {
       await remote.gFFI.invokeMethod('release_capture');
     }
     await refresh();
+    _logs.debug(
+      'Remote Android hosting applied enabled=$enabled hosting=$hosting',
+    );
   }
 
   Future<void> openInputPermission() async {
+    _logs.debug(
+      'Remote input permission request triggered android=${Platform.isAndroid}',
+    );
     if (Platform.isAndroid) {
       await FeaturePermissionService.instance.ensure([
         FeatureAccess.remoteInput,
@@ -409,17 +472,23 @@ class RustDeskDebugService extends ChangeNotifier {
   }
 
   Future<void> disableInputPermission() async {
+    _logs.debug(
+      'Remote input permission disable requested android=${Platform.isAndroid}',
+    );
     if (Platform.isAndroid) await remote.gFFI.invokeMethod('stop_input');
   }
 
   Future<void> setPermanentPassword(String password) async {
+    _logs.debug('Remote permanent password update requested');
     password = password.trim();
     final passwordError = permanentPasswordValidationError(password);
     if (passwordError != null) {
+      _logs.debug('Remote permanent password rejected by validation');
       throw FormatException(passwordError);
     }
     final api = await RemoteNativeApi.get();
     if (!await api.mainSetPermanentPasswordWithResult(password: password)) {
+      _logs.debug('Remote permanent password save rejected by engine');
       throw StateError('The engine could not save the permanent password.');
     }
     // Keep the password and the verification policy as one transaction from
@@ -431,6 +500,9 @@ class RustDeskDebugService extends ChangeNotifier {
     });
     await _applyProfileNow();
     await refresh();
+    _logs.debug(
+      'Remote permanent password and verification policy synchronized',
+    );
   }
 
   Future<List<String>> printerNames() async {
@@ -454,6 +526,7 @@ class RustDeskDebugService extends ChangeNotifier {
         ..sort();
 
   Future<void> regeneratePassword() async {
+    _logs.debug('Remote temporary password regeneration requested');
     await _applyProfileNow();
     if (Platform.isWindows && File(enginePath).existsSync()) {
       await LocalistRemoteRuntime.desktopCommand({
@@ -463,6 +536,7 @@ class RustDeskDebugService extends ChangeNotifier {
       await (await RemoteNativeApi.get()).mainUpdateTemporaryPassword();
     }
     await refresh();
+    _logs.debug('Remote temporary password regeneration completed');
   }
 
   Future<void> forgetPeerPassword(String id) async =>
@@ -479,30 +553,39 @@ class RustDeskDebugService extends ChangeNotifier {
   Future<String> generateTwoFactor() async =>
       (await RemoteNativeApi.get()).mainGenerate2Fa();
   Future<bool> verifyTwoFactor(String code) async {
+    _logs.debug('Remote two-factor verification requested');
     final verified = await (await RemoteNativeApi.get()).mainVerify2Fa(
       code: code,
     );
     await refresh();
+    _logs.debug('Remote two-factor verification result=$verified');
     return verified;
   }
 
   Future<void> disableTwoFactor() async {
+    _logs.debug('Remote two-factor disable requested');
     final api = await RemoteNativeApi.get();
     await api.mainSetOption(key: '2fa', value: '');
     await api.mainClearTrustedDevices();
     await refresh();
+    _logs.debug('Remote two-factor disabled');
   }
 
   Future<void> setOption(String key, bool value) async {
     if (!permissions.containsKey(key) || busy) {
+      _logs.debug(
+        'Remote option change skipped knownKey=${permissions.containsKey(key)} busy=$busy',
+      );
       return;
     }
+    _logs.debug('Remote option change requested key=$key enabled=$value');
     busy = true;
     error = '';
     _notify();
     try {
       await saveProfileValue(key, value ? 'Y' : 'N');
       await refresh();
+      _logs.debug('Remote option change applied key=$key');
     } finally {
       busy = false;
       _notify();

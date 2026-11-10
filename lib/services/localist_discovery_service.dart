@@ -108,9 +108,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
       ..broadcastEnabled = true
       ..multicastLoopback = false
       ..listen(_handleSocketEvent, onError: (_) {});
-    _logs.debug(
-      'Local discovery socket ready deviceId=$_deviceId port=${_socket!.port}',
-    );
+    _logs.debug('Local discovery socket ready port=${_socket!.port}');
   }
 
   Future<void> refresh() async {
@@ -136,18 +134,16 @@ class LocalistDiscoveryService extends ChangeNotifier {
           'Local discovery is querying ${targets.length} network targets.',
         );
       }
-      _logs.debug('Local discovery targets: $signature');
+      _logs.debug('Local discovery query target count=${targets.length}');
       for (final target in targets) {
         try {
           socket.send(data, target, localistDiscoveryPort);
           _logs.debug(
-            'Local discovery query sent to ${target.address}:$localistDiscoveryPort bytes=${data.length}',
+            'Local discovery query sent bytes=${data.length} port=$localistDiscoveryPort',
           );
-        } catch (error, stack) {
+        } catch (error) {
           _logs.debug(
-            'Local discovery query send failed for ${target.address}',
-            error: error,
-            stack: stack,
+            'Local discovery query send failed type=${error.runtimeType}',
           );
           // Some networks block directed multicast or limited broadcast.
         }
@@ -188,7 +184,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
 
   void _handleDatagram(Datagram datagram) {
     _logs.debug(
-      'Local discovery datagram from ${datagram.address.address}:${datagram.port} bytes=${datagram.data.length}',
+      'Local discovery datagram received bytes=${datagram.data.length}',
     );
     final map = decodeLocalistDiscoveryPacket(datagram.data);
     if (map == null || !isLocalistDiscoveryAnnouncement(map)) {
@@ -200,9 +196,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
       return;
     }
     if (_isLocalAddress(datagram.address.address)) {
-      _logs.debug(
-        'Local discovery ignored local source ${datagram.address.address}',
-      );
+      _logs.debug('Local discovery ignored own network address');
       return;
     }
     final device = LocalistDiscoveredDevice.fromAnnouncement(
@@ -213,15 +207,18 @@ class LocalistDiscoveryService extends ChangeNotifier {
     if (device.endpoints.isEmpty ||
         device.endpoints.every((endpoint) => _isLocalAddress(endpoint.host))) {
       _logs.debug(
-        'Local discovery ignored ${device.name}: no usable remote endpoints',
+        'Local discovery ignored device without usable remote endpoints',
       );
       return;
     }
     final previous = _devices[device.id];
     _devices[device.id] = device;
+    _logs.debug(
+      'Local discovery announcement parsed endpoints=${device.endpoints.length} known=${previous != null} devices=${_devices.length}',
+    );
     if (previous == null || !_sameVisibleDevice(previous, device)) {
       _logs.info(
-        'Discovered ${device.platform} device "${device.name}" at ${device.sourceAddress}.',
+        'Local discovery found a ${device.platform} device; total=${_devices.length}.',
       );
       _notifySoon();
     } else if (device.lastSeen.difference(previous.lastSeen) >
@@ -274,11 +271,14 @@ class LocalistDiscoveryService extends ChangeNotifier {
         if (route.broadcast != null) hosts.add(route.broadcast!);
       }
       _localIpv4Addresses = localAddresses;
-      _logs.debug('Local discovery local IPv4 addresses: $localAddresses');
-    } catch (error) {
-      _logs.warning(
-        'Local discovery could not inspect network interfaces: $error',
+      _logs.debug(
+        'Local discovery local IPv4 address count=${localAddresses.length}',
       );
+    } catch (error) {
+      _logs.debug(
+        'Local discovery network inspection failed type=${error.runtimeType}',
+      );
+      _logs.warning('Local discovery could not inspect network interfaces.');
     }
     return hosts.map(InternetAddress.new).toList(growable: false);
   }

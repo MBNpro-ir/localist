@@ -64,6 +64,11 @@ class NativeBridgeService {
       _quickSendNotificationTapController.stream;
 
   Future<void> _handleNativeCall(MethodCall call) async {
+    if (_logs.debugModeEnabled) {
+      _logs.debug(
+        'NativeBridge callback received method=${call.method} argument=${_describeForDebug(call.arguments)}',
+      );
+    }
     if (call.method == 'activateWindow') {
       _windowActivation.add(null);
       return;
@@ -714,35 +719,51 @@ class NativeBridgeService {
   }
 
   Future<T?> _invoke<T>(String method, [Object? arguments]) async {
-    final started = DateTime.now();
-    _logs.debug(
-      'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_short(arguments)}',
-    );
+    final trace = _logs.debugModeEnabled;
+    final started = trace ? (Stopwatch()..start()) : null;
+    if (trace) {
+      _logs.debug(
+        'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_describeForDebug(arguments)}',
+      );
+    }
     try {
       final result = await _channel.invokeMethod<T>(method, arguments);
-      _logs.debug(
-        'NativeBridge <- $method result=${_short(result)} elapsedMs=${DateTime.now().difference(started).inMilliseconds}',
-      );
+      if (trace) {
+        _logs.debug(
+          'NativeBridge <- $method result=${_describeForDebug(result)} elapsedMs=${started!.elapsedMilliseconds}',
+        );
+      }
       return result;
     } catch (error, stack) {
-      _logs.debug('NativeBridge !! $method failed', error: error, stack: stack);
+      _logs.debug(
+        'NativeBridge !! $method failed type=${error.runtimeType}',
+        stack: stack,
+      );
       rethrow;
     }
   }
 
   Future<List<T>?> _invokeList<T>(String method, [Object? arguments]) async {
-    final started = DateTime.now();
-    _logs.debug(
-      'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_short(arguments)}',
-    );
+    final trace = _logs.debugModeEnabled;
+    final started = trace ? (Stopwatch()..start()) : null;
+    if (trace) {
+      _logs.debug(
+        'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_describeForDebug(arguments)}',
+      );
+    }
     try {
       final result = await _channel.invokeListMethod<T>(method, arguments);
-      _logs.debug(
-        'NativeBridge <- $method result=${_short(result)} elapsedMs=${DateTime.now().difference(started).inMilliseconds}',
-      );
+      if (trace) {
+        _logs.debug(
+          'NativeBridge <- $method result=${_describeForDebug(result)} elapsedMs=${started!.elapsedMilliseconds}',
+        );
+      }
       return result;
     } catch (error, stack) {
-      _logs.debug('NativeBridge !! $method failed', error: error, stack: stack);
+      _logs.debug(
+        'NativeBridge !! $method failed type=${error.runtimeType}',
+        stack: stack,
+      );
       rethrow;
     }
   }
@@ -751,25 +772,61 @@ class NativeBridgeService {
     String method, [
     Object? arguments,
   ]) async {
-    final started = DateTime.now();
-    _logs.debug(
-      'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_short(arguments)}',
-    );
+    final trace = _logs.debugModeEnabled;
+    final started = trace ? (Stopwatch()..start()) : null;
+    if (trace) {
+      _logs.debug(
+        'NativeBridge -> $method platform=${Platform.operatingSystem} args=${_describeForDebug(arguments)}',
+      );
+    }
     try {
       final result = await _channel.invokeMapMethod<K, V>(method, arguments);
-      _logs.debug(
-        'NativeBridge <- $method result=${_short(result)} elapsedMs=${DateTime.now().difference(started).inMilliseconds}',
-      );
+      if (trace) {
+        _logs.debug(
+          'NativeBridge <- $method result=${_describeForDebug(result)} elapsedMs=${started!.elapsedMilliseconds}',
+        );
+      }
       return result;
     } catch (error, stack) {
-      _logs.debug('NativeBridge !! $method failed', error: error, stack: stack);
+      _logs.debug(
+        'NativeBridge !! $method failed type=${error.runtimeType}',
+        stack: stack,
+      );
       rethrow;
     }
   }
 
-  String _short(Object? value) {
-    final text = value.toString();
-    return text.length <= 360 ? text : '${text.substring(0, 360)}...';
+  // Method channels carry passwords, proxy URLs, message bodies, file paths and
+  // security tokens. Log shape and safe primitive values only, never payloads.
+  String _describeForDebug(Object? value) {
+    if (value == null) return 'null';
+    if (value is bool || value is num) return '$value';
+    if (value is String) return 'string(length=${value.length})';
+    if (value is Map) {
+      const safeFields = {
+        'enabled',
+        'localPort',
+        'port',
+        'shareAllRoutes',
+        'warning',
+        'canceled',
+        'saved',
+        'success',
+        'count',
+        'size',
+      };
+      final details = <String>[];
+      for (final entry in value.entries) {
+        if (entry.key is String && safeFields.contains(entry.key)) {
+          if (entry.value is bool || entry.value is num) {
+            details.add('${entry.key}=${entry.value}');
+          }
+        }
+      }
+      return 'map(size=${value.length}${details.isEmpty ? '' : ', ${details.join(', ')}'})';
+    }
+    if (value is Iterable) return 'list(count=${value.length})';
+    return 'type=${value.runtimeType}';
   }
 
   List<QuickSendSharedFile> _sharedFilesFromNative(Object? value) {

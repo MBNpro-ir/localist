@@ -64,7 +64,7 @@ class _RemoteReadyIndicatorState extends State<RemoteReadyIndicator>
         ? (fa ? 'در حال اتصال به سرور' : 'Connecting to server')
         : !widget.identityReady
         ? (fa ? 'در انتظار شناسهٔ دستگاه' : 'Waiting for device ID')
-        : (fa ? 'آمادهٔ اتصال · Ready' : 'Ready');
+        : (fa ? 'آمادهٔ اتصال' : 'Ready');
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       padding: const EdgeInsets.all(14),

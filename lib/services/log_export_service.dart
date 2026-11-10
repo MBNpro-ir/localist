@@ -14,23 +14,34 @@ class LogExportService {
 
   Future<SavedTextFileResult> saveDebugLog() async {
     final logs = LogService.instance;
-    logs.debug('Log export requested');
+    logs.debug(
+      'Log export requested entries=${logs.entries.length} debugEnabled=${logs.debugModeEnabled}',
+    );
     final report = await buildDebugReport();
+    logs.debug('Log export report assembled characterCount=${report.length}');
     final result = await NativeBridgeService.instance.saveTextFile(
       text: report,
       suggestedName: _suggestedName(),
       mimeType: 'text/plain',
     );
     logs.debug(
-      'Log export completed saved=${result.saved} canceled=${result.canceled} path=${result.path}',
+      'Log export completed saved=${result.saved} canceled=${result.canceled} hasPath=${result.path?.isNotEmpty == true}',
     );
     return result;
   }
 
   Future<String> buildDebugReport() async {
+    LogService.instance.debug('Log report generation started');
     final version = await AppVersion.current();
+    LogService.instance.debug('Log report app version loaded');
     final nativeDetails = await _loadNativeDetails();
+    LogService.instance.debug(
+      'Log report native details loaded keyCount=${nativeDetails.length}',
+    );
     final interfaces = await _loadNetworkInterfaces();
+    LogService.instance.debug(
+      'Log report network interfaces loaded count=${interfaces.length}',
+    );
     final logs = LogService.instance;
     final entries = logs.entries;
     final now = DateTime.now();
@@ -89,7 +100,11 @@ class LogExportService {
       ..writeln('Application logs')
       ..writeln('----------------')
       ..writeln(logs.dump().isEmpty ? 'No logs recorded.' : logs.dump());
-    return buffer.toString();
+    final report = buffer.toString();
+    logs.debug(
+      'Log report generation completed entries=${entries.length} characterCount=${report.length}',
+    );
+    return report;
   }
 
   Future<Map<String, Object?>> _loadNativeDetails() async {

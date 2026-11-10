@@ -32,6 +32,40 @@ class AppLocalizations {
   String _s(String fa, String en) => isPersian ? fa : en;
 
   String get appName => 'Localist';
+  String get quickSend => _s('ارسال سریع', 'Quick Send');
+  String get remoteControl => _s('کنترل از راه دور', 'Remote Control');
+  String get vpnSharing => _s('اشتراک‌گذاری وی‌پی‌ان', 'VPN Sharing');
+  String get cameraAndMic => _s('دوربین و میکروفن', 'Camera & Mic');
+  String get streaming => _s('پخش جریانی', 'Stream');
+  String get onboardingProfile => _s('پروفایل', 'Profile');
+  String get requestFailed => _s(
+    'انجام درخواست ناموفق بود. دوباره تلاش کنید.',
+    'The request failed. Please try again.',
+  );
+  String get permissionRequestFailed => _s(
+    'درخواست دسترسی ناموفق بود. دوباره تلاش کنید.',
+    'The permission request failed. Please try again.',
+  );
+  String get remoteConnectionFailed => _s(
+    'اتصال از راه دور برقرار نشد. تنظیمات و دسترسی‌ها را بررسی کنید.',
+    'Remote connection failed. Check the connection settings and permissions.',
+  );
+  String get remoteHostingFailed => _s(
+    'تغییر وضعیت میزبانی ناموفق بود.',
+    'Could not change the hosting state.',
+  );
+  String get remoteConfigurationFailed => _s(
+    'تنظیمات کنترل از راه دور ذخیره یا اعمال نشد.',
+    'Remote control settings could not be saved or applied.',
+  );
+  String get remotePrinterLoadFailed => _s(
+    'دریافت فهرست چاپگرها ناموفق بود.',
+    'Could not load the printer list.',
+  );
+  String get remoteAudioLoadFailed => _s(
+    'دریافت فهرست ورودی‌های صدا ناموفق بود.',
+    'Could not load the audio input list.',
+  );
   String get sharing => _s('اشتراک‌گذاری', 'Sharing');
   String get receiving => _s('دریافت', 'Receiving');
   String get settings => _s('تنظیمات', 'Settings');
@@ -64,9 +98,17 @@ class AppLocalizations {
   String get debugging => _s('دیباگ', 'Debug');
   String get activeDebugMode => _s('حالت دیباگ فعال', 'Active debug mode');
   String get activeDebugModeSubtitle => _s(
-    'لاگ‌های DEBUG برای سرویس‌ها، دکمه‌ها، bridge و شبکه ثبت می‌شود.',
-    'Write detailed DEBUG logs for services, buttons, native calls, and network activity.',
+    'ثبت بسیار جزئی فعالیت‌ها؛ ممکن است برنامه را به‌شدت کند کند. فقط هنگام عیب‌یابی فعال کنید.',
+    'Record highly detailed activity. This can slow the app down severely; enable only for troubleshooting.',
   );
+  String get debugModeWarningTitle =>
+      _s('هشدار فعال‌سازی دیباگ', 'Warning: Enable debug logging?');
+  String get debugModeWarningBody => _s(
+    'با روشن کردن دیباگ، جزئیات فراوانی از فعالیت قابلیت‌ها، ارتباطات شبکه و فراخوانی‌های سیستمی ثبت می‌شود. این کار می‌تواند برنامه را به‌شدت کند کند و حجم گزارش‌ها را افزایش دهد.\n\nفقط زمانی فعال کنید که در حال عیب‌یابی هستید یا می‌خواهید مشکلی را به پشتیبانی گزارش دهید. پس از پایان بررسی، آن را خاموش کنید.',
+    'Enabling Debug records extensive details about features, network activity, and system calls. This can make the app extremely slow and generate large logs.\n\nEnable it only when troubleshooting or preparing a problem report for support. Turn it off when you are done.',
+  );
+  String get enableDebugAnyway =>
+      _s('متوجه شدم، فعال کن', 'I understand, enable Debug');
 
   String get languageStep => _s('زبان', 'Language');
   String get permissionsStep => _s('دسترسی‌ها', 'Permissions');
@@ -429,7 +471,7 @@ class AppLocalizations {
   String get openAndroidHotspotSettings =>
       _s('باز کردن تنظیمات Hotspot اندروید', 'Open Android hotspot settings');
   String get refreshHotspot => _s('تازه‌سازی Hotspot', 'Refresh hotspot');
-  String get androidHotspot => _s('Hotspot اندروید', 'Android hotspot');
+  String get androidHotspot => _s('هات‌اسپات اندروید', 'Android hotspot');
   String get proxyIp => _s('IP پروکسی', 'Proxy IP');
   String get availableAfterHotspotOn => _s(
     'بعد از روشن شدن Hotspot در دسترس است',

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'log_service.dart';
 
 typedef StreamWebItem = ({
   String name,
@@ -13,6 +14,7 @@ String streamWebPath(String path) {
   if (!path.startsWith('/') ||
       path.startsWith('//') ||
       path.contains(RegExp(r'[\x00-\x20\\]'))) {
+    LogService.instance.debug('Media web: rejected invalid local route');
     throw const FormatException('Expected a local media route.');
   }
   return streamWebEscape(path);

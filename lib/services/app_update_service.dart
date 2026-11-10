@@ -36,6 +36,9 @@ class AppUpdateService {
   final HttpClient Function()? clientFactory;
 
   Future<String> prepareWindowsUpdate(File archive, AppVersion version) async {
+    _logs.debug(
+      'Update staging: format=${p.extension(archive.path).toLowerCase()} version=$version',
+    );
     if (archive.path.toLowerCase().endsWith('.exe')) {
       if (p.basename(archive.path).toLowerCase() !=
           'localist-windows-setup-x64-${version.displayName}.exe') {
@@ -50,6 +53,7 @@ class AppUpdateService {
       } finally {
         await input.close();
       }
+      _logs.debug('Update staging: executable header validated');
       return archive.path;
     }
     final marker = File('${archive.path}.ready.json');
@@ -60,9 +64,13 @@ class AppUpdateService {
         if (data['version'] == version.displayName &&
             p.isWithin(archive.parent.path, bundle) &&
             isCompleteWindowsBundle(bundle, version.displayName)) {
+          _logs.debug('Update staging: reusing validated Windows bundle');
           return bundle;
         }
-      } catch (_) {
+      } catch (e) {
+        _logs.debug(
+          'Update staging: cached marker invalid errorType=${e.runtimeType}',
+        );
         /* Rebuild incomplete staging. */
       }
     }
@@ -80,6 +88,7 @@ class AppUpdateService {
       flush: true,
     );
     await partialMarker.rename(marker.path);
+    _logs.debug('Update staging: bundle ready version=$version');
     return bundle;
   }
 
@@ -95,7 +104,7 @@ class AppUpdateService {
     final androidAsset = release.pickAndroidAsset(supportedAbis);
     final windowsAsset = release.pickWindowsAsset();
     _logs.debug(
-      'Update check finished current=$current latest=${release.version} supportedAbis=$supportedAbis androidAsset=${androidAsset?.name} windowsAsset=${windowsAsset?.name}',
+      'Update check finished current=$current latest=${release.version} supportedAbisCount=${supportedAbis.length} androidAsset=${androidAsset != null} windowsAsset=${windowsAsset != null}',
     );
     return AppUpdateCheck(
       current: current,
@@ -148,14 +157,23 @@ class AppUpdateService {
     required String platformName,
     required void Function(int received, int total) onProgress,
   }) async {
+    _logs.debug(
+      '$platformName update: checking cached asset expectedSize=${asset.size} hasDigest=${asset.digest.isNotEmpty}',
+    );
     final cached = File(p.join(directory.path, p.basename(asset.name)));
     if ((asset.size > 0 || asset.digest.isNotEmpty) && await cached.exists()) {
       try {
         await validateUpdateFile(cached, asset);
         final length = await cached.length();
         onProgress(length, length);
+        _logs.debug(
+          '$platformName update: cached package verified bytes=$length',
+        );
         return cached;
-      } catch (_) {
+      } catch (e) {
+        _logs.debug(
+          '$platformName update: cached package rejected errorType=${e.runtimeType}',
+        );
         /* A partial or changed release must be downloaded again. */
       }
     }
@@ -167,6 +185,9 @@ class AppUpdateService {
         onProgress: onProgress,
       );
     } catch (error) {
+      _logs.debug(
+        '$platformName update: Dart transport failed errorType=${error.runtimeType}',
+      );
       if (!Platform.isWindows || !isCertificateVerificationFailure(error)) {
         rethrow;
       }
@@ -183,9 +204,7 @@ class AppUpdateService {
         );
       } catch (fallbackError, fallbackStack) {
         _logs.debug(
-          '$platformName Windows certificate-store download failed',
-          error: fallbackError,
-          stack: fallbackStack,
+          '$platformName Windows certificate-store download failed type=${fallbackError.runtimeType}',
         );
         Error.throwWithStackTrace(fallbackError, fallbackStack);
       }
@@ -201,7 +220,9 @@ class AppUpdateService {
     final client = clientFactory?.call() ?? HttpClient();
     client.connectionTimeout = const Duration(seconds: 20);
     try {
-      _logs.debug('$platformName update download started asset=${asset.name}');
+      _logs.debug(
+        '$platformName update download started expectedBytes=${asset.size}',
+      );
       final request = await client.getUrl(Uri.parse(asset.downloadUrl));
       request.headers.set(HttpHeaders.userAgentHeader, 'Localist updater');
       final response = await request.close();
@@ -241,13 +262,11 @@ class AppUpdateService {
       await validateUpdateFile(partial, asset);
       await partial.rename(file.path);
       onProgress(received, received);
-      _logs.debug('$platformName update saved to ${file.path}');
+      _logs.debug('$platformName update verified and saved bytes=$received');
       return file;
-    } catch (error, stack) {
+    } catch (error) {
       _logs.debug(
-        '$platformName update download failed',
-        error: error,
-        stack: stack,
+        '$platformName update download failed type=${error.runtimeType}',
       );
       rethrow;
     } finally {
@@ -274,7 +293,7 @@ class AppUpdateService {
     final client = clientFactory?.call() ?? HttpClient();
     client.connectionTimeout = const Duration(seconds: 20);
     try {
-      _logs.debug('Fetching latest GitHub release: $_latestReleaseApi');
+      _logs.debug('Fetching latest GitHub release using Dart HTTP');
       final request = await client.getUrl(
         latestReleaseUri ?? Uri.parse(_latestReleaseApi),
       );
@@ -300,14 +319,12 @@ class AppUpdateService {
       final decoded = jsonDecode(body) as Map<String, Object?>;
       final release = AppRelease.fromJson(decoded);
       _logs.debug(
-        'Latest GitHub release parsed tag=${release.tagName} assets=${release.assets.map((asset) => asset.name).join(', ')}',
+        'Latest GitHub release parsed version=${release.version} assetCount=${release.assets.length}',
       );
       return release;
-    } catch (error, stack) {
+    } catch (error) {
       _logs.debug(
-        'Fetching latest GitHub release failed',
-        error: error,
-        stack: stack,
+        'Fetching latest GitHub release failed type=${error.runtimeType}',
       );
       rethrow;
     } finally {
@@ -359,14 +376,12 @@ class AppUpdateService {
       );
       _logs.debug(
         'Latest GitHub release parsed with Windows certificate store '
-        'tag=${release.tagName} assets=${release.assets.map((asset) => asset.name).join(', ')}',
+        'version=${release.version} assetCount=${release.assets.length}',
       );
       return release;
-    } on Object catch (parseError, stack) {
+    } on Object catch (parseError) {
       _logs.debug(
-        'Parsing the Windows certificate-store release response failed',
-        error: parseError,
-        stack: stack,
+        'Parsing the Windows certificate-store release response failed type=${parseError.runtimeType}',
       );
       rethrow;
     }
@@ -390,7 +405,7 @@ class AppUpdateService {
 
     _logs.debug(
       '$platformName update download started with Windows certificate store '
-      'asset=${asset.name}',
+      'expectedBytes=${asset.size}',
     );
     try {
       final progressTimer = Timer.periodic(const Duration(milliseconds: 300), (
@@ -454,7 +469,7 @@ class AppUpdateService {
       }
       final saved = await partial.rename(file.path);
       _logs.debug(
-        '$platformName update saved with Windows certificate store to ${saved.path}',
+        '$platformName update verified with Windows certificate store bytes=$received',
       );
       return saved;
     } finally {

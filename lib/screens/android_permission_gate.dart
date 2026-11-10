@@ -8,6 +8,7 @@ import '../l10n/app_localizations.dart';
 import '../services/native_bridge_service.dart';
 import '../services/feature_permission_service.dart';
 import '../services/rustdesk_debug_service.dart';
+import '../services/log_service.dart';
 import '../widgets/onboarding_flow.dart';
 
 const _permissionsCompleteKey = 'localist.permissions.v2.complete';
@@ -74,6 +75,9 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    LogService.instance.debug(
+      'Permission gate lifecycle state=${state.name} busy=$_busy complete=$_complete',
+    );
     if (state == AppLifecycleState.resumed &&
         (Platform.isAndroid || Platform.isWindows)) {
       _refreshStatuses();
@@ -81,12 +85,18 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   }
 
   Future<void> _load() async {
+    LogService.instance.debug(
+      'Permission gate initialization platform=${Platform.operatingSystem}',
+    );
     if (!Platform.isAndroid && !Platform.isWindows) {
       setState(() => _loading = false);
       return;
     }
     final prefs = await SharedPreferences.getInstance();
     final previouslyCompleted = prefs.getBool(_permissionsCompleteKey) ?? false;
+    LogService.instance.debug(
+      'Permission gate stored complete=$previouslyCompleted',
+    );
     await _refreshStatuses();
     if (mounted) {
       setState(() {
@@ -97,8 +107,12 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   }
 
   Future<void> _refreshStatuses() async {
+    LogService.instance.debug('Permission gate permission refresh started');
     if (Platform.isWindows) {
       final features = await _bridge.getFeatureAccessStatus();
+      LogService.instance.debug(
+        'Permission gate Windows access status keys=${features.keys.join(',')}',
+      );
       if (mounted) setState(() => _features = features);
       return;
     }
@@ -152,7 +166,7 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       steps: [
         l10n.languageStep,
         l10n.permissionsStep,
-        l10n.isPersian ? 'پروفایل' : 'Profile',
+        l10n.onboardingProfile,
         l10n.mainStep,
       ],
       currentStep: 1,
@@ -167,14 +181,14 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
         if (Platform.isWindows) ...[
           Text(
             _t(
-              'Localist بدون دسترسی مدیر اجرا می‌شود. فقط هنگام استفاده از قابلیتی که به مدیر نیاز دارد، ویندوز تأیید UAC می‌خواهد و کار در همان بخش ادامه پیدا می‌کند.',
+              'لوکالیست بدون دسترسی مدیر اجرا می‌شود. فقط هنگام استفاده از قابلیتی که به مدیر نیاز دارد، ویندوز درخواست تأیید دسترسی مدیر را نمایش می‌دهد و کار در همان بخش ادامه پیدا می‌کند.',
               'Localist runs without administrator access. Windows requests UAC only for an operation that needs it, and the operation continues in the same page.',
             ),
           ),
           const SizedBox(height: 12),
           Text(
             _t(
-              'برای دریافت اتصال شبکه، پیام Firewall ویندوز را هنگام اولین میزبانی بررسی کنید. نصب سرویس، نمایشگر مجازی و چاپگر از راه دور در تنظیمات قابلیت مربوط انجام می‌شود.',
+              'برای دریافت اتصال شبکه، پیام دیوار آتش ویندوز را هنگام اولین میزبانی بررسی کنید. نصب سرویس، نمایشگر مجازی و چاپگر از راه دور در تنظیمات قابلیت مربوط انجام می‌شود.',
               'Review the Windows Firewall prompt on first hosting. Service, virtual display and printer installation are available in their feature settings.',
             ),
           ),
@@ -206,7 +220,7 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
                   ? 'دسترسی شبکه محلی'
                   : 'Local network access',
               subtitle: context.l10n.isPersian
-                  ? 'برای پیدا کردن دستگاه‌ها و دریافت مستقیم فایل در Android 17 لازم است.'
+                  ? 'برای پیدا کردن دستگاه‌ها و دریافت مستقیم فایل در اندروید ۱۷ لازم است.'
                   : 'Required on Android 17 to discover devices and receive files directly.',
               onPressed: _busy ? null : _requestLocalNetwork,
             ),
@@ -223,12 +237,9 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
           _PermissionTile(
             granted: _storageGranted,
             icon: Icons.folder_open,
-            title: _t(
-              'فایل‌ها و پوشهٔ Downloads',
-              'Files and Downloads folder',
-            ),
+            title: _t('فایل‌ها و پوشهٔ دانلودها', 'Files and Downloads folder'),
             subtitle: _t(
-              'برای ارسال فایل و ذخیرهٔ فایل‌های دریافتی در Download/Localist.',
+              'برای ارسال فایل و ذخیرهٔ فایل‌های دریافتی در پوشهٔ دانلودهای لوکالیست.',
               'For sending files and saving received files in Download/Localist.',
             ),
             onPressed: _busy ? null : () => _requestPermission(_storage),
@@ -318,11 +329,11 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
             granted: _features['input'] == true,
             icon: Icons.touch_app_outlined,
             title: _t(
-              'کنترل از راه دور و Accessibility',
+              'کنترل از راه دور و دسترس‌پذیری',
               'Remote input and Accessibility',
             ),
             subtitle: _t(
-              'سرویس Localist را در Accessibility فعال کنید. اگر دسترسی محدود است: App info ← منوی سه‌نقطه ← Allow restricted settings.',
+              'سرویس لوکالیست را در تنظیمات دسترس‌پذیری فعال کنید. اگر دسترسی محدود است: اطلاعات برنامه ← منوی سه‌نقطه ← اجازه تنظیمات محدودشده.',
               'Enable Localist in Accessibility. If restricted: App info → three-dot menu → Allow restricted settings.',
             ),
             onPressed: _busy
@@ -365,7 +376,7 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
             icon: Icons.admin_panel_settings_outlined,
             title: _t('Root روی دستگاه روت‌شده', 'Root on rooted devices'),
             subtitle: _t(
-              'اختیاری؛ فقط برای اشتراک کامل مسیرهای شبکه روی دستگاه‌های روت‌شده. مدیر Root دستگاه تأیید می‌خواهد.',
+              'اختیاری؛ فقط برای اشتراک کامل مسیرهای شبکه روی دستگاه‌های روت‌شده. مدیر دسترسی ریشهٔ دستگاه تأیید می‌خواهد.',
               'Optional, for full network routing on rooted devices. Your root manager asks for confirmation.',
             ),
             onPressed: _busy
@@ -411,6 +422,7 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   }
 
   Future<void> _requestNotification() async {
+    LogService.instance.debug('Permission gate notification request tapped');
     final l10n = context.l10n;
     await _runRequest(
       title: l10n.notificationsRequired,
@@ -421,15 +433,22 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   }
 
   Future<void> _featureRequest(Future<bool> Function() action) async {
+    LogService.instance.debug('Permission gate feature request started');
     setState(() => _busy = true);
     try {
-      await action();
+      final granted = await action();
+      LogService.instance.debug(
+        'Permission gate feature request result granted=$granted',
+      );
       await _refreshStatuses();
     } catch (error) {
+      LogService.instance.debug(
+        'Permission gate feature request failed type=${error.runtimeType}',
+      );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.permissionRequestFailed)),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -438,6 +457,9 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
 
   Future<void> _requestPermission(Permission permission) =>
       _featureRequest(() async {
+        LogService.instance.debug(
+          'Permission gate request permission=${permission.toString()}',
+        );
         final access = permission == _storage
             ? FeatureAccess.storage
             : permission == _wifi
@@ -451,10 +473,14 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       });
 
   Future<void> _requestRuntimePermissions() => _featureRequest(() async {
+    LogService.instance.debug('Permission gate welcome permissions requested');
     return FeaturePermissionService.instance.requestWelcome();
   });
 
   Future<void> _requestBattery() async {
+    LogService.instance.debug(
+      'Permission gate battery optimization request tapped',
+    );
     final l10n = context.l10n;
     await _runRequest(
       title: l10n.backgroundTransferRequired,
@@ -465,12 +491,13 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   }
 
   Future<void> _requestLocalNetwork() async {
+    LogService.instance.debug('Permission gate local network request tapped');
     await _runRequest(
       title: context.l10n.isPersian
           ? 'دسترسی شبکه محلی لازم است'
           : 'Local network access is required',
       body: context.l10n.isPersian
-          ? 'بدون این دسترسی Android 17 اتصال‌های Quick Send در شبکه را مسدود می‌کند.'
+          ? 'بدون این دسترسی، اندروید ۱۷ اتصال‌های ارسال سریع در شبکه را مسدود می‌کند.'
           : 'Without this permission, Android 17 blocks Quick Send connections on the local network.',
       request: _bridge.requestLocalNetworkPermission,
       refresh: _refreshStatuses,
@@ -483,11 +510,20 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
     required Future<bool> Function() request,
     required Future<void> Function() refresh,
   }) async {
+    LogService.instance.debug(
+      'Permission gate system permission request started',
+    );
     setState(() => _busy = true);
     try {
       final granted = await request();
+      LogService.instance.debug(
+        'Permission gate system permission request granted=$granted',
+      );
       await refresh();
       if (!granted && mounted) {
+        LogService.instance.debug(
+          'Permission gate guidance popup requested after denial',
+        );
         await _showPermissionPopup(title: title, body: body);
       }
     } finally {
@@ -525,8 +561,12 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   }
 
   Future<void> _enterApp() async {
+    LogService.instance.debug(
+      'Permission gate continue requested allGranted=$_allGranted',
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_permissionsCompleteKey, true);
+    LogService.instance.debug('Permission gate completion preference saved');
     if (mounted) {
       setState(() => _complete = true);
     }

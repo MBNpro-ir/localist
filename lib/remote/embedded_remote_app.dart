@@ -16,6 +16,8 @@ import 'package:flutter_hbb/localist/desktop_host.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/remote_control_settings.dart';
+import '../models/app_settings.dart';
+import '../l10n/app_localizations.dart';
 import '../services/log_service.dart';
 import '../services/feature_permission_service.dart';
 import 'remote_theme.dart';
@@ -35,8 +37,14 @@ class LocalistRemoteRuntime {
   static String? _androidPresenceServer;
 
   static Future<Map<String, String>> peerPresence(List<String> ids) async {
+    LogService.instance.debug(
+      'Remote presence query dispatched platform=${Platform.operatingSystem} peerCount=${ids.length}',
+    );
     if (Platform.isWindows) {
       final result = await desktopCommand({'command': 'presence', 'ids': ids});
+      LogService.instance.debug(
+        'Remote Windows presence query returned peerCount=${(result['states'] as Map).length}',
+      );
       return Map<String, String>.from(result['states'] as Map);
     }
     if (Platform.isAndroid) {
@@ -44,10 +52,16 @@ class LocalistRemoteRuntime {
       await applyNativeRemoteProfile();
       final server = (await RemoteControlProfile.load()).server.encode();
       if (server != _androidPresenceServer) {
+        LogService.instance.debug(
+          'Remote Android presence server changed; clearing previous states',
+        );
         _androidPresenceServer = server;
         _androidPresence.clear();
       }
       await bind.queryOnlines(ids: ids);
+      LogService.instance.debug(
+        'Remote Android presence query sent peerCount=${ids.length}',
+      );
       return _androidPresence.snapshot(ids);
     }
     return {};
@@ -102,15 +116,40 @@ class LocalistRemoteRuntime {
   static Future<Map<String, dynamic>> desktopCommand(
     Map<String, dynamic> command,
   ) async {
+    const safeCommands = {
+      'ping',
+      'syncProfile',
+      'regeneratePassword',
+      'credentials',
+      'openSession',
+      'presence',
+    };
+    final operation = safeCommands.contains(command['command'])
+        ? command['command']
+        : 'unknown';
+    LogService.instance.debug(
+      'Remote desktop command stage=ensureHost kind=$operation',
+    );
     await ensureStarted();
     var status = await desktopStatus();
     if (status == null) {
+      LogService.instance.debug(
+        'Remote desktop command host unavailable; restarting',
+      );
       // An adopted host may have exited since initialization.
       _starting = null;
       await ensureStarted();
       status = await desktopStatus();
     }
-    if (status == null) throw StateError('The remote host is unavailable.');
+    if (status == null) {
+      LogService.instance.debug(
+        'Remote desktop command failed host still unavailable',
+      );
+      throw StateError('The remote host is unavailable.');
+    }
+    LogService.instance.debug(
+      'Remote desktop command stage=send kind=$operation',
+    );
     return sendDesktopHostCommand(
       status,
       command,
@@ -121,6 +160,9 @@ class LocalistRemoteRuntime {
   }
 
   static Future<void> ensureStarted() {
+    LogService.instance.debug(
+      'Remote runtime ensureStarted platform=${Platform.operatingSystem} startupPending=${_starting != null}',
+    );
     if (Platform.isWindows) {
       return (_desktopPreparation ??= _prepareDesktop()).then(
         (_) => _desktopRuntime.ensureStarted(),
@@ -133,12 +175,18 @@ class LocalistRemoteRuntime {
   }
 
   static Future<void> _prepareDesktop() async {
+    LogService.instance.debug(
+      'Remote desktop runtime checking bundled host compatibility',
+    );
     final main = File(Platform.resolvedExecutable);
     final helper = File(hostExecutablePath);
     if (await helper.exists()) {
       final mainHash = await sha256.bind(main.openRead()).first;
       final helperHash = await sha256.bind(helper.openRead()).first;
       if (mainHash != helperHash) {
+        LogService.instance.debug(
+          'Remote desktop runtime host executable version mismatch',
+        );
         throw StateError(
           'فایل‌های موتور ریموت با برنامه یکسان نیستند؛ بستهٔ کامل نسخهٔ جدید را نصب کنید. / '
           'Remote IPC executable mismatch. Install the complete current Localist package.',
@@ -147,12 +195,17 @@ class LocalistRemoteRuntime {
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('remote.localPassword');
+    LogService.instance.debug('Remote desktop runtime bundle check finished');
   }
 
   static Future<void> _start() async {
+    LogService.instance.debug('Remote embedded runtime initialization started');
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('remote.localPassword');
     if (Platform.isAndroid) {
+      LogService.instance.debug(
+        'Remote Android engine environment initializing',
+      );
       remote.localistThemeBootstrap = RemoteThemeSync.start;
       remote.kBootArgs = [];
       engine.localistOwnsAndroidHosting = true;
@@ -172,6 +225,9 @@ class LocalistRemoteRuntime {
             : FeaturePermissionService.instance.ensure([access]);
       };
       await remote.initEnv(kAppTypeMain);
+      LogService.instance.debug(
+        'Remote Android engine environment initialized',
+      );
       platformFFI.registerEventHandler(
         'callback_query_onlines',
         'localist-device-presence',
@@ -180,23 +236,41 @@ class LocalistRemoteRuntime {
       androidChannelInit();
       platformFFI.syncAndroidServiceAppDirConfigPath();
       await applyNativeRemoteProfile();
+      LogService.instance.debug('Remote Android engine profile applied');
       await engine.gFFI.invokeMethod('start_listening');
+      LogService.instance.debug('Remote Android engine listener started');
       if ((await RemoteControlProfile.load()).values['stop-service'] != 'Y') {
         await bind.mainStartService();
+        LogService.instance.debug('Remote Android engine hosting started');
       }
       await bind.mainCheckConnectStatus();
       await engine.gFFI.invokeMethod('check_service');
+      LogService.instance.debug(
+        'Remote Android engine initialization completed',
+      );
     }
   }
 
   static Future<void> stop() async {
+    LogService.instance.debug('Remote embedded runtime stop requested');
     await _desktop?.stop();
     _starting = null;
+    LogService.instance.debug('Remote embedded runtime stop completed');
   }
 }
 
 Future<void> runEmbeddedRemote() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // This entry point runs outside the primary Localist widget tree.
+  final settings = await AppSettings.load();
+  engine.localistLanguageOverride =
+      (AppLocalizations.resolve(
+                settings.locale ??
+                    WidgetsBinding.instance.platformDispatcher.locale,
+                AppLocalizations.supportedLocales,
+              ) ??
+              const Locale('en'))
+          .languageCode;
   FeaturePermissionService.instance.useSessionNavigator(engine.globalKey);
   const channel = MethodChannel('localist/remote');
   final launch =

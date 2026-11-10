@@ -5,6 +5,7 @@ import '../services/capture_capabilities.dart';
 import 'glass.dart';
 import 'capture_audio_controls.dart';
 import '../services/capture_audio_settings.dart';
+import '../l10n/capture_error_text.dart';
 
 class CaptureReceiversPanel extends StatelessWidget {
   const CaptureReceiversPanel({super.key, this.hub, required this.windows});
@@ -32,7 +33,8 @@ class CaptureReceiversPanel extends StatelessWidget {
             ),
           ),
         ),
-        if (hub?.error.isNotEmpty == true) Text(hub!.error),
+        if (hub?.error.isNotEmpty == true)
+          Text(captureErrorText(context, hub!.error)),
         if (hub?.receivers.isEmpty != false)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -58,7 +60,7 @@ class CaptureReceiversPanel extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
-                '${peer.advertisement.model} · ${peer.online ? t(context, 'آنلاین', 'Online') : t(context, 'آفلاین', 'Offline')}\n${windows ? [if (peer.advertisement.camera) 'Localist Camera ${peer.slot + 1}', if (peer.advertisement.microphone) peer.output.microphoneName.isEmpty ? t(context, 'در انتظار کابل مستقل', 'Waiting for an independent cable') : peer.output.microphoneName].join(' · ') : t(context, 'گیرنده', 'Receiver')}',
+                '${peer.advertisement.model} · ${peer.online ? t(context, 'آنلاین', 'Online') : t(context, 'آفلاین', 'Offline')}\n${windows ? [if (peer.advertisement.camera) t(context, 'دوربین مجازی لوکالیست ${peer.slot + 1}', 'Localist Camera ${peer.slot + 1}'), if (peer.advertisement.microphone) peer.output.microphoneName.isEmpty ? t(context, 'در انتظار کابل مستقل', 'Waiting for an independent cable') : peer.output.microphoneName].join(' · ') : t(context, 'گیرنده', 'Receiver')}',
                 maxLines: 3,
               ),
               trailing: Switch.adaptive(
@@ -122,12 +124,12 @@ class CaptureReceiversPanel extends StatelessWidget {
                 if (peer.outputError.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Text(peer.outputError),
+                    child: Text(captureErrorText(context, peer.outputError)),
                   ),
                 if (peer.error.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Text(peer.error),
+                    child: Text(captureErrorText(context, peer.error)),
                   ),
               ],
             ),
@@ -158,9 +160,9 @@ class CaptureReceiversPanel extends StatelessWidget {
             await peer.capture.requestCaptureControl(command);
           } catch (e) {
             if (context.mounted) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text('$e')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(captureErrorText(context, '$e'))),
+              );
             }
           }
         }
@@ -193,7 +195,7 @@ class CaptureReceiversPanel extends StatelessWidget {
                 const SizedBox(height: 16),
                 if (peer.advertisement.microphone)
                   Text(
-                    t(context, 'خروجی Player', 'Player output'),
+                    t(context, 'خروجی گیرنده', 'Receiver output'),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 if (peer.advertisement.microphone)
@@ -215,14 +217,14 @@ class CaptureReceiversPanel extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     child: Text(
                       '${t(context, 'نمونه‌های دریافت‌شده', 'Received samples')}: ${peer.output.audioDiagnostics['frames'] ?? 0}\n'
-                      '${t(context, 'بافر', 'Buffer')}: ${((peer.output.audioDiagnostics['bufferedFrames'] as num? ?? 0) / 48).round()} ms · '
+                      '${t(context, 'بافر', 'Buffer')}: ${((peer.output.audioDiagnostics['bufferedFrames'] as num? ?? 0) / 48).round()} ${t(context, 'میلی‌ثانیه', 'ms')} · '
                       '${t(context, 'افت بافر', 'Underruns')}: ${peer.output.audioDiagnostics['underruns'] ?? 0} · '
                       '${t(context, 'نمونه‌های حذف‌شده', 'Dropped samples')}: ${peer.output.audioDiagnostics['droppedFrames'] ?? 0}',
                     ),
                   ),
                 const Divider(height: 32),
                 Text(
-                  t(context, 'تنظیمات Server', 'Server settings'),
+                  t(context, 'تنظیمات فرستنده', 'Sender settings'),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 12),
@@ -342,7 +344,12 @@ class CaptureReceiversPanel extends StatelessWidget {
                     ),
                     items: [
                       for (final fps in selectedMode?.frameRates ?? <int>[])
-                        DropdownMenuItem(value: fps, child: Text('$fps FPS')),
+                        DropdownMenuItem(
+                          value: fps,
+                          child: Text(
+                            t(context, '$fps فریم در ثانیه', '$fps FPS'),
+                          ),
+                        ),
                     ],
                     onChanged: !available
                         ? null
@@ -357,7 +364,7 @@ class CaptureReceiversPanel extends StatelessWidget {
                     decoration: InputDecoration(
                       labelText: t(
                         context,
-                        'بیت‌ریت تصویر (kb/s)',
+                        'بیت‌ریت تصویر (کیلوبیت در ثانیه)',
                         'Video bitrate (kb/s)',
                       ),
                     ),

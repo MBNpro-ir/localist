@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'live_capture_service.dart';
 import 'capture_audio_settings.dart';
+import 'log_service.dart';
 
 typedef _SetSlotNative = Int32 Function(Int32 slot, Int64 texture, Int32 fps);
 typedef _SetSlot = int Function(int slot, int texture, int fps);
@@ -32,6 +33,9 @@ class WindowsVirtualDevicesService {
     value.validate();
     if (jsonEncode(value.toMap()) == jsonEncode(_audioSettings.toMap())) return;
     _audioSettings = value;
+    LogService.instance.debug(
+      'Virtual devices: slot=$slot audio settings changed mode=${value.outputMode} bitrate=${value.bitrateKbps}kbps buffer=${value.bufferMode} uncompressed=${value.uncompressed}',
+    );
     _microphoneFailure = null;
     _microphoneRetry = DateTime(1970);
   }
@@ -54,6 +58,9 @@ class WindowsVirtualDevicesService {
   set microphoneEndpoint(String value) {
     if (value == _microphoneEndpoint) return;
     _microphoneEndpoint = value;
+    LogService.instance.debug(
+      'Virtual devices: slot=$slot microphone endpoint selection changed empty=${value.isEmpty}',
+    );
     _microphoneFailure = null;
     _microphoneRetry = DateTime(1970);
   }
@@ -87,13 +94,22 @@ class WindowsVirtualDevicesService {
         state,
       );
       if (command != null && command.isNotEmpty && state['enabled'] == true) {
+        LogService.instance.debug(
+          'Virtual devices: slot=$slot received camera control command',
+        );
         await capture.requestCaptureControl(
           Map<String, dynamic>.from(jsonDecode(command) as Map),
         );
         _controlError = '';
       }
     } catch (error) {
+      final changed = _controlError != '$error';
       _controlError = '$error';
+      if (changed) {
+        LogService.instance.debug(
+          'Virtual devices: slot=$slot control synchronization failed type=${error.runtimeType}',
+        );
+      }
     } finally {
       _controlsBusy = false;
     }
@@ -109,11 +125,17 @@ class WindowsVirtualDevicesService {
       );
 
   Future<void> setCameraInstalled(bool installed) async {
+    LogService.instance.debug(
+      'Virtual devices: slot=$slot camera installation check requested installed=$installed',
+    );
     if (!installed) {
       stopCamera();
       return;
     }
     if ((await cameraStatus())['installed'] != true) {
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot camera not installed',
+      );
       throw StateError(
         'این وبکم با Setup نصب نشده است؛ برای افزایش تعداد وبکم‌ها Setup را اجرا کنید. / '
         'This camera is not installed. Run Setup to change the camera count.',
@@ -122,13 +144,22 @@ class WindowsVirtualDevicesService {
   }
 
   void startCamera(int texture, {int fps = 30}) {
+    LogService.instance.debug(
+      'Virtual devices: slot=$slot starting camera output fps=$fps',
+    );
     _setSlot ??= DynamicLibrary.open(
       'flutter_webrtc_plugin.dll',
     ).lookupFunction<_SetSlotNative, _SetSlot>('LocalistVirtualCameraSetSlot');
     if (_setSlot!(slot, texture, fps) != 1) {
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot native camera attach failed',
+      );
       throw StateError('Unable to start virtual camera output.');
     }
     cameraEnabled = true;
+    LogService.instance.debug(
+      'Virtual devices: slot=$slot camera output active',
+    );
     _controlsTimer?.cancel();
     _controlsTimer = Timer.periodic(
       const Duration(milliseconds: 500),
@@ -138,6 +169,11 @@ class WindowsVirtualDevicesService {
   }
 
   void stopCamera() {
+    if (cameraEnabled) {
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot camera output stopping',
+      );
+    }
     _setSlot?.call(slot, -1, 30);
     cameraEnabled = false;
     _controlsTimer?.cancel();
@@ -171,18 +207,32 @@ class WindowsVirtualDevicesService {
       microphoneName = state?['microphone'] as String? ?? microphoneName;
       audioDiagnostics = state ?? {};
       if (state?['error'] == 0) return;
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot microphone health check failed, rebinding',
+      );
       // Reopen a removed/restarted driver handle while retaining the RTC session.
       _microphoneTrack = null;
     }
     if (identity == null) {
+      if (_microphoneTrack != null) {
+        LogService.instance.debug(
+          'Virtual devices: slot=$slot audio source removed',
+        );
+      }
       await stopMicrophone();
       return;
     }
     if (_microphoneFailure != null &&
         DateTime.now().isBefore(_microphoneRetry)) {
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot microphone retry delayed',
+      );
       throw StateError(_microphoneFailure!);
     }
     try {
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot binding microphone source mode=${audioSettings.outputMode} backend=${audioSettings.outputBackend}',
+      );
       final bound = await _audioChannel.invokeMethod<bool>(
         _audioMethod('localistVirtualMicrophone', 'audioOutputBind'),
         {
@@ -203,6 +253,9 @@ class WindowsVirtualDevicesService {
       _microphoneTrack = identity;
       _microphoneCheck = DateTime.now().add(const Duration(seconds: 2));
       _microphoneFailure = null;
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot microphone source bound',
+      );
       final state = await _audioChannel.invokeMapMethod<String, dynamic>(
         _audioMethod('localistVirtualMicrophoneStatus', 'audioOutputStatus'),
         {'slot': slot},
@@ -210,6 +263,9 @@ class WindowsVirtualDevicesService {
       microphoneName = state?['microphone'] as String? ?? '';
       audioDiagnostics = state ?? {};
     } catch (error) {
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot microphone binding failed type=${error.runtimeType} retrySeconds=5',
+      );
       _microphoneTrack = null;
       _microphoneRetry = DateTime.now().add(const Duration(seconds: 5));
       _microphoneFailure =
@@ -220,6 +276,11 @@ class WindowsVirtualDevicesService {
 
   Future<void> stopMicrophone() async {
     final hadTrack = _microphoneTrack != null;
+    if (hadTrack) {
+      LogService.instance.debug(
+        'Virtual devices: slot=$slot microphone unbinding',
+      );
+    }
     _microphoneTrack = null;
     microphoneName = '';
     if (hadTrack) {
@@ -231,6 +292,9 @@ class WindowsVirtualDevicesService {
   }
 
   Future<void> stop() async {
+    LogService.instance.debug(
+      'Virtual devices: slot=$slot stopping camera and microphone',
+    );
     stopCamera();
     await stopMicrophone();
   }

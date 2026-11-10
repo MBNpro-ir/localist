@@ -39,7 +39,7 @@ bool get remoteControlSettingsAvailable =>
 String _settingsSectionTitle(BuildContext context, SettingsSection section) {
   final persian = context.l10n.isPersian;
   return switch (section) {
-    SettingsSection.quickSend => 'Quick Send',
+    SettingsSection.quickSend => context.l10n.quickSend,
     SettingsSection.remoteControl =>
       persian ? 'کنترل از راه دور' : 'Remote Control',
     SettingsSection.permissions => persian ? 'دسترسی‌ها' : 'Permissions',
@@ -61,7 +61,7 @@ String _settingsSectionSubtitle(BuildContext context, SettingsSection section) {
           : 'Profile, receiving, network, storage, and transfer security',
     SettingsSection.remoteControl =>
       persian
-          ? 'عمومی، امنیت، سرور ID/Relay، نمایش و چاپ'
+          ? 'عمومی، امنیت، سرور شناسه و واسط، نمایش و چاپ'
           : 'General, security, ID/Relay server, display, and printer',
     SettingsSection.permissions =>
       persian
@@ -77,7 +77,7 @@ String _settingsSectionSubtitle(BuildContext context, SettingsSection section) {
           : 'Language, light or dark mode, and dynamic colors',
     SettingsSection.behavior =>
       persian
-          ? 'رفتار پنجره Windows و ابزارهای عیب‌یابی'
+          ? 'رفتار پنجره ویندوز و ابزارهای عیب‌یابی'
           : 'Windows close behavior and diagnostics',
     SettingsSection.updates =>
       persian
@@ -385,6 +385,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _portsSaving = false;
   bool _syncingPortControllers = false;
   bool _startupBusy = false;
+  bool _changingDebugMode = false;
   String? _appVersion;
 
   @override
@@ -410,6 +411,45 @@ class _SettingsPageState extends State<SettingsPage> {
     _httpPortController.dispose();
     _socks5PortController.dispose();
     super.dispose();
+  }
+
+  Future<void> _onDebugModeChanged(bool enabled) async {
+    if (_changingDebugMode || widget.settings.activeDebugMode == enabled) {
+      return;
+    }
+    setState(() => _changingDebugMode = true);
+    try {
+      if (enabled) {
+        _logs.debug('Debug activation requested from settings');
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            icon: const Icon(Icons.warning_amber_rounded, size: 36),
+            title: Text(dialogContext.l10n.debugModeWarningTitle),
+            content: Text(dialogContext.l10n.debugModeWarningBody),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: Text(dialogContext.l10n.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: Text(dialogContext.l10n.enableDebugAnyway),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || confirmed != true) {
+          return;
+        }
+      }
+      await widget.settings.setActiveDebugMode(enabled);
+      _logs.debug('Debug mode toggled from settings enabled=$enabled');
+    } finally {
+      if (mounted) {
+        setState(() => _changingDebugMode = false);
+      }
+    }
   }
 
   Future<void> _setWindowsLaunchAtStartup(bool enabled) async {
@@ -676,7 +716,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       title: Text(l10n.activeDebugMode),
                       subtitle: Text(l10n.activeDebugModeSubtitle),
                       value: widget.settings.activeDebugMode,
-                      onChanged: widget.settings.setActiveDebugMode,
+                      onChanged: _changingDebugMode
+                          ? null
+                          : _onDebugModeChanged,
                     ),
                   ],
                 ),
@@ -1232,7 +1274,7 @@ class _UpdatePanelState extends State<_UpdatePanel>
             if (_updates.error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
-                child: Text(_updates.error!),
+                child: Text(l10n.updaterFailed),
               ),
             if (_updates.state == AutomaticUpdateState.downloading) ...[
               const SizedBox(height: 12),

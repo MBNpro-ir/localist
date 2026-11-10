@@ -16,6 +16,7 @@ import '../widgets/capture_receivers_panel.dart';
 import '../widgets/capture_audio_controls.dart';
 import '../services/capture_audio_settings.dart';
 import '../services/log_service.dart';
+import '../l10n/capture_error_text.dart';
 import '../widgets/capture_latency_chart.dart';
 
 class LiveCapturePage extends StatefulWidget {
@@ -185,12 +186,20 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         final track = stream?.getVideoTracks().firstOrNull?.id;
         final source = track == null ? null : stream;
         if (_renderer.srcObject != source || _previewTrack != track) {
+          LogService.instance.debug(
+            'Capture page: preview renderer rebinding hasVideo=${track != null}',
+          );
           await _renderer.setSrcObject(stream: source, trackId: track);
           _previewTrack = track;
         }
       } while (_previewDirty && !_previewDisposed);
     } catch (error) {
-      if (mounted && !_previewDisposed) setState(() => _notice = '$error');
+      LogService.instance.debug(
+        'Capture page: preview binding failed type=${error.runtimeType}',
+      );
+      if (mounted && !_previewDisposed) {
+        setState(() => _notice = '$error');
+      }
     }
   }
 
@@ -198,6 +207,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _virtual.persian = Localizations.localeOf(context).languageCode == 'fa';
+    _service.viewerLanguage = _virtual.persian ? 'fa' : 'en';
     if (_hub != null) _hub.persian = _virtual.persian;
   }
 
@@ -208,6 +218,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   Future<void> _refreshInputs({bool silent = false}) async {
     if (!mounted) return;
     if (_inputRefresh != null) {
+      LogService.instance.debug('Capture page: input refresh coalesced');
       _inputRefreshAgain = true;
       return _inputRefresh;
     }
@@ -224,6 +235,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   }
 
   Future<void> _enumerateInputs({bool silent = false}) async {
+    LogService.instance.debug(
+      'Capture page: input enumeration requested silent=$silent',
+    );
     try {
       if (_android &&
           !_bluetoothPermissionOffered &&
@@ -242,6 +256,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       final inputs = (await LiveCaptureService.inputDevices())
           .where((d) => d.deviceId.isNotEmpty)
           .toList();
+      LogService.instance.debug(
+        'Capture page: inputs available count=${inputs.length}',
+      );
       _service.updateInputDevices(inputs);
       if (!mounted) return;
       final previous = _cameraId;
@@ -270,8 +287,13 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       });
       if (previous != _cameraId || _mode == null) await _loadCapabilities();
     } catch (error) {
+      LogService.instance.debug(
+        'Capture page: input enumeration failed type=${error.runtimeType}',
+      );
       LogService.instance.warning('Capture input enumeration: $error');
-      if (!silent && mounted) setState(() => _notice = '$error');
+      if (!silent && mounted) {
+        setState(() => _notice = '$error');
+      }
     }
   }
 
@@ -279,6 +301,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     final id = _cameraId;
     final request = ++_capabilityRequest;
     if (id == null) {
+      LogService.instance.debug('Capture page: no camera available to query');
       if (mounted) {
         setState(() {
           _mode = null;
@@ -288,6 +311,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       return;
     }
     setState(() => _loadingCapabilities = true);
+    LogService.instance.debug(
+      'Capture page: capabilities refresh requested fps=$_fps',
+    );
     try {
       var caps = await LiveCaptureService.deviceCapabilities(
         id,
@@ -309,6 +335,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         );
       }
       if (!mounted || request != _capabilityRequest) return;
+      LogService.instance.debug(
+        'Capture page: capabilities loaded modes=${caps.modes.length} effectiveFps=$fps',
+      );
       setState(() {
         _mode = mode;
         _fps = fps;
@@ -321,6 +350,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         }
       });
     } catch (error) {
+      LogService.instance.debug(
+        'Capture page: capabilities query failed type=${error.runtimeType}',
+      );
       if (mounted && request == _capabilityRequest) {
         setState(() => _notice = '$error');
       }
@@ -332,6 +364,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   }
 
   void _profile(String profile) {
+    LogService.instance.debug(
+      'Capture page: preset selected profile=$profile broadcasting=${_service.broadcasting}',
+    );
     if (_service.broadcasting) {
       final caps = _service.capabilities;
       final mode = profile == 'quality'
@@ -377,6 +412,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   Future<void> _refreshVirtualDevices() async {
     if (_checkingOutputs) return;
     setState(() => _checkingOutputs = true);
+    LogService.instance.debug('Capture page: inspecting virtual devices');
     try {
       final status = await Future.wait([
         _virtual.microphoneStatus(),
@@ -384,6 +420,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           WindowsVirtualDevicesService(slot: slot).cameraStatus(),
       ]);
       if (mounted) {
+        LogService.instance.debug(
+          'Capture page: virtual device statuses fetched count=${status.length}',
+        );
         setState(() {
           _audioStatus = status.first;
           _installedCameraSlots = [
@@ -393,6 +432,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         });
       }
     } catch (error) {
+      LogService.instance.debug(
+        'Capture page: virtual device inspection failed type=${error.runtimeType}',
+      );
       if (mounted) setState(() => _notice = '$error');
     } finally {
       if (mounted) setState(() => _checkingOutputs = false);
@@ -400,7 +442,11 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   }
 
   Future<void> _run(Future<void> Function() operation) async {
-    if (_operationRunning) return;
+    if (_operationRunning) {
+      LogService.instance.debug('Capture page: operation skipped while busy');
+      return;
+    }
+    LogService.instance.debug('Capture page: operation started');
     setState(() => _operationRunning = true);
     try {
       await LiveCaptureService.initializeMedia();
@@ -412,8 +458,14 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         _rendererReady = true;
       }
       await operation();
+      LogService.instance.debug(
+        'Capture page: operation completed sender=${_service.broadcasting} receiver=${_service.receiving}',
+      );
       _changed();
     } catch (error) {
+      LogService.instance.debug(
+        'Capture page: operation failed type=${error.runtimeType}',
+      );
       if (mounted) setState(() => _notice = '$error');
     } finally {
       if (mounted) setState(() => _operationRunning = false);
@@ -421,6 +473,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   }
 
   Future<void> _switchCamera() async {
+    LogService.instance.debug('Capture page: switch camera action');
     await _run(_service.switchCamera);
     if (!mounted) return;
     setState(() => _cameraId = _service.activeCameraId);
@@ -440,6 +493,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
 
   @override
   void dispose() {
+    LogService.instance.debug(
+      'Capture page: disposing UI preview and virtual outputs',
+    );
     _previewDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
     navigator.mediaDevices.ondevicechange = _previousDeviceChange;
@@ -593,7 +649,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           for (final fps in mode?.frameRates ?? <int>[])
             DropdownMenuItem(
               value: fps,
-              child: Text('$fps FPS', textDirection: TextDirection.ltr),
+              child: Text(t('$fps فریم در ثانیه', '$fps FPS')),
             ),
         ],
         onChanged: locked
@@ -611,11 +667,18 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               },
       ),
       const SizedBox(height: 14),
-      Text('${t('بیت‌ریت هدف', 'Target bitrate')}: $bitrate kbps'),
+      Text(
+        t(
+          'بیت‌ریت هدف: $bitrate کیلوبیت بر ثانیه',
+          'Target bitrate: $bitrate kbps',
+        ),
+      ),
       if (caps.hasBitrateRange) ...[
         Text(
-          '${caps.minBitrate}–${caps.maxBitrate} kbps · ${caps.codecs}',
-          textDirection: TextDirection.ltr,
+          t(
+            '${caps.minBitrate} تا ${caps.maxBitrate} کیلوبیت بر ثانیه',
+            '${caps.minBitrate}–${caps.maxBitrate} kbps',
+          ),
         ),
         if (caps.maxBitrate > caps.minBitrate)
           Slider(
@@ -651,10 +714,10 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           enabled: !locked,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
-            suffixText: 'kbps',
+            suffixText: t('کیلوبیت/ثانیه', 'kbps'),
             helperMaxLines: 3,
             helperText: t(
-              'این درایور محدودهٔ بیت‌ریت اعلام نمی‌کند؛ مقدار هدف با کنترل نرخ WebRTC اعمال می‌شود.',
+              'این درایور محدودهٔ بیت‌ریت را اعلام نمی‌کند؛ مقدار موردنظر از طریق کنترل نرخ ارتباط زنده اعمال می‌شود.',
               'This driver does not report bitrate bounds; WebRTC applies the target rate.',
             ),
           ),
@@ -765,7 +828,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
               ),
               DropdownMenuItem(
                 value: 'system',
-                child: Text(t('صدای برنامه‌ها / سیستم', 'Apps / system audio')),
+                child: Text(
+                  t('صدای برنامه‌ها و دستگاه', 'Apps and system audio'),
+                ),
               ),
             ],
             onChanged: live
@@ -1166,8 +1231,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.videocam_outlined),
             title: Text(
-              'Localist Camera $slot',
-              textDirection: TextDirection.ltr,
+              t('دوربین مجازی لوکالیست $slot', 'Localist Camera $slot'),
             ),
             trailing: Text(t('آماده', 'Ready')),
           ),
@@ -1238,7 +1302,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                   const SizedBox(height: 8),
                   Text(
                     t(
-                      'انتقال دوربین و صدا با Wi-Fi یا کابل؛ دریافت در Localist و استفاده در OBS و برنامه‌های دیگر.',
+                      'انتقال دوربین و صدا با وای‌فای یا کابل؛ دریافت در لوکالیست و استفاده در برنامه‌های ضبط و پخش تصویر.',
                       'Share camera and audio over Wi-Fi or USB; receive in Localist and use in OBS or other apps.',
                     ),
                   ),
@@ -1254,12 +1318,12 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                         ButtonSegment(
                           value: 'player',
                           icon: const Icon(Icons.headphones),
-                          label: Text(t('گیرنده · Player', 'Player')),
+                          label: Text(t('گیرنده', 'Receiver')),
                         ),
                         ButtonSegment(
                           value: 'server',
                           icon: const Icon(Icons.wifi_tethering),
-                          label: Text(t('فرستنده · Server', 'Server')),
+                          label: Text(t('فرستنده', 'Sender')),
                         ),
                       ],
                       selected: {_panel},
@@ -1270,7 +1334,10 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                   const SizedBox(height: 18),
                   if (_notice.isNotEmpty || _service.error.isNotEmpty) ...[
                     Text(
-                      _notice.isNotEmpty ? _notice : _service.error,
+                      captureErrorText(
+                        context,
+                        _notice.isNotEmpty ? _notice : _service.error,
+                      ),
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
                       ),

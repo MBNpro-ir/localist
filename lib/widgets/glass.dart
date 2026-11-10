@@ -272,10 +272,15 @@ class _WindowsGlassAppBarState extends State<_WindowsGlassAppBar>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final l10n = Localizations.of<AppLocalizations>(context, AppLocalizations);
-    final minimizeLabel = l10n?.minimizeWindow ?? 'Minimize window';
-    final maximizeLabel = l10n?.maximizeWindow ?? 'Maximize window';
-    final restoreLabel = l10n?.restoreWindow ?? 'Restore window';
-    final closeLabel = l10n?.closeButton ?? 'Close button';
+    final fa = Localizations.maybeLocaleOf(context)?.languageCode == 'fa';
+    final minimizeLabel =
+        l10n?.minimizeWindow ?? (fa ? 'کوچک کردن پنجره' : 'Minimize window');
+    final maximizeLabel =
+        l10n?.maximizeWindow ?? (fa ? 'بزرگ کردن پنجره' : 'Maximize window');
+    final restoreLabel =
+        l10n?.restoreWindow ?? (fa ? 'بازگردانی پنجره' : 'Restore window');
+    final closeLabel =
+        l10n?.closeButton ?? (fa ? 'بستن پنجره' : 'Close button');
 
     return DecoratedBox(
       decoration: BoxDecoration(

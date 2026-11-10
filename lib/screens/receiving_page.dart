@@ -417,7 +417,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
         );
       }
     } catch (error) {
-      _logs.error('Unable to open Telegram proxy link: $error');
+      _logs.error('Unable to open Telegram proxy link (${error.runtimeType})');
       if (mounted) {
         showLocalistNotice(
           context,
@@ -500,7 +500,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
     try {
       device = await _chooseWindowsCameraDevice();
     } catch (error) {
-      _logs.error('Unable to start Windows QR scanner: $error');
+      _logs.error('Unable to start Windows QR scanner (${error.runtimeType})');
       if (mounted) {
         showLocalistNotice(
           context,
@@ -589,7 +589,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
     }
     final config = RemoteProxyConfig.tryParse(trimmed);
     if (config != null) {
-      _logs.debug('Remote proxy config parsed ${config.url}');
+      _logs.debug(
+        'Remote proxy config parsed protocol=${config.protocol.name}',
+      );
       await _resolveAndConnect(
         endpoints: [
           SmartProxyEndpoint(
@@ -629,7 +631,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   void _loadConfig(RemoteProxyConfig config, {String? configText}) {
-    _logs.debug('Applying remote proxy config ${config.url}');
+    _logs.debug(
+      'Applying remote proxy config protocol=${config.protocol.name}',
+    );
     setState(() {
       _applyConfig(config);
       _configController.text = configText ?? config.url;
@@ -647,7 +651,7 @@ class _ReceivingPageState extends State<ReceivingPage> {
     LocalistDiscoveredDevice device,
   ) async {
     _logs.debug(
-      'Discovered device picker opened device=${device.name} endpoints=${device.endpoints.length}',
+      'Discovered device picker opened endpoints=${device.endpoints.length}',
     );
     if (widget.controlsLocked ||
         widget.busy ||
@@ -672,8 +676,14 @@ class _ReceivingPageState extends State<ReceivingPage> {
     ProxyProtocol? preferredProtocol,
   }) async {
     if (_resolvingEndpoint || endpoints.isEmpty) {
+      _logs.debug(
+        'Receiving page: endpoint resolution skipped busy=$_resolvingEndpoint candidates=${endpoints.length}',
+      );
       return;
     }
+    _logs.debug(
+      'Receiving page: resolving advertised endpoints count=${endpoints.length} preferredProtocol=${preferredProtocol?.name}',
+    );
     setState(() {
       _resolvingEndpoint = true;
       _configTip = context.l10n.isPersian
@@ -687,6 +697,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
         deviceId: deviceId,
         sourceAddress: sourceAddress,
         preferredProtocol: preferredProtocol,
+      );
+      _logs.debug(
+        'Receiving page: endpoint resolution completed found=${selected != null}',
       );
       if (!mounted) {
         return;
@@ -702,7 +715,9 @@ class _ReceivingPageState extends State<ReceivingPage> {
         return;
       }
       _loadConfig(selected, configText: configText);
-      _logs.info('Automatic VPN connection requested via ${selected.url}');
+      _logs.debug(
+        'Receiving page: automatic VPN connection requested protocol=${selected.protocol.name}',
+      );
       widget.onStartReceiving(selected);
     } finally {
       if (mounted) {

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mime/mime.dart';
 import 'package:xml/xml.dart';
+import 'log_service.dart';
 
 class DlnaRenderer {
   const DlnaRenderer({
@@ -28,7 +29,13 @@ class DlnaCastService extends ChangeNotifier {
   final Set<RawDatagramSocket> _sockets = {};
 
   Future<void> discover() async {
-    if (scanning || _closed) return;
+    if (scanning || _closed) {
+      LogService.instance.debug(
+        'DLNA: discovery skipped scanning=$scanning closed=$_closed',
+      );
+      return;
+    }
+    LogService.instance.debug('DLNA: discovery started');
     scanning = true;
     error = '';
     _devices.clear();
@@ -45,25 +52,32 @@ class DlnaCastService extends ChangeNotifier {
             final socket = await RawDatagramSocket.bind(address, 0);
             sockets.add(socket);
             _sockets.add(socket);
-            socket.listen((event) {
-              if (event != RawSocketEvent.read) return;
-              Datagram? packet;
-              while ((packet = socket.receive()) != null) {
-                final data = utf8.decode(packet!.data, allowMalformed: true);
-                final location = RegExp(
-                  r'^location:\s*(.+)$',
-                  caseSensitive: false,
-                  multiLine: true,
-                ).firstMatch(data)?.group(1)?.trim();
-                final uri = Uri.tryParse(location ?? '');
-                if (uri != null &&
-                    uri.scheme == 'http' &&
-                    isLanHost(uri.host) &&
-                    locations.length < 64) {
-                  locations.add(uri);
+            socket.listen(
+              (event) {
+                if (event != RawSocketEvent.read) return;
+                Datagram? packet;
+                while ((packet = socket.receive()) != null) {
+                  final data = utf8.decode(packet!.data, allowMalformed: true);
+                  final location = RegExp(
+                    r'^location:\s*(.+)$',
+                    caseSensitive: false,
+                    multiLine: true,
+                  ).firstMatch(data)?.group(1)?.trim();
+                  final uri = Uri.tryParse(location ?? '');
+                  if (uri != null &&
+                      uri.scheme == 'http' &&
+                      isLanHost(uri.host) &&
+                      locations.length < 64) {
+                    locations.add(uri);
+                  }
                 }
-              }
-            }, onError: (_) {});
+              },
+              onError: (Object e) {
+                LogService.instance.debug(
+                  'DLNA: SSDP socket error type=${e.runtimeType}',
+                );
+              },
+            );
             socket.send(
               utf8.encode(
                 'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n',
@@ -72,12 +86,18 @@ class DlnaCastService extends ChangeNotifier {
               1900,
             );
           } on SocketException {
+            LogService.instance.debug(
+              'DLNA: interface bind failed; trying next interface',
+            );
             /* Other local interfaces can still work. */
           }
         }
       }
       await Future<void>.delayed(const Duration(seconds: 3));
       final candidates = locations.take(16).toList();
+      LogService.instance.debug(
+        'DLNA: SSDP discovered ${locations.length} endpoints, probing=${candidates.length}',
+      );
       for (var offset = 0; offset < candidates.length; offset += 4) {
         if (_closed) return;
         final results = await Future.wait(
@@ -86,7 +106,10 @@ class DlnaCastService extends ChangeNotifier {
               return await loadRenderer(
                 location,
               ).timeout(const Duration(seconds: 8));
-            } catch (_) {
+            } catch (e) {
+              LogService.instance.debug(
+                'DLNA: renderer probe failed type=${e.runtimeType}',
+              );
               return null;
             }
           }),
@@ -99,8 +122,14 @@ class DlnaCastService extends ChangeNotifier {
         }
       }
       _devices.sort((a, b) => a.name.compareTo(b.name));
+      LogService.instance.debug(
+        'DLNA: discovery completed renderers=${_devices.length}',
+      );
     } catch (exception) {
       error = '$exception';
+      LogService.instance.debug(
+        'DLNA: discovery failed type=${exception.runtimeType}',
+      );
     } finally {
       for (final socket in sockets) {
         socket.close();
@@ -112,6 +141,7 @@ class DlnaCastService extends ChangeNotifier {
   }
 
   Future<DlnaRenderer?> loadRenderer(Uri location) async {
+    LogService.instance.debug('DLNA: renderer description probe started');
     if (!isLanHost(location.host)) {
       throw const FormatException('A local IP address is required');
     }
@@ -119,6 +149,9 @@ class DlnaCastService extends ChangeNotifier {
     request.followRedirects = false;
     final response = await request.close().timeout(const Duration(seconds: 4));
     if (response.statusCode != 200) {
+      LogService.instance.debug(
+        'DLNA: renderer description HTTP ${response.statusCode}',
+      );
       await response.drain<void>();
       return null;
     }
@@ -144,6 +177,9 @@ class DlnaCastService extends ChangeNotifier {
       }
       final control = location.resolve(text(service, 'controlURL') ?? '');
       if (control.host != location.host || control.scheme != 'http') continue;
+      LogService.instance.debug(
+        'DLNA: compatible AVTransport renderer identified',
+      );
       return DlnaRenderer(
         name: text(xml, 'friendlyName') ?? location.host,
         controlUrl: control,
@@ -154,12 +190,16 @@ class DlnaCastService extends ChangeNotifier {
   }
 
   Future<void> play(DlnaRenderer device, Uri media, String name) async {
+    LogService.instance.debug(
+      'DLNA: play requested mediaCategory=${lookupMimeType(name)?.split('/').first ?? 'unknown'}',
+    );
     final metadata = mediaMetadata(media, name);
     await action(device, 'SetAVTransportURI', {
       'CurrentURI': '$media',
       'CurrentURIMetaData': metadata,
     });
     await action(device, 'Play', {'Speed': '1'});
+    LogService.instance.debug('DLNA: playback dispatch complete');
   }
 
   static String mediaMetadata(Uri media, String name) {
@@ -177,6 +217,7 @@ class DlnaCastService extends ChangeNotifier {
     String action,
     Map<String, String> arguments,
   ) async {
+    LogService.instance.debug('DLNA: SOAP action=$action dispatched');
     final request = await _client.postUrl(device.controlUrl);
     request.headers
       ..contentType = ContentType('text', 'xml', charset: 'utf-8')
@@ -189,10 +230,16 @@ class DlnaCastService extends ChangeNotifier {
     final response = await request.close().timeout(const Duration(seconds: 6));
     await response.drain<void>().timeout(const Duration(seconds: 6));
     if (response.statusCode != 200) {
+      LogService.instance.debug(
+        'DLNA: SOAP action=$action rejected status=${response.statusCode}',
+      );
       throw HttpException(
         'Receiver rejected $action (${response.statusCode}). Check supported media formats.',
       );
     }
+    LogService.instance.debug(
+      'DLNA: SOAP action=$action succeeded status=${response.statusCode}',
+    );
   }
 
   static String _escape(String value) =>
@@ -209,6 +256,7 @@ class DlnaCastService extends ChangeNotifier {
 
   @override
   void dispose() {
+    LogService.instance.debug('DLNA: dispose activeSockets=${_sockets.length}');
     _closed = true;
     for (final socket in _sockets) {
       socket.close();

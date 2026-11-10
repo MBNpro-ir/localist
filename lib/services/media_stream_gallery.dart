@@ -1,4 +1,5 @@
 import 'media_stream_web.dart';
+import 'log_service.dart';
 
 /// Filenames are text, and only generated relative routes reach media tags.
 String buildMediaGalleryHtml({
@@ -10,6 +11,11 @@ String buildMediaGalleryHtml({
   for (final item in items) {
     final kind = streamWebKind(item.mime);
     counts[kind] = counts[kind]! + 1;
+  }
+  if (LogService.instance.debugModeEnabled) {
+    LogService.instance.debug(
+      'Media gallery: rendering items=${items.length} images=${counts['image']} audio=${counts['audio']} video=${counts['video']}',
+    );
   }
   final cards = [
     for (var i = 0; i < items.length; i++)

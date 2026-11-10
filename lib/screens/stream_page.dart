@@ -9,6 +9,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../services/media_stream_service.dart';
 import '../services/dlna_cast_service.dart';
 import '../services/native_bridge_service.dart';
+import '../services/log_service.dart';
 import '../widgets/glass.dart';
 import '../widgets/feature_page_layout.dart';
 
@@ -25,6 +26,15 @@ class _StreamPageState extends State<StreamPage> {
   bool _busy = false;
   String _notice = '';
   MediaStreamService get service => widget.service;
+  String _t(String fa, String en) =>
+      Localizations.localeOf(context).languageCode == 'fa' ? fa : en;
+
+  String _castActionLabel(String action) => switch (action) {
+    'Pause' => _t('مکث', 'Pause'),
+    'Play' => _t('ادامهٔ پخش', 'Play'),
+    'Stop' => _t('توقف', 'Stop'),
+    _ => action,
+  };
   @override
   void dispose() {
     super.dispose();
@@ -268,12 +278,19 @@ class _StreamPageState extends State<StreamPage> {
                             onPressed: _busy
                                 ? null
                                 : () => unawaited(_control(action)),
-                            child: Text(action),
+                            child: Text(_castActionLabel(action)),
                           ),
                       ],
                     ),
                   if (_notice.isNotEmpty || _cast.error.isNotEmpty)
-                    Text(_notice.isNotEmpty ? _notice : _cast.error),
+                    Text(
+                      _notice.isNotEmpty
+                          ? _notice
+                          : t(
+                              'جست‌وجوی گیرنده‌های DLNA انجام نشد. اتصال شبکه را بررسی کنید.',
+                              'Could not discover DLNA receivers. Check the network connection.',
+                            ),
+                    ),
                 ],
               ),
             ),
@@ -300,6 +317,7 @@ class _StreamPageState extends State<StreamPage> {
   }
 
   Future<void> _pick(BuildContext context) async {
+    LogService.instance.debug('Stream page: media picker opened');
     setState(() => _busy = true);
     try {
       final result = await FilePicker.pickFiles(type: FileType.any);
@@ -307,14 +325,30 @@ class _StreamPageState extends State<StreamPage> {
         for (final item in result)
           if (item.path != null) File(item.path!),
       ];
+      LogService.instance.debug(
+        'Stream page: picker returned files=${files.length}',
+      );
       if (files.isEmpty || !context.mounted) return;
       service.persian = Localizations.localeOf(context).languageCode == 'fa';
       await service.startFiles(files);
+      LogService.instance.debug(
+        'Stream page: media service started items=${service.items.length}',
+      );
     } catch (error) {
+      LogService.instance.debug(
+        'Stream page: media picker/start failed type=${error.runtimeType}',
+      );
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _t(
+                'رسانه انتخاب یا پخش نشد. فایل‌ها و دسترسی به آن‌ها را بررسی کنید.',
+                'Could not select or share the media. Check the files and their permissions.',
+              ),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -324,16 +358,25 @@ class _StreamPageState extends State<StreamPage> {
   Future<void> _openPlayer() async {
     final url = service.playerUrl;
     if (url == null) return;
+    LogService.instance.debug('Stream page: opening local browser player');
     final opened = await NativeBridgeService.instance.openUri(url);
+    LogService.instance.debug(
+      'Stream page: local browser launch opened=$opened',
+    );
     if (!opened && mounted) {
       setState(
-        () => _notice =
-            'صفحهٔ وب روی این دستگاه باز نشد؛ آدرس را با دکمهٔ کپی در مرورگر وارد کنید.',
+        () => _notice = _t(
+          'صفحهٔ وب روی این دستگاه باز نشد؛ آدرس را با دکمهٔ کپی در مرورگر وارد کنید.',
+          'Could not open the web page on this device. Copy the address and open it in a browser.',
+        ),
       );
     }
   }
 
   Future<void> _play(DlnaRenderer device) async {
+    LogService.instance.debug(
+      'Stream page: casting started mediaItem=${service.selectedIndex} renderers=${_cast.devices.length}',
+    );
     setState(() {
       _busy = true;
       _notice = '';
@@ -345,6 +388,7 @@ class _StreamPageState extends State<StreamPage> {
         orElse: () => service.urls.first,
       );
       await _cast.play(device, Uri.parse(url), service.name);
+      LogService.instance.debug('Stream page: cast dispatched successfully');
       if (mounted) {
         setState(() {
           _playing = device;
@@ -354,13 +398,26 @@ class _StreamPageState extends State<StreamPage> {
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _notice = '$error');
+      LogService.instance.debug(
+        'Stream page: cast failed type=${error.runtimeType}',
+      );
+      if (mounted) {
+        setState(
+          () => _notice = _t(
+            'پخش روی گیرنده انجام نشد. سازگاری قالب رسانه و اتصال شبکه را بررسی کنید.',
+            'Could not cast to the receiver. Check media format compatibility and the network connection.',
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _control(String action) async {
+    LogService.instance.debug(
+      'Stream page: cast control requested action=$action',
+    );
     setState(() => _busy = true);
     try {
       await _cast.action(
@@ -369,14 +426,30 @@ class _StreamPageState extends State<StreamPage> {
         action == 'Play' ? {'Speed': '1'} : {},
       );
     } catch (error) {
-      if (mounted) setState(() => _notice = '$error');
+      LogService.instance.debug(
+        'Stream page: cast control failed type=${error.runtimeType}',
+      );
+      if (mounted) {
+        setState(
+          () => _notice = _t(
+            'اجرای فرمان پخش روی گیرنده انجام نشد.',
+            'Could not control playback on the receiver.',
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _wirelessDisplay() async {
+    LogService.instance.debug(
+      'Stream page: launching wireless display settings',
+    );
     final opened = await NativeBridgeService.instance.openWirelessDisplay();
+    LogService.instance.debug(
+      'Stream page: wireless display settings launched=$opened',
+    );
     if (!opened && mounted) {
       setState(
         () => _notice = Localizations.localeOf(context).languageCode == 'fa'

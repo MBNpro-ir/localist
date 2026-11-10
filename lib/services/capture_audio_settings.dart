@@ -1,6 +1,7 @@
 // Audio settings are shared by signaling, native output and the UI.
 // Values are validated before crossing a platform/network boundary.
 import 'dart:typed_data';
+import 'log_service.dart';
 
 class CaptureAudioSettings {
   const CaptureAudioSettings({
@@ -129,6 +130,9 @@ String configureCaptureAudioSdp(String sdp, CaptureAudioSettings settings) {
     ).firstMatch(line);
     if (match != null) payloads.add(match[1]!);
   }
+  LogService.instance.debug(
+    'Capture audio: configuring SDP opusPayloads=${payloads.length} bitrate=${settings.bitrateKbps} uncompressed=${settings.uncompressed} continuous=${settings.continuous}',
+  );
   for (final payload in payloads) {
     final index = lines.indexWhere(
       (line) => line.startsWith('a=fmtp:$payload '),

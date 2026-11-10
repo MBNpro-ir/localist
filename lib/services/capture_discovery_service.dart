@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'lan_network_service.dart';
+import 'log_service.dart';
 
 class CaptureAdvertisement {
   const CaptureAdvertisement({
@@ -109,12 +110,19 @@ class CaptureDiscoveryService {
   bool _sending = false;
   DateTime? _lastQuery;
   List<LanRoute> _routes = [];
+  int _announcements = 0, _received = 0;
   CaptureAdvertisement? Function()? advertisement;
   void Function(CaptureAdvertisement)? onAdvertisement;
   String error = '';
   bool get running => _socket != null;
   Future<void> start() async {
-    if (_socket != null) return;
+    if (_socket != null) {
+      LogService.instance.debug(
+        'Capture discovery: start skipped, already listening',
+      );
+      return;
+    }
+    LogService.instance.debug('Capture discovery: binding UDP listener');
     try {
       final socket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
@@ -133,7 +141,11 @@ class CaptureDiscoveryService {
         if (!isPhysicalLan(interface.name)) continue;
         try {
           socket.joinMulticast(group, interface);
-        } catch (_) {}
+        } catch (e) {
+          LogService.instance.debug(
+            'Capture discovery: multicast join failed errorType=${e.runtimeType}',
+          );
+        }
       }
       socket.listen(
         (event) {
@@ -157,6 +169,11 @@ class CaptureDiscoveryService {
                 value.address.address,
               );
               if (peer != null) {
+                if (++_received == 1 || _received % 20 == 0) {
+                  LogService.instance.debug(
+                    'Capture discovery: valid advertisements=$_received routes=${_routes.length} camera=${peer.camera} microphone=${peer.microphone}',
+                  );
+                }
                 final routes =
                     _routes.where((route) => route.contains(peer.host)).toList()
                       ..sort(
@@ -172,6 +189,9 @@ class CaptureDiscoveryService {
         },
         onError: (Object e) {
           error = '$e';
+          LogService.instance.debug(
+            'Capture discovery: socket event error type=${e.runtimeType}',
+          );
         },
       );
       _timer = Timer.periodic(
@@ -179,8 +199,12 @@ class CaptureDiscoveryService {
         (_) => unawaited(announce()),
       );
       await announce(query: true);
+      LogService.instance.debug('Capture discovery: listener active');
     } catch (e) {
       error = '$e';
+      LogService.instance.debug(
+        'Capture discovery: listener start failed type=${e.runtimeType}',
+      );
       await stop();
       rethrow;
     }
@@ -200,6 +224,11 @@ class CaptureDiscoveryService {
               (_lastQuery == null ||
                   now.difference(_lastQuery!) >= const Duration(seconds: 15)));
       if (!query && own == null) return;
+      if (++_announcements == 1 || _announcements % 10 == 0) {
+        LogService.instance.debug(
+          'Capture discovery: announce cycle=$_announcements query=$query routes=${_routes.length} publishing=${own != null}',
+        );
+      }
       if (query) _lastQuery = now;
       final bytes = utf8.encode(
         query ? 'localist.capture.query.v1' : jsonEncode(own!.toJson()),
@@ -219,22 +248,32 @@ class CaptureDiscoveryService {
           if (route.broadcast != null) {
             output.send(bytes, InternetAddress(route.broadcast!), port);
           }
-        } catch (_) {
+        } catch (e) {
+          LogService.instance.debug(
+            'Capture discovery: route send failed type=${e.runtimeType}',
+          );
         } finally {
           output?.close();
         }
       }
     } catch (e) {
       error = '$e';
+      LogService.instance.debug(
+        'Capture discovery: announce failed type=${e.runtimeType}',
+      );
     } finally {
       _sending = false;
     }
   }
 
   Future<void> stop() async {
+    LogService.instance.debug(
+      'Capture discovery: stop requested running=$running announcements=$_announcements received=$_received',
+    );
     _timer?.cancel();
     _timer = null;
     _socket?.close();
     _socket = null;
+    LogService.instance.debug('Capture discovery: stopped');
   }
 }

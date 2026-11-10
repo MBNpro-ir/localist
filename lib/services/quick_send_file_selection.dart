@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'native_bridge_service.dart';
+import 'log_service.dart';
 
 /// Expands dropped folders while preserving their relative paths for transfer.
 /// Bounds the whole selection, including files selected before this drop.
@@ -11,6 +12,8 @@ Future<List<QuickSendSharedFile>> expandQuickSendSharedFiles(
   Iterable<String> existingPaths = const [],
   int maxFiles = 5000,
 }) async {
+  final logs = LogService.instance;
+  logs.debug('Quick Send file selection expansion started maxFiles=$maxFiles');
   String pathKey(String path) {
     final normalized = p.normalize(p.absolute(path));
     return Platform.isWindows ? normalized.toLowerCase() : normalized;
@@ -18,6 +21,8 @@ Future<List<QuickSendSharedFile>> expandQuickSendSharedFiles(
 
   final seen = {for (final path in existingPaths) pathKey(path)};
   final expanded = <QuickSendSharedFile>[];
+  var skipped = 0;
+  var directories = 0;
   void addFile(String path, String name) {
     if (seen.length < maxFiles && seen.add(pathKey(path))) {
       expanded.add(QuickSendSharedFile(path: path, name: name));
@@ -27,7 +32,10 @@ Future<List<QuickSendSharedFile>> expandQuickSendSharedFiles(
   for (final shared in files) {
     if (seen.length >= maxFiles) break;
     final path = shared.path.trim();
-    if (path.isEmpty) continue;
+    if (path.isEmpty) {
+      skipped++;
+      continue;
+    }
     final name = shared.name.trim().isEmpty
         ? p.basename(p.normalize(path))
         : shared.name.trim();
@@ -36,7 +44,11 @@ Future<List<QuickSendSharedFile>> expandQuickSendSharedFiles(
       continue;
     }
     final directory = Directory(path);
-    if (!await directory.exists()) continue;
+    if (!await directory.exists()) {
+      skipped++;
+      continue;
+    }
+    directories++;
     try {
       await for (final entity in directory.list(
         recursive: true,
@@ -50,8 +62,14 @@ Future<List<QuickSendSharedFile>> expandQuickSendSharedFiles(
         if (seen.length >= maxFiles) break;
       }
     } on FileSystemException {
+      logs.debug(
+        'Quick Send directory enumeration failed; retaining selected files',
+      );
       // Keep readable items when one folder cannot be enumerated.
     }
   }
+  logs.debug(
+    'Quick Send selection expanded files=${expanded.length} folders=$directories skipped=$skipped limitReached=${seen.length >= maxFiles}',
+  );
   return expanded;
 }

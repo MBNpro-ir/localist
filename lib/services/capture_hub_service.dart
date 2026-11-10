@@ -34,6 +34,7 @@ class CaptureReceiver {
       working = false,
       ready = false;
   int failures = 0;
+  int pcmErrors = 0;
   String? attemptedLink;
   final Map<String, DateTime> failedRoutes = {};
   String error = '', outputError = '';
@@ -82,6 +83,9 @@ class CaptureHubService extends ChangeNotifier {
 
   Future<void> start() => _starting ??= _start();
   Future<void> _start() async {
+    LogService.instance.debug(
+      'Capture hub: starting discovery windows=$windows',
+    );
     _stopped = false;
     _prefs = await SharedPreferences.getInstance();
     try {
@@ -124,14 +128,21 @@ class CaptureHubService extends ChangeNotifier {
     FeatureActivityService.instance.addListener(_activityChanged);
     try {
       await discovery.start();
+      LogService.instance.debug('Capture hub: discovery active');
     } catch (e) {
       error = '$e';
+      LogService.instance.debug(
+        'Capture hub: discovery start failed type=${e.runtimeType}',
+      );
     }
     _timer = Timer.periodic(
       const Duration(seconds: 2),
       (_) => unawaited(tick()),
     );
     _changed();
+    LogService.instance.debug(
+      'Capture hub: started savedSlots=${_preferredSlots.length}',
+    );
   }
 
   void _senderChanged() {
@@ -186,6 +197,9 @@ class CaptureHubService extends ChangeNotifier {
           : Duration(seconds: min(30, 2 << min(4, receiver.failures))),
     );
     receiver.failures++;
+    LogService.instance.debug(
+      'Capture hub: receiver slot=${receiver.slot} route failed attempts=${receiver.failures} alternate=${alternative.link != link} retryDelaySeconds=${receiver.retryAt.difference(DateTime.now()).inSeconds}',
+    );
     receiver.advertisement = alternative;
     receiver.attemptedLink = null;
   }
@@ -208,7 +222,15 @@ class CaptureHubService extends ChangeNotifier {
         final obsolete = receivers
             .where((r) => !r.online && !r.capture.active && !r.working)
             .firstOrNull;
-        if (obsolete == null) return;
+        if (obsolete == null) {
+          LogService.instance.debug(
+            'Capture hub: discovered receiver ignored, all slots occupied',
+          );
+          return;
+        }
+        LogService.instance.debug(
+          'Capture hub: evicting stale receiver slot=${obsolete.slot}',
+        );
         _receivers.remove(obsolete.advertisement.id);
         _routes.remove(obsolete.advertisement.id);
         unawaited(_disposeReceiver(obsolete));
@@ -231,6 +253,9 @@ class CaptureHubService extends ChangeNotifier {
         _receiverFactory(),
         _rendererFactory(),
         _outputFactory(slot),
+      );
+      LogService.instance.debug(
+        'Capture hub: discovered new receiver slot=$slot video=${advertisement.camera} audio=${advertisement.microphone}',
       );
       final preferences = _prefs?.getString(
         'capture.receiver.${advertisement.id}',
@@ -256,6 +281,13 @@ class CaptureHubService extends ChangeNotifier {
           unawaited(
             target.output.pushPcm(data).catchError((Object error) {
               target.outputError = '$error';
+              target.pcmErrors++;
+              if (LogService.instance.debugModeEnabled &&
+                  (target.pcmErrors == 1 || target.pcmErrors % 100 == 0)) {
+                LogService.instance.debug(
+                  'Capture hub: slot=${target.slot} PCM relay failures=${target.pcmErrors} type=${error.runtimeType}',
+                );
+              }
             }),
           );
         }
@@ -266,6 +298,9 @@ class CaptureHubService extends ChangeNotifier {
     receiver.advertisement = advertisement;
     receiver.lastSeen = DateTime.now();
     if (changed) {
+      LogService.instance.debug(
+        'Capture hub: receiver slot=${receiver.slot} signaling route changed, restarting peer',
+      );
       // A restarted sender has a new signaling key. Retire only this session.
       receiver.retryAt = DateTime.fromMillisecondsSinceEpoch(0);
       // An in-flight handshake checks the new link after it completes. Do not
@@ -280,6 +315,7 @@ class CaptureHubService extends ChangeNotifier {
   }
 
   Future<void> setEnabled(bool value) async {
+    LogService.instance.debug('Capture hub: automatic receiver enabled=$value');
     enabled = value;
     await _prefs?.setBool('capture.autoReceive', value);
     await tick();
@@ -294,6 +330,9 @@ class CaptureHubService extends ChangeNotifier {
     String? audioEndpoint,
     CaptureAudioSettings? audioSettings,
   }) async {
+    LogService.instance.debug(
+      'Capture hub: configure slot=${receiver.slot} enabled=$enabled video=$video audio=$audio endpointChanged=${audioEndpoint != null} audioSettingsChanged=${audioSettings != null}',
+    );
     if (enabled != null) receiver.enabled = enabled;
     if (video != null) receiver.video = video;
     if (audio != null) receiver.audio = audio;
@@ -326,6 +365,9 @@ class CaptureHubService extends ChangeNotifier {
     _ticking = true;
     try {
       if (!discovery.running) {
+        LogService.instance.debug(
+          'Capture hub: discovery unavailable, attempting restart',
+        );
         await discovery.start();
         error = '';
       }
@@ -350,6 +392,11 @@ class CaptureHubService extends ChangeNotifier {
             );
           }
           if (!enabled || !r.enabled || !r.online) {
+            if (r.capture.active) {
+              LogService.instance.debug(
+                'Capture hub: pausing slot=${r.slot} hubEnabled=$enabled slotEnabled=${r.enabled} online=${r.online}',
+              );
+            }
             if (r.capture.active) await r.capture.stop();
             await _syncOutput(r);
             return;
@@ -368,6 +415,9 @@ class CaptureHubService extends ChangeNotifier {
             return;
           }
           r.working = true;
+          LogService.instance.debug(
+            'Capture hub: connecting slot=${r.slot} attempts=${r.failures} video=${r.advertisement.camera} audio=${r.advertisement.microphone}',
+          );
           r.error = '';
           _changed();
           try {
@@ -376,22 +426,31 @@ class CaptureHubService extends ChangeNotifier {
               r.ready = true;
             }
             final link = r.advertisement.link;
-            LogService.instance.info(
-              'Camera receiver ${r.slot + 1}: connecting to ${r.advertisement.host}:${r.advertisement.port}',
+            LogService.instance.debug(
+              'Capture hub: receiver slot=${r.slot} starting local signaling handshake',
             );
             r.attemptedLink = link;
             await r.capture.connect(link);
+            LogService.instance.debug(
+              'Capture hub: connect finished slot=${r.slot} active=${r.capture.active}',
+            );
             if (_stopped ||
                 !enabled ||
                 !r.enabled ||
                 link != r.advertisement.link) {
               await r.capture.stop();
+              LogService.instance.debug(
+                'Capture hub: discarded outdated session slot=${r.slot}',
+              );
             } else {
               r.failedRoutes.remove(link);
             }
             r.failures = 0;
           } catch (e) {
             r.error = '$e';
+            LogService.instance.debug(
+              'Capture hub: receiver connect failed slot=${r.slot} type=${e.runtimeType}',
+            );
             _routeFailed(r, r.attemptedLink ?? r.advertisement.link);
           } finally {
             r.working = false;
@@ -402,6 +461,9 @@ class CaptureHubService extends ChangeNotifier {
       );
     } catch (e) {
       error = '$e';
+      LogService.instance.debug(
+        'Capture hub: reconciliation failed type=${e.runtimeType}',
+      );
       _changed();
     } finally {
       _ticking = false;
@@ -430,6 +492,9 @@ class CaptureHubService extends ChangeNotifier {
           trackId: videoTrack,
         );
         receiver.renderedVideoTrack = videoTrack;
+        LogService.instance.debug(
+          'Capture hub: slot=${receiver.slot} renderer stream changed hasVideo=${videoTrack != null}',
+        );
       }
       await receiver.capture.setPlaybackMuted(true);
       final failures = <Object>[];
@@ -450,6 +515,9 @@ class CaptureHubService extends ChangeNotifier {
               'Camera receiver ${receiver.slot + 1}: virtual webcam output started',
             );
           } else if (!show && receiver.output.cameraEnabled) {
+            LogService.instance.debug(
+              'Capture hub: slot=${receiver.slot} stopping virtual camera output',
+            );
             receiver.output.stopCamera();
           }
         } catch (error) {
@@ -473,8 +541,11 @@ class CaptureHubService extends ChangeNotifier {
       final changed = receiver.outputError != '$e';
       receiver.outputError = '$e';
       if (changed) {
+        LogService.instance.debug(
+          'Capture hub: output sync failed slot=${receiver.slot} type=${e.runtimeType}',
+        );
         LogService.instance.warning(
-          'Camera receiver ${receiver.slot + 1} output: ${redactCaptureError('$e')}',
+          'Camera receiver ${receiver.slot + 1} output failed (${e.runtimeType})',
         );
       }
     } finally {
@@ -487,6 +558,9 @@ class CaptureHubService extends ChangeNotifier {
   }
 
   Future<void> _disposeReceiver(CaptureReceiver r) async {
+    LogService.instance.debug(
+      'Capture hub: disposing receiver slot=${r.slot} active=${r.capture.active}',
+    );
     r.output.stopCamera();
     await r.capture.stop();
     r.capture.dispose();
@@ -495,6 +569,9 @@ class CaptureHubService extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    LogService.instance.debug(
+      'Capture hub: stopping receivers=${_receivers.length} senderActive=${sender.active}',
+    );
     _stopped = true;
     _timer?.cancel();
     _timer = null;
@@ -507,5 +584,6 @@ class CaptureHubService extends ChangeNotifier {
     _routes.clear();
     await sender.stop();
     _starting = null;
+    LogService.instance.debug('Capture hub: stopped');
   }
 }

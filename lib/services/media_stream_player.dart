@@ -1,4 +1,5 @@
 import 'media_stream_web.dart';
+import 'log_service.dart';
 
 /// Native media controls remain usable when JavaScript is unavailable.
 String buildMediaPlayerHtml({
@@ -14,6 +15,11 @@ String buildMediaPlayerHtml({
 }) {
   String t(String fa, String en) => persian ? fa : en;
   final kind = streamWebKind(mime);
+  if (LogService.instance.debugModeEnabled) {
+    LogService.instance.debug(
+      'Media player: rendering mediaKind=$kind playlistItems=${items.length} index=$currentIndex',
+    );
+  }
   final image = kind == 'image', audio = kind == 'audio';
   final path = streamWebPath(mediaPath), safeName = streamWebEscape(name);
   final controls = image

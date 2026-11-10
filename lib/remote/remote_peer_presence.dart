@@ -1,3 +1,5 @@
+import '../services/log_service.dart';
+
 enum RemotePeerPresence { unknown, online, offline }
 
 /// Native presence is transient. A missing/stale response is not an offline
@@ -9,10 +11,17 @@ class RemotePeerPresenceStore {
   final _states = <String, (RemotePeerPresence, DateTime)>{};
   static const lifetime = Duration(seconds: 30);
 
-  void clear() => _states.clear();
+  void clear() {
+    LogService.instance.debug(
+      'Remote presence cache cleared previousEntries=${_states.length}',
+    );
+    _states.clear();
+  }
 
   void applySnapshot(Map<String, String> states) {
     final time = _now();
+    var online = 0;
+    var offline = 0;
     for (final entry in states.entries) {
       final state = RemotePeerPresence.values.firstWhere(
         (s) => s.name == entry.value,
@@ -22,20 +31,32 @@ class RemotePeerPresenceStore {
         _states.remove(entry.key);
       } else {
         _states[entry.key] = (state, time);
+        if (state == RemotePeerPresence.online) online++;
+        if (state == RemotePeerPresence.offline) offline++;
       }
     }
+    LogService.instance.debug(
+      'Remote presence snapshot applied entries=${states.length} online=$online offline=$offline known=${_states.length}',
+    );
   }
 
   void applyEvent(Map<String, dynamic> event) {
     final time = _now();
+    var changes = 0;
     for (final (key, state) in [
       ('onlines', RemotePeerPresence.online),
       ('offlines', RemotePeerPresence.offline),
     ]) {
       for (final id in (event[key] as String? ?? '').split(',')) {
-        if (id.isNotEmpty) _states[id] = (state, time);
+        if (id.isNotEmpty) {
+          _states[id] = (state, time);
+          changes++;
+        }
       }
     }
+    LogService.instance.debug(
+      'Remote presence event applied changed=$changes known=${_states.length}',
+    );
   }
 
   RemotePeerPresence get(String id) {

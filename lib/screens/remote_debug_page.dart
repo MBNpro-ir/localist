@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/localist/connection_card.dart';
 import 'package:flutter_hbb/localist/connection_info.dart';
+import '../l10n/app_localizations.dart';
 import '../services/rustdesk_debug_service.dart';
+import '../services/log_service.dart';
 import '../services/feature_activity_service.dart';
 import '../services/remote_device_service.dart';
 import '../widgets/glass.dart';
@@ -55,15 +57,23 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
   }
 
   Future<void> _initialize() async {
+    LogService.instance.debug('Remote screen initialization started');
     await _service.initialize();
+    LogService.instance.debug(
+      'Remote screen engine initialized ready=${_service.ready}',
+    );
     if (!mounted) return;
     await _devices.initialize();
+    LogService.instance.debug(
+      'Remote screen device registry initialized count=${_devices.devices.length}',
+    );
     if (!mounted) return;
     final known = _devices.devices.map((d) => d.id).toSet();
     for (final id in _service.recent.reversed) {
       if (!known.contains(id)) await _devices.rememberOpened(id);
     }
     await _refreshSavedPeers();
+    LogService.instance.debug('Remote screen initialization completed');
   }
 
   bool _loadingPeers = false;
@@ -80,8 +90,16 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
       server: config,
       ready: _service.ready && _service.online,
     );
-    if (_loadingPeers || !_service.ready) return;
+    if (_loadingPeers || !_service.ready) {
+      LogService.instance.debug(
+        'Remote peer refresh skipped loading=$_loadingPeers ready=${_service.ready}',
+      );
+      return;
+    }
     _loadingPeers = true;
+    LogService.instance.debug(
+      'Remote peer refresh started count=${_devices.devices.length} relay=$_relay',
+    );
     try {
       for (final device in _devices.devices) {
         await _devices.updatePeerInfo(
@@ -89,7 +107,13 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
           await _service.savedPeer(device.id),
         );
       }
-    } catch (_) {
+      LogService.instance.debug(
+        'Remote peer refresh completed count=${_devices.devices.length}',
+      );
+    } catch (error) {
+      LogService.instance.debug(
+        'Remote peer refresh failed type=${error.runtimeType}',
+      );
       // Existing saved names remain available while the host reconnects.
     } finally {
       _loadingPeers = false;
@@ -119,7 +143,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
             ),
             const SizedBox(height: 4),
             Text(
-              'Powered by RustDesk',
+              t('با فناوری RustDesk', 'Powered by RustDesk'),
               textDirection: TextDirection.ltr,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: Theme.of(context).colorScheme.primary,
@@ -285,7 +309,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(t('استفاده از Relay', 'Use relay')),
+                    title: Text(t('استفاده از سرور واسط', 'Use relay')),
                     value: _relay,
                     subtitle: _service.profile.server.usesRelay
                         ? Text(
@@ -323,7 +347,9 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Text(
-                        _notice.isNotEmpty ? _notice : _service.error,
+                        _notice.isNotEmpty
+                            ? _notice
+                            : context.l10n.remoteConnectionFailed,
                       ),
                     ),
                 ],
@@ -349,11 +375,15 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
   }
 
   Future<void> _launch() async {
+    LogService.instance.debug(
+      'Remote connection requested mode=$_mode relay=$_relay targetEntered=${_target.text.trim().isNotEmpty} busy=$_connecting',
+    );
     if (_connecting) return;
     if (!FeatureActivityService.instance.reserve(
       this,
       LocalistFeature.remoteControl,
     )) {
+      LogService.instance.debug('Remote connection blocked by active feature');
       setState(
         () => _notice = faText(
           context,
@@ -375,6 +405,9 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
         relay: _relay,
         password: password,
       );
+      LogService.instance.debug(
+        'Remote connection dispatched mode=$_mode relay=$_relay passwordProvided=${password.isNotEmpty}',
+      );
       if (_target.text.trim().isNotEmpty) {
         await _devices.rememberOpened(normalizeRemoteTarget(_target.text));
       }
@@ -388,8 +421,16 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
         );
       }
     } catch (error) {
-      if (mounted) setState(() => _notice = '$error');
+      LogService.instance.debug(
+        'Remote connection failed type=${error.runtimeType}',
+      );
+      if (mounted) {
+        setState(() => _notice = context.l10n.remoteConnectionFailed);
+      }
     } finally {
+      LogService.instance.debug(
+        'Remote connection request finished; refreshing engine state',
+      );
       await _service.refresh();
       FeatureActivityService.instance.setActive(
         this,
@@ -401,15 +442,30 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
   }
 
   Future<void> _hosting() async {
+    LogService.instance.debug(
+      'Remote hosting toggle requested enabled=${!_service.hosting}',
+    );
     try {
       await _service.setAndroidHosting(!_service.hosting);
+      LogService.instance.debug(
+        'Remote hosting toggle completed enabled=${_service.hosting}',
+      );
     } catch (error) {
-      if (mounted) setState(() => _notice = '$error');
+      LogService.instance.debug(
+        'Remote hosting toggle failed type=${error.runtimeType}',
+      );
+      if (mounted) {
+        setState(() => _notice = context.l10n.remoteHostingFailed);
+      }
     }
   }
 
   Future<void> _copy(String value, String message) async {
+    LogService.instance.debug(
+      'Remote screen copy requested characterCount=${value.length}',
+    );
     await Clipboard.setData(ClipboardData(text: value));
+    LogService.instance.debug('Remote screen copy completed');
     if (mounted) {
       showLocalistNotice(
         context,
@@ -421,14 +477,23 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
   }
 
   Future<void> _pasteAndConnect() async {
+    LogService.instance.debug('Remote paste-and-connect requested');
     try {
       final clip = await Clipboard.getData(Clipboard.kTextPlain);
+      LogService.instance.debug(
+        'Remote clipboard read hasText=${clip?.text?.isNotEmpty == true}',
+      );
       final info = RemoteConnectionInfo.parse(clip?.text ?? '');
       _target.text = info.id;
       _password.text = info.password;
       await _launch();
     } catch (error) {
-      if (mounted) setState(() => _notice = '$error');
+      LogService.instance.debug(
+        'Remote paste-and-connect failed type=${error.runtimeType}',
+      );
+      if (mounted) {
+        setState(() => _notice = context.l10n.remoteConnectionFailed);
+      }
     }
   }
 }

@@ -370,6 +370,9 @@ void _runApp(
   runApp(RefreshWrapper(
     builder: (context) => GetMaterialApp(
       navigatorKey: globalKey,
+      locale: localistLanguageOverride == null
+          ? null
+          : Locale(localistLanguageOverride!),
       debugShowCheckedModeBanner: false,
       title: title,
       theme: MyTheme.lightTheme,
@@ -507,6 +510,9 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         ],
         child: GetMaterialApp(
           navigatorKey: globalKey,
+          locale: localistLanguageOverride == null
+              ? null
+              : Locale(localistLanguageOverride!),
           debugShowCheckedModeBanner: false,
           title: isWeb
               ? '${'Localist'} Web Client V2 (Preview)'

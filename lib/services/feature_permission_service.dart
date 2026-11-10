@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'native_bridge_service.dart';
+import 'log_service.dart';
 
 enum FeatureAccess {
   notifications,
@@ -61,12 +62,21 @@ class FeaturePermissionService with WidgetsBindingObserver {
   Future<bool> requestWelcome() => _serial(_requestWelcome);
   Future<bool> _requestWelcome() async {
     if (!_android) return true;
+    LogService.instance.debug(
+      'Permissions: welcome request started count=${welcomeAccess.length}',
+    );
     for (final access in welcomeAccess) {
       if (!await granted(access)) await _request(access);
     }
     for (final access in welcomeAccess) {
-      if (!await granted(access)) return false;
+      if (!await granted(access)) {
+        LogService.instance.debug(
+          'Permissions: welcome incomplete permission=${access.name}',
+        );
+        return false;
+      }
     }
+    LogService.instance.debug('Permissions: welcome requests completed');
     return true;
   }
 
@@ -152,12 +162,18 @@ class FeaturePermissionService with WidgetsBindingObserver {
 
   Future<void> openSettings(FeatureAccess access) async {
     if (!Platform.isAndroid) return;
+    LogService.instance.debug(
+      'Permissions: opening settings permission=${access.name}',
+    );
     await _serial(() async {
       await _withResume(() async {
         final opened = await const MethodChannel(
           'localist/remote',
         ).invokeMethod<bool>('permissionSettings', access.name);
         if (opened != true) await openAppSettings();
+        LogService.instance.debug(
+          'Permissions: settings dispatch permission=${access.name} opened=$opened',
+        );
       });
       return true;
     });
@@ -165,6 +181,11 @@ class FeaturePermissionService with WidgetsBindingObserver {
 
   Future<bool> _serial(Future<bool> Function() run) async {
     if (!_android) return true;
+    if (_pending != null) {
+      LogService.instance.debug(
+        'Permissions: queued request behind pending operation',
+      );
+    }
     final task = (_pending ?? Future<bool>.value(false))
         .catchError((Object _) => false)
         .then((_) => run());
@@ -181,25 +202,58 @@ class FeaturePermissionService with WidgetsBindingObserver {
     String? reason,
     bool explain,
   ) async {
+    LogService.instance.debug(
+      'Permissions: ensure started requested=${access.map((item) => item.name).join(',')} explain=$explain',
+    );
     final missing = <FeatureAccess>[];
     for (final item in access) {
       if (!await granted(item)) missing.add(item);
     }
-    if (missing.isEmpty) return true;
+    if (missing.isEmpty) {
+      LogService.instance.debug('Permissions: ensure granted without prompt');
+      return true;
+    }
+    LogService.instance.debug(
+      'Permissions: missing=${missing.map((item) => item.name).join(',')}',
+    );
     final context = navigatorKey.currentContext;
-    if (_ask == null && (context == null || !context.mounted)) return false;
+    if (_ask == null && (context == null || !context.mounted)) {
+      LogService.instance.debug(
+        'Permissions: cannot present confirmation, no mounted navigator',
+      );
+      return false;
+    }
     final fa = context != null && _fa(context);
     if (explain && !await _confirm(context, missing, fa, reason: reason)) {
+      LogService.instance.debug('Permissions: initial prompt declined');
       return false;
     }
     for (final item in missing) {
       if (await granted(item)) continue;
       await _request(item);
-      if (await granted(item)) continue;
+      if (await granted(item)) {
+        LogService.instance.debug(
+          'Permissions: granted after request permission=${item.name}',
+        );
+        continue;
+      }
+      LogService.instance.debug(
+        'Permissions: still denied after request permission=${item.name}',
+      );
       final current = navigatorKey.currentContext;
-      if (_ask == null && (current == null || !current.mounted)) return false;
+      if (_ask == null && (current == null || !current.mounted)) {
+        LogService.instance.debug(
+          'Permissions: settings prompt unavailable permission=${item.name}',
+        );
+        return false;
+      }
       final settings = await _confirm(current, [item], fa, settings: true);
-      if (!settings) return false;
+      if (!settings) {
+        LogService.instance.debug(
+          'Permissions: settings prompt declined permission=${item.name}',
+        );
+        return false;
+      }
       await _withResume(() async {
         if (item == FeatureAccess.remoteInput) {
           await openAppSettings();
@@ -212,12 +266,23 @@ class FeaturePermissionService with WidgetsBindingObserver {
       if (item == FeatureAccess.remoteInput && !await granted(item)) {
         await _request(item);
       }
-      if (!await granted(item)) return false;
+      if (!await granted(item)) {
+        LogService.instance.debug(
+          'Permissions: still denied after settings permission=${item.name}',
+        );
+        return false;
+      }
     }
+    LogService.instance.debug(
+      'Permissions: ensure completed granted=${access.length}',
+    );
     return true;
   }
 
   Future<void> _request(FeatureAccess access) async {
+    LogService.instance.debug(
+      'Permissions: dispatching permission=${access.name} injected=${_requestAccess != null}',
+    );
     if (_requestAccess != null) {
       await _requestAccess(access);
       return;
@@ -228,6 +293,10 @@ class FeaturePermissionService with WidgetsBindingObserver {
         await _withResume(() async {
           await permission.request();
         });
+      } else {
+        LogService.instance.debug(
+          'Permissions: permanently denied permission=${access.name}',
+        );
       }
       return;
     }
@@ -253,6 +322,9 @@ class FeaturePermissionService with WidgetsBindingObserver {
     });
     // MediaProjection/service state arrives shortly after the activity result.
     if (access == FeatureAccess.screenCapture) {
+      LogService.instance.debug(
+        'Permissions: waiting for screen capture authorization',
+      );
       for (var n = 0; n < 20 && !await granted(access); n++) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
@@ -266,6 +338,7 @@ class FeaturePermissionService with WidgetsBindingObserver {
     }
     final resumed = Completer<void>();
     _resumed = resumed;
+    LogService.instance.debug('Permissions: system UI handoff initiated');
     await action();
     // External settings calls return before the user comes back. Runtime
     // dialogs often already awaited their activity result.
@@ -275,10 +348,16 @@ class FeaturePermissionService with WidgetsBindingObserver {
       await resumed.future;
     }
     if (identical(_resumed, resumed)) _resumed = null;
+    LogService.instance.debug('Permissions: system UI handoff returned');
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _resumed != null) {
+      LogService.instance.debug(
+        'Permissions: resumed from external permission UI',
+      );
+    }
     if (state == AppLifecycleState.resumed && _resumed?.isCompleted == false) {
       _resumed!.complete();
     }

@@ -1,56 +1,103 @@
-<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Localist • Camera & Mic</title>
-<style>
-:root{color-scheme:dark;font:16px system-ui;background:#101519;color:#e0e8ed}
-body{margin:0;min-height:100vh;display:grid;grid-template-rows:1fr auto}
-video{width:100%;height:calc(100vh - 88px);object-fit:contain;background:#000}
-footer{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:16px}
-button,select{background:#9dccff;color:#09243d;border:0;border-radius:16px;padding:10px 16px;font:inherit;cursor:pointer}
-#state{flex:1}body.obs video{height:100vh}body.obs footer{display:none}
-</style><video id="media" autoplay playsinline></video><footer>
-<span id="state">در حال اتصال • Connecting…</span>
-<button id="play">فعال‌کردن صدا • Enable sound</button>
-<button id="mute">بی‌صدا • Mute</button>
-<button id="mirror">آینه • Mirror</button>
-<button id="full">تمام صفحه • Fullscreen</button>
-<button id="retry">اتصال مجدد • Reconnect</button>
-</footer><script>
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Localist • Camera & Mic</title>
+  <style>
+    :root{color-scheme:dark;font:16px system-ui;background:#101519;color:#e0e8ed}
+    body{margin:0;min-height:100vh;display:grid;grid-template-rows:1fr auto}
+    video{width:100%;height:calc(100vh - 88px);object-fit:contain;background:#000}
+    footer{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:16px}
+    button{background:#9dccff;color:#09243d;border:0;border-radius:16px;padding:10px 16px;font:inherit;cursor:pointer}
+    #state{flex:1}body.obs video{height:100vh}body.obs footer{display:none}
+  </style>
+</head>
+<body>
+<video id="media" autoplay playsinline></video>
+<footer>
+  <span id="state">Connecting…</span>
+  <button id="play">Enable sound</button>
+  <button id="mute">Mute</button>
+  <button id="mirror">Mirror</button>
+  <button id="full">Fullscreen</button>
+  <button id="retry">Reconnect</button>
+</footer>
+<script>
 'use strict';
+const params=new URLSearchParams(location.search);
+const lang=params.get('lang')==='fa'?'fa':params.get('lang')==='en'?'en':
+  (navigator.language||'').toLowerCase().startsWith('fa')?'fa':'en';
+const labels={
+  fa:{title:'لوکالیست • دوربین و میکروفون',connecting:'در حال اتصال…',play:'فعال کردن صدا',
+    mute:'بی‌صدا کردن',unmute:'پخش صدا',mirror:'تصویر آینه‌ای',full:'تمام صفحه',
+    retry:'اتصال دوباره',invalid:'لینک کامل نیست؛ لینک را دوباره از برنامه دریافت کنید.',
+    sound:'برای پخش صدا، دکمهٔ فعال کردن صدا را بزنید.',connected:'متصل',
+    failed:'اتصال برقرار نشد؛ دوباره تلاش کنید.',
+    disconnected:'اتصال قطع شد یا ظرفیت گیرنده تکمیل است.',
+    check:'دستگاه و لینک اتصال را بررسی کنید.',
+    new:'آماده برای اتصال',closed:'اتصال بسته شد'},
+  en:{title:'Localist • Camera & Mic',connecting:'Connecting…',play:'Enable sound',
+    mute:'Mute',unmute:'Unmute',mirror:'Mirror',full:'Fullscreen',
+    retry:'Reconnect',invalid:'The link is incomplete. Copy the full link from the app.',
+    sound:'Tap Enable sound to start playback.',connected:'Connected',
+    failed:'Connection failed. Try again.',
+    disconnected:'Disconnected or the viewer limit has been reached.',
+    check:'Check the device and pairing link.',
+    new:'Ready to connect',closed:'Connection closed'}
+};
+const tr=key=>labels[lang][key]||labels[lang].connecting;
+document.documentElement.lang=lang;
+document.documentElement.dir=lang==='fa'?'rtl':'ltr';
+document.title=tr('title');
+for(const id of ['play','mute','mirror','full','retry'])document.getElementById(id).textContent=tr(id);
 const video=document.getElementById('media'),state=document.getElementById('state');
-const key=location.hash.slice(1),obs=new URLSearchParams(location.search).has('obs');
+const key=location.hash.slice(1),obs=params.has('obs');
 if(obs)document.body.classList.add('obs');
 let socket,peer,queue=Promise.resolve(),pending=[],mirror=false,retryTimer,closed=false;
-function message(text){state.textContent=text;}
+function message(key){state.textContent=tr(key);}
 function stop(){clearTimeout(retryTimer);closed=true;if(socket)socket.close();if(peer)peer.close();video.srcObject=null;}
 function retry(){if(!closed)retryTimer=setTimeout(connect,3000);}
 function connect(){
- stop();closed=false;pending=[];queue=Promise.resolve();
- if(!/^[A-Za-z0-9_=-]{40,64}$/.test(key)){message('لینک ناقص است؛ لینک کامل را از برنامه کپی کنید. • Invalid link');return;}
- message('در حال اتصال • Connecting…');
- peer=new RTCPeerConnection({iceServers:[]});
- const current=peer;
- peer.ontrack=event=>{if(event.streams.length)video.srcObject=event.streams[0];video.play().catch(()=>message('برای شروع صدا دکمه را بزنید • Tap Enable sound'));};
- peer.onicecandidate=event=>{if(event.candidate&&socket?.readyState===1)socket.send(JSON.stringify({candidate:event.candidate.toJSON()}));};
- peer.onconnectionstatechange=()=>{if(peer!==current)return;message(peer.connectionState==='connected'?'متصل • Connected':peer.connectionState);if(peer.connectionState==='failed')retry();};
- socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/signal?key=${encodeURIComponent(key)}`);
- socket.onmessage=event=>{queue=queue.then(async()=>{
-  if(peer!==current)return;
-  const data=JSON.parse(event.data);
-  if(data.type==='offer'){
-   await peer.setRemoteDescription({type:'offer',sdp:data.sdp});
-   for(const candidate of pending)await peer.addIceCandidate(candidate);pending=[];
-   await peer.setLocalDescription(await peer.createAnswer());
-   socket.send(JSON.stringify({type:'answer',sdp:peer.localDescription.sdp}));
-  }else if(data.candidate){if(peer.remoteDescription)await peer.addIceCandidate(data.candidate);else if(pending.length<100)pending.push(data.candidate);}
- }).catch(()=>{message('اتصال ناموفق؛ دوباره تلاش کنید • Connection failed');});};
- socket.onclose=()=>{if(peer===current){message('ارتباط قطع شد یا ظرفیت تکمیل است • Disconnected / viewer limit');retry();}};
- socket.onerror=()=>message('دستگاه و لینک اتصال را بررسی کنید • Check device and pairing link');
+  stop();closed=false;pending=[];queue=Promise.resolve();
+  if(!/^[A-Za-z0-9_=-]{40,64}$/.test(key)){message('invalid');return;}
+  message('connecting');
+  peer=new RTCPeerConnection({iceServers:[]});
+  const current=peer;
+  peer.ontrack=event=>{
+    if(event.streams.length)video.srcObject=event.streams[0];
+    video.play().catch(()=>message('sound'));
+  };
+  peer.onicecandidate=event=>{if(event.candidate&&socket?.readyState===1)socket.send(JSON.stringify({candidate:event.candidate.toJSON()}));};
+  peer.onconnectionstatechange=()=>{
+    if(peer!==current)return;
+    const status=peer.connectionState;
+    message(status==='connected'?'connected':status==='new'?'new':status==='closed'?'closed':status==='failed'?'failed':'connecting');
+    if(status==='failed')retry();
+  };
+  socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/signal?key=${encodeURIComponent(key)}`);
+  socket.onmessage=event=>{queue=queue.then(async()=>{
+    if(peer!==current)return;
+    const data=JSON.parse(event.data);
+    if(data.type==='offer'){
+      await peer.setRemoteDescription({type:'offer',sdp:data.sdp});
+      for(const candidate of pending)await peer.addIceCandidate(candidate);pending=[];
+      await peer.setLocalDescription(await peer.createAnswer());
+      socket.send(JSON.stringify({type:'answer',sdp:peer.localDescription.sdp}));
+    }else if(data.candidate){if(peer.remoteDescription)await peer.addIceCandidate(data.candidate);else if(pending.length<100)pending.push(data.candidate);}
+  }).catch(()=>message('failed'));};
+  socket.onclose=()=>{if(peer===current){message('disconnected');retry();}};
+  socket.onerror=()=>message('check');
 }
-document.getElementById('play').onclick=()=>{video.muted=false;video.play().catch(()=>{});};
-document.getElementById('mute').onclick=()=>video.muted=!video.muted;
+document.getElementById('play').onclick=()=>{video.muted=false;video.play().catch(()=>message('sound'));};
+document.getElementById('mute').onclick=()=>{
+  video.muted=!video.muted;
+  document.getElementById('mute').textContent=tr(video.muted?'unmute':'mute');
+};
 document.getElementById('mirror').onclick=()=>{mirror=!mirror;video.style.transform=mirror?'scaleX(-1)':'';};
 document.getElementById('full').onclick=()=>video.requestFullscreen?.();
 document.getElementById('retry').onclick=connect;
 window.addEventListener('pagehide',stop);connect();
-</script></html>
+</script>
+</body>
+</html>

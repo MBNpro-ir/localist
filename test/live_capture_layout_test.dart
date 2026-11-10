@@ -275,10 +275,11 @@ void main() {
       );
       expect(find.byKey(const ValueKey('capture-receive-card')), findsNothing);
       expect(send.width, lessThanOrEqualTo(sample.size.width));
-      await tester.ensureVisible(
-        find.text(sample.fa ? 'گیرنده · Player' : 'Player'),
-      );
-      await tester.tap(find.text(sample.fa ? 'گیرنده · Player' : 'Player'));
+      await tester.ensureVisible(find.text(sample.fa ? 'گیرنده' : 'Receiver'));
+      expect(find.text('گیرنده · Player'), findsNothing);
+      expect(find.text('فرستنده · Server'), findsNothing);
+      expect(find.text(sample.fa ? 'Player' : 'گیرنده'), findsNothing);
+      await tester.tap(find.text(sample.fa ? 'گیرنده' : 'Receiver'));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('capture-receive-card')),
@@ -362,8 +363,8 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('capture-receive-card')), findsNothing);
-      await tester.ensureVisible(find.text('Player'));
-      await tester.tap(find.text('Player'));
+      await tester.ensureVisible(find.text('Receiver'));
+      await tester.tap(find.text('Receiver'));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('capture-receive-card')),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
+import '../services/log_service.dart';
 import '../widgets/onboarding_flow.dart';
 
 class StartupGate extends StatefulWidget {
@@ -32,6 +33,9 @@ class _StartupGateState extends State<StartupGate> {
     super.initState();
     _selectedLanguage = widget.settings.language;
     _showLanguagePicker = !widget.settings.languageSelected;
+    LogService.instance.debug(
+      'Startup language gate initialized selection=${_selectedLanguage.name} showPicker=$_showLanguagePicker',
+    );
   }
 
   @override
@@ -53,13 +57,13 @@ class _StartupGateState extends State<StartupGate> {
         ? [
             l10n.languageStep,
             l10n.permissionsStep,
-            l10n.isPersian ? 'پروفایل' : 'Profile',
+            l10n.onboardingProfile,
             l10n.mainStep,
           ]
         : [
             l10n.languageStep,
             l10n.permissionsStep,
-            l10n.isPersian ? 'پروفایل' : 'Profile',
+            l10n.onboardingProfile,
             l10n.mainStep,
           ];
     return AnimatedSwitcher(
@@ -82,7 +86,10 @@ class _StartupGateState extends State<StartupGate> {
             flagCode: 'system',
             title: l10n.languageSystem,
             subtitle: l10n.languageSystemSubtitle,
-            onTap: () => setState(() => _selectedLanguage = AppLanguage.system),
+            onTap: () {
+              LogService.instance.debug('Startup language selection system');
+              setState(() => _selectedLanguage = AppLanguage.system);
+            },
           ),
           const SizedBox(height: 10),
           _LanguageChoiceTile(
@@ -90,8 +97,10 @@ class _StartupGateState extends State<StartupGate> {
             flagCode: 'en',
             title: l10n.languageEnglish,
             subtitle: l10n.languageEnglishSubtitle,
-            onTap: () =>
-                setState(() => _selectedLanguage = AppLanguage.english),
+            onTap: () {
+              LogService.instance.debug('Startup language selection English');
+              setState(() => _selectedLanguage = AppLanguage.english);
+            },
           ),
           const SizedBox(height: 10),
           _LanguageChoiceTile(
@@ -99,8 +108,10 @@ class _StartupGateState extends State<StartupGate> {
             flagCode: 'fa',
             title: l10n.languagePersian,
             subtitle: l10n.languagePersianSubtitle,
-            onTap: () =>
-                setState(() => _selectedLanguage = AppLanguage.persian),
+            onTap: () {
+              LogService.instance.debug('Startup language selection Persian');
+              setState(() => _selectedLanguage = AppLanguage.persian);
+            },
           ),
           const SizedBox(height: 18),
           SizedBox(
@@ -122,12 +133,22 @@ class _StartupGateState extends State<StartupGate> {
   }
 
   Future<void> _saveLanguage() async {
+    LogService.instance.debug(
+      'Startup language save requested selection=${_selectedLanguage.name}',
+    );
     setState(() => _saving = true);
     try {
       await widget.settings.setLanguage(_selectedLanguage);
+      LogService.instance.debug('Startup language saved');
       if (mounted) {
         setState(() => _showLanguagePicker = false);
       }
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'Startup language save failed type=${error.runtimeType}',
+        stack: stack,
+      );
+      rethrow;
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -139,6 +160,7 @@ class _StartupGateState extends State<StartupGate> {
     if (!mounted) {
       return;
     }
+    LogService.instance.debug('Startup language picker reopened');
     setState(() {
       _selectedLanguage = widget.settings.language;
       _showLanguagePicker = true;

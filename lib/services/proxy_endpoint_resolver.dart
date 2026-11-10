@@ -23,6 +23,9 @@ class ProxyEndpointResolver {
     ProxyProtocol? preferredProtocol,
     Duration timeout = const Duration(seconds: 3),
   }) async {
+    _logs.debug(
+      'Smart endpoint resolution requested preferredProtocol=${preferredProtocol?.name ?? 'any'} timeoutMs=${timeout.inMilliseconds} hasDeviceIdentity=${deviceId.isNotEmpty} hasSourceRoute=${sourceAddress.isNotEmpty}',
+    );
     final phases = buildCandidatePhases(
       advertisedEndpoints: advertisedEndpoints,
       discoveredDevices: discoveredDevices,
@@ -30,18 +33,24 @@ class ProxyEndpointResolver {
       sourceAddress: sourceAddress,
       preferredProtocol: preferredProtocol,
     );
-    for (final phase in phases) {
+    for (var index = 0; index < phases.length; index++) {
+      final phase = phases[index];
       if (phase.isEmpty) {
+        _logs.debug('Smart endpoint phase=${index + 1} skipped empty');
         continue;
       }
       _logs.debug(
-        'Smart endpoint probe phase: ${phase.map((value) => value.url).join(', ')}',
+        'Smart endpoint phase=${index + 1} candidates=${phase.length}',
       );
       final result = await _firstReachable(phase, timeout);
       if (result != null) {
-        _logs.info('Smart endpoint selected ${result.url}');
+        _logs.debug(
+          'Smart endpoint phase=${index + 1} succeeded protocol=${result.protocol.name}',
+        );
+        _logs.info('Smart proxy endpoint selected.');
         return result;
       }
+      _logs.debug('Smart endpoint phase=${index + 1} exhausted');
     }
     _logs.warning('No reachable smart proxy endpoint was found.');
     return null;
@@ -127,14 +136,17 @@ class ProxyEndpointResolver {
   ) async {
     final completer = Completer<RemoteProxyConfig?>();
     var pending = candidates.length;
+    _logs.debug('Smart endpoint probes started parallelCount=$pending');
     for (final candidate in candidates) {
       unawaited(() async {
         final reachable = await probe(candidate, timeout: timeout);
         if (reachable && !completer.isCompleted) {
+          _logs.debug('Smart endpoint first reachable candidate selected');
           completer.complete(candidate);
         }
         pending--;
         if (pending == 0 && !completer.isCompleted) {
+          _logs.debug('Smart endpoint all probes finished unreachable');
           completer.complete(null);
         }
       }());
@@ -147,6 +159,9 @@ class ProxyEndpointResolver {
     Duration timeout = const Duration(seconds: 3),
   }) async {
     Socket? socket;
+    _logs.debug(
+      'Smart endpoint TCP probe started protocol=${config.protocol.name} timeoutMs=${timeout.inMilliseconds}',
+    );
     try {
       socket = await Socket.connect(config.host, config.port, timeout: timeout);
       socket.setOption(SocketOption.tcpNoDelay, true);
@@ -159,9 +174,10 @@ class ProxyEndpointResolver {
             .take(2)
             .toList()
             .timeout(timeout);
-        return response.length == 2 &&
-            response[0] == 0x05 &&
-            response[1] == 0x00;
+        final accepted =
+            response.length == 2 && response[0] == 0x05 && response[1] == 0x00;
+        _logs.debug('Smart SOCKS handshake finished accepted=$accepted');
+        return accepted;
       }
 
       socket.add(
@@ -178,12 +194,15 @@ class ProxyEndpointResolver {
           .take(5)
           .toList()
           .timeout(timeout);
-      return ascii.decode(response, allowInvalid: true) == 'HTTP/';
+      final accepted = ascii.decode(response, allowInvalid: true) == 'HTTP/';
+      _logs.debug('Smart HTTP CONNECT handshake finished accepted=$accepted');
+      return accepted;
     } catch (error) {
-      _logs.debug('Smart endpoint probe failed ${config.url}: $error');
+      _logs.debug('Smart endpoint probe failed type=${error.runtimeType}');
       return false;
     } finally {
       socket?.destroy();
+      _logs.debug('Smart endpoint probe socket released');
     }
   }
 }

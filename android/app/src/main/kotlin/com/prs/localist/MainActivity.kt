@@ -92,6 +92,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        broadcastNativeLog(applicationContext, "MainActivity", "new intent received actionPresent=${intent.action != null}")
         setIntent(intent)
         receiveQuickSendFiles(intent)
         receiveQuickSendNotificationTap(intent)
@@ -102,6 +103,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         CaptureAudioEngine.register(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         CaptureForegroundService.channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "localist/capture").apply {
             setMethodCallHandler { call, result ->
+                broadcastNativeLog(applicationContext, "CaptureBridge", "capture method=${call.method} received")
                 when (call.method) {
                     "hasBluetoothMicrophone" -> result.success(getSystemService(android.media.AudioManager::class.java)
                         .getDevices(android.media.AudioManager.GET_DEVICES_INPUTS).any {
@@ -151,7 +153,13 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         }
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
+            broadcastNativeLog(applicationContext, "MainActivity", "method=${call.method} received")
             when (call.method) {
+                "setNativeDebugLogging" -> {
+                    debugLoggingEnabled = call.argument<Boolean>("enabled") == true
+                    broadcastNativeLog(applicationContext, "MainActivity", "native debug logging enabled=$debugLoggingEnabled")
+                    result.success(true)
+                }
                 "ensureVpnPermission" -> ensureVpnPermission(result)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "getFeatureAccessStatus" -> result.success(mapOf(
@@ -254,6 +262,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     }
 
     override fun onDestroy() {
+        broadcastNativeLog(applicationContext, "MainActivity", "activity destroying")
         systemAudioResult?.error("SYSTEM_AUDIO_CANCELLED", "Audio capture activity closed", null)
         systemAudioResult = null
         thumbnailExecutor.shutdownNow()
@@ -304,6 +313,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         return updateMulticastLock(lanDiscoveryRequested || quickSendMulticastRequested)
     }
     private fun updateMulticastLock(enabled: Boolean): Boolean {
+        broadcastNativeLog(applicationContext, "MainActivity", "multicast lock requested enabled=$enabled")
         if (enabled) {
             val lock = quickSendMulticastLock ?: run {
                 val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -315,6 +325,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             if (!lock.isHeld) {
                 lock.acquire()
             }
+            broadcastNativeLog(applicationContext, "MainActivity", "multicast lock acquired held=${lock.isHeld}")
             return lock.isHeld
         }
         quickSendMulticastLock?.let { lock ->
@@ -323,6 +334,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             }
         }
         quickSendMulticastLock = null
+        broadcastNativeLog(applicationContext, "MainActivity", "multicast lock released")
         return false
     }
 
@@ -1423,6 +1435,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     )
 
     companion object {
+        @Volatile private var debugLoggingEnabled = false
         private const val CHANNEL = "com.prs.localist.vpn"
         private const val ACTION_NATIVE_LOG = "com.prs.localist.NATIVE_LOG"
         private const val EXTRA_NATIVE_LOG_MESSAGE = "message"
@@ -1442,7 +1455,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         private const val HOTSPOT_ADDRESS_SETTLE_DELAY_MS = 700L
 
         fun broadcastNativeLog(context: Context, source: String, message: String) {
-            if (message.isBlank()) {
+            if (!debugLoggingEnabled || message.isBlank()) {
                 return
             }
             context.sendBroadcast(

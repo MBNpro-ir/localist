@@ -283,8 +283,8 @@ void main() {
       capture.started = false;
       capture.notifyListeners();
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Player'));
-      await tester.tap(find.text('Player'));
+      await tester.ensureVisible(find.text('Receiver'));
+      await tester.tap(find.text('Receiver'));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('capture-receive-card')),

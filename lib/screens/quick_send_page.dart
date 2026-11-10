@@ -14,6 +14,7 @@ import '../services/native_bridge_service.dart';
 import '../services/quick_send_service.dart';
 import '../services/quick_send_file_selection.dart';
 import '../services/quick_send_settings_exit_guard.dart';
+import '../services/log_service.dart';
 import '../widgets/glass.dart';
 import '../widgets/quick_send_profile.dart';
 import '../widgets/quick_send_drop_target.dart';
@@ -57,7 +58,17 @@ class QuickSendPageState extends State<QuickSendPage> {
     unawaited(_initializeQuickSend());
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _appleWebTransfer.persian =
+        Localizations.localeOf(context).languageCode == 'fa';
+  }
+
   Future<void> _initializeQuickSend() async {
+    LogService.instance.debug(
+      'Quick Send page: initializing discovery and receiving',
+    );
     await _service.initialize();
     if (Platform.isAndroid &&
         _service.settings?.receiveEnabled == true &&
@@ -66,6 +77,9 @@ class QuickSendPageState extends State<QuickSendPage> {
     }
     await _loadExternallySharedFiles();
     await _service.refresh();
+    LogService.instance.debug(
+      'Quick Send page: initialization complete devices=${_service.devices.length}',
+    );
   }
 
   @override
@@ -138,15 +152,9 @@ class QuickSendPageState extends State<QuickSendPage> {
     });
     _syncAppleSharedContent();
     if (added > 0 && mounted) {
-      if (context.l10n.isPersian) {
-        _notice(
-          '$added \u0641\u0627\u06cc\u0644 \u0628\u0631\u0627\u06cc \u0627\u0631\u0633\u0627\u0644 \u0622\u0645\u0627\u062f\u0647 \u0634\u062f.',
-        );
-        return;
-      }
       _notice(
         _t(
-          '$added ÙØ§ÛŒÙ„ Ø¨Ø±Ø§ÛŒ Ø§Ø±Ø³Ø§Ù„ Ø¢Ù…Ø§Ø¯Ù‡ Ø´Ø¯.',
+          '$added فایل برای ارسال آماده شد.',
           '$added file${added == 1 ? '' : 's'} ready to send.',
         ),
       );
@@ -388,11 +396,11 @@ class QuickSendPageState extends State<QuickSendPage> {
                         ? _t('هات‌اسپات خودکار', 'Automatic hotspot')
                         : isWindows
                         ? _t(
-                            'شبکه مشترک / هات‌اسپات Windows',
+                            'شبکهٔ مشترک یا نقطهٔ اتصال ویندوز',
                             'Shared network / Windows hotspot',
                           )
                         : _t(
-                            'هات‌اسپات دستی / Wi-Fi',
+                            'نقطهٔ اتصال دستی یا وای‌فای',
                             'Manual hotspot / Wi-Fi',
                           ),
                   ),
@@ -427,7 +435,10 @@ class QuickSendPageState extends State<QuickSendPage> {
             if (service.errorMessage.isNotEmpty) ...[
               const SizedBox(height: 10),
               ServiceLockNotice(
-                message: service.errorMessage,
+                message: _t(
+                  'سرویس انتقال وب با مشکل مواجه شد. اتصال شبکه و مجوزهای دستگاه را بررسی کنید.',
+                  'Web transfer encountered a problem. Check network connectivity and device permissions.',
+                ),
                 icon: Icons.warning_amber_outlined,
               ),
             ],
@@ -820,7 +831,7 @@ class QuickSendPageState extends State<QuickSendPage> {
             children: [
               Expanded(
                 child: Text(
-                  'Quick Send',
+                  context.l10n.quickSend,
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
@@ -885,35 +896,21 @@ class QuickSendPageState extends State<QuickSendPage> {
           ),
           if (Platform.isWindows) ...[
             const SizedBox(height: 10),
-            if (context.l10n.isPersian)
-              Row(
-                children: [
-                  const Icon(Icons.file_download_outlined, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '\u0645\u06cc\u200c\u062a\u0648\u0627\u0646\u06cc\u062f \u0641\u0627\u06cc\u0644\u200c\u0647\u0627 \u0631\u0627 \u0646\u06cc\u0632 \u0631\u0648\u06cc \u0627\u06cc\u0646 \u067e\u0646\u062c\u0631\u0647 \u0631\u0647\u0627 \u06a9\u0646\u06cc\u062f.',
-                      style: Theme.of(context).textTheme.bodySmall,
+            Row(
+              children: [
+                const Icon(Icons.file_download_outlined, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _t(
+                      'می‌توانید فایل‌ها را نیز روی این پنجره رها کنید.',
+                      'You can also drag files onto this window.',
                     ),
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                ],
-              )
-            else
-              Row(
-                children: [
-                  const Icon(Icons.file_download_outlined, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _t(
-                        'می‌توانید فایل‌ها را نیز روی این پنجره رها کنید.',
-                        'You can also drag files onto this window.',
-                      ),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
+            ),
           ],
           const SizedBox(height: 14),
           if (!hasSelection)
@@ -1063,7 +1060,7 @@ class QuickSendPageState extends State<QuickSendPage> {
                         ),
                       if (transfer.message.isNotEmpty)
                         Text(
-                          transfer.message,
+                          _transferNotice(transfer),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1196,15 +1193,35 @@ class QuickSendPageState extends State<QuickSendPage> {
     return '${_formatBytes(transfer.transferredBytes)} / ${_formatBytes(transfer.totalBytes)}';
   }
 
+  String _transferNotice(QuickSendTransfer transfer) {
+    // Preserve user-authored text; replace service-generated status sentences.
+    if (transfer.direction == QuickSendDirection.receiving &&
+        transfer.path.isEmpty &&
+        transfer.state == QuickSendTransferState.completed) {
+      return transfer.message;
+    }
+    return switch (transfer.state) {
+      QuickSendTransferState.failed => _t(
+        'انتقال انجام نشد. اتصال دستگاه‌ها را بررسی و دوباره تلاش کنید.',
+        'Transfer failed. Check the device connection and try again.',
+      ),
+      QuickSendTransferState.waiting => _t(
+        'در انتظار پاسخ دستگاه مقصد',
+        'Waiting for the recipient to respond',
+      ),
+      QuickSendTransferState.transferring => _t(
+        'انتقال در حال انجام است.',
+        'Transfer in progress.',
+      ),
+      QuickSendTransferState.completed => _t(
+        'انتقال کامل شد.',
+        'Transfer completed.',
+      ),
+    };
+  }
+
   Future<void> _shareReceivedFile(QuickSendTransfer transfer) async {
     if (transfer.path.isEmpty || !File(transfer.path).existsSync()) {
-      if (context.l10n.isPersian) {
-        _notice(
-          '\u0641\u0627\u06cc\u0644 \u0642\u0627\u0628\u0644 \u062f\u0633\u062a\u0631\u0633 \u0646\u06cc\u0633\u062a.',
-          warning: true,
-        );
-        return;
-      }
       _notice(
         _t('فایل قابل دسترس نیست.', 'The received file is unavailable.'),
         warning: true,
@@ -1255,7 +1272,7 @@ class QuickSendPageState extends State<QuickSendPage> {
               ),
               subtitle: Text(
                 _t(
-                  'منوی Share اندروید باز می‌شود.',
+                  'منوی اشتراک‌گذاری اندروید باز می‌شود.',
                   'Opens the Android system share menu.',
                 ),
               ),
@@ -1284,10 +1301,13 @@ class QuickSendPageState extends State<QuickSendPage> {
       }
     } catch (error) {
       if (mounted) {
+        LogService.instance.debug(
+          'Quick Send page: external share failed type=${error.runtimeType}',
+        );
         _notice(
           _t(
-            'اشتراک فایل ناموفق بود: $error',
-            'Could not share the file: $error',
+            'فایل به اشتراک گذاشته نشد. دوباره تلاش کنید.',
+            'Could not share the file. Try again.',
           ),
           warning: true,
         );
@@ -1303,12 +1323,6 @@ class QuickSendPageState extends State<QuickSendPage> {
       _selectedFileNames[transfer.path] = transfer.fileName;
     });
     _syncAppleSharedContent();
-    if (context.l10n.isPersian) {
-      _notice(
-        '\u0641\u0627\u06cc\u0644 \u0628\u0631\u0627\u06cc \u0627\u0631\u0633\u0627\u0644 \u062f\u0648\u0628\u0627\u0631\u0647 \u0622\u0645\u0627\u062f\u0647 \u0634\u062f\u061b \u062f\u0633\u062a\u06af\u0627\u0647 \u0645\u0642\u0635\u062f \u0631\u0627 \u0627\u0646\u062a\u062e\u0627\u0628 \u06a9\u0646\u06cc\u062f.',
-      );
-      return;
-    }
     _notice(
       _t(
         'فایل برای ارسال دوباره آماده شد؛ دستگاه مقصد را انتخاب کنید.',
@@ -1353,13 +1367,6 @@ class QuickSendPageState extends State<QuickSendPage> {
       opened = false;
     }
     if (!opened && mounted) {
-      if (context.l10n.isPersian) {
-        _notice(
-          '\u0641\u0627\u06cc\u0644 \u0628\u0627\u0632 \u0646\u0634\u062f.',
-          warning: true,
-        );
-        return;
-      }
       _notice(_t('فایل باز نشد.', 'Could not open the file.'), warning: true);
     }
   }
@@ -1373,7 +1380,13 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _pickFilesOfType(FileType type) async {
+    LogService.instance.debug(
+      'Quick Send page: file picker opened type=${type.name}',
+    );
     final files = await FilePicker.pickFiles(type: type);
+    LogService.instance.debug(
+      'Quick Send page: picker returned count=${files.length}',
+    );
     if (files.isEmpty || !mounted) {
       return;
     }
@@ -1386,9 +1399,13 @@ class QuickSendPageState extends State<QuickSendPage> {
       }
     });
     _syncAppleSharedContent();
+    LogService.instance.debug(
+      'Quick Send page: selected file count=${_selectedPaths.length}',
+    );
   }
 
   Future<void> _pickFolder() async {
+    LogService.instance.debug('Quick Send page: folder picker opened');
     final path = await FilePicker.getDirectoryPath();
     if (path == null || !mounted) {
       return;
@@ -1423,6 +1440,9 @@ class QuickSendPageState extends State<QuickSendPage> {
         }
       });
       _syncAppleSharedContent();
+      LogService.instance.debug(
+        'Quick Send page: folder selection added=${files.length} totalSelected=${_selectedPaths.length} capped=${files.length >= 5000}',
+      );
       if (files.length >= 5000) {
         _notice(
           _t(
@@ -1433,10 +1453,13 @@ class QuickSendPageState extends State<QuickSendPage> {
         );
       }
     } catch (error) {
+      LogService.instance.debug(
+        'Quick Send page: folder enumeration failed type=${error.runtimeType}',
+      );
       _notice(
         _t(
-          'خواندن پوشه ناموفق بود: $error',
-          'Could not read the folder: $error',
+          'پوشه خوانده نشد. مجوز دسترسی به پوشه را بررسی کنید.',
+          'Could not read the folder. Check folder access permissions.',
         ),
         warning: true,
       );
@@ -1444,12 +1467,14 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _pasteClipboard() async {
+    LogService.instance.debug('Quick Send page: clipboard text requested');
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text?.trim() ?? '';
     if (!mounted) {
       return;
     }
     if (text.isEmpty) {
+      LogService.instance.debug('Quick Send page: clipboard contains no text');
       _notice(
         _t('متنی در کلیپ‌بورد نیست.', 'There is no text in the clipboard.'),
         warning: true,
@@ -1457,6 +1482,9 @@ class QuickSendPageState extends State<QuickSendPage> {
       return;
     }
     setState(() => _selectedText = text);
+    LogService.instance.debug(
+      'Quick Send page: clipboard text selected characters=${text.length}',
+    );
     _syncAppleSharedContent();
   }
 
@@ -1502,6 +1530,9 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   void _clearSelection() {
+    LogService.instance.debug(
+      'Quick Send page: clearing selection files=${_selectedPaths.length} textPresent=${_selectedText.isNotEmpty}',
+    );
     setState(() {
       _selectedPaths.clear();
       _selectedFileNames.clear();
@@ -1528,6 +1559,9 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _sendToDevices(List<QuickSendDevice> devices) async {
+    LogService.instance.debug(
+      'Quick Send page: dispatch requested devices=${devices.length} files=${_selectedPaths.length} textPresent=${_selectedText.isNotEmpty} busy=$_sending',
+    );
     if (_sending || devices.isEmpty) {
       return;
     }
@@ -1552,8 +1586,14 @@ class QuickSendPageState extends State<QuickSendPage> {
             await _sendContentToDevice(device);
             succeeded.add(device);
           } on QuickSendPinRequiredException {
+            LogService.instance.debug(
+              'Quick Send page: recipient requires PIN authorization',
+            );
             pinRequired.add(device);
           } catch (error) {
+            LogService.instance.debug(
+              'Quick Send page: send failed type=${error.runtimeType}',
+            );
             failed[device] = error;
           }
         }),
@@ -1564,6 +1604,7 @@ class QuickSendPageState extends State<QuickSendPage> {
         }
         final pin = await _askForPin(device);
         if (pin == null) {
+          LogService.instance.debug('Quick Send page: PIN challenge cancelled');
           failed[device] = const QuickSendPinRequiredException();
           continue;
         }
@@ -1571,10 +1612,16 @@ class QuickSendPageState extends State<QuickSendPage> {
           await _sendContentToDevice(device, pin: pin);
           succeeded.add(device);
         } catch (error) {
+          LogService.instance.debug(
+            'Quick Send page: PIN-authorized retry failed type=${error.runtimeType}',
+          );
           failed[device] = error;
         }
       }
       if (mounted) {
+        LogService.instance.debug(
+          'Quick Send page: batch completed successful=${succeeded.length} failed=${failed.length} challenged=${pinRequired.length}',
+        );
         if (failed.isEmpty) {
           _notice(
             _t(
@@ -1745,8 +1792,14 @@ class QuickSendPageState extends State<QuickSendPage> {
       }
     } catch (error) {
       if (mounted) {
+        LogService.instance.debug(
+          'Quick Send page: manual device lookup failed type=${error.runtimeType}',
+        );
         _notice(
-          _t('دستگاه در دسترس نیست: $error', 'Device is unavailable: $error'),
+          _t(
+            'دستگاه در دسترس نیست. آدرس و اتصال شبکه را بررسی کنید.',
+            'Device is unavailable. Check the address and network connection.',
+          ),
           warning: true,
         );
       }
@@ -1762,12 +1815,18 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _startAppleWebTransfer({bool useHotspot = true}) async {
+    LogService.instance.debug(
+      'Quick Send page: web transfer start requested hotspot=$useHotspot files=${_selectedPaths.length} textPresent=${_selectedText.isNotEmpty}',
+    );
     try {
       final automaticHotspot = await _appleWebTransfer.start(
         paths: List.of(_selectedPaths),
         offeredNames: Map.of(_selectedFileNames),
         selectedText: _selectedText,
         useHotspot: useHotspot,
+      );
+      LogService.instance.debug(
+        'Quick Send page: web transfer ready automaticHotspot=$automaticHotspot',
       );
       if (!mounted) {
         return;
@@ -1799,11 +1858,14 @@ class QuickSendPageState extends State<QuickSendPage> {
       );
       await _openWebTransferHotspotSettings();
     } catch (error) {
+      LogService.instance.debug(
+        'Quick Send page: web transfer start failed type=${error.runtimeType}',
+      );
       if (mounted) {
         _notice(
           _t(
-            'راه‌اندازی انتقال وب ناموفق بود: $error',
-            'Could not start web transfer: $error',
+            'انتقال وب راه‌اندازی نشد. شبکه و مجوزهای دستگاه را بررسی کنید.',
+            'Could not start web transfer. Check the network and device permissions.',
           ),
           warning: true,
         );
@@ -1812,17 +1874,22 @@ class QuickSendPageState extends State<QuickSendPage> {
   }
 
   Future<void> _stopAppleWebTransfer() async {
+    LogService.instance.debug('Quick Send page: stopping web transfer');
     try {
       await _appleWebTransfer.stop();
+      LogService.instance.debug('Quick Send page: web transfer stopped');
       if (mounted) {
         _notice(_t('سرویس انتقال وب متوقف شد.', 'Web transfer stopped.'));
       }
     } catch (error) {
+      LogService.instance.debug(
+        'Quick Send page: web transfer stop failed type=${error.runtimeType}',
+      );
       if (mounted) {
         _notice(
           _t(
-            'توقف سرویس ناموفق بود: $error',
-            'Could not stop the service: $error',
+            'سرویس متوقف نشد. دوباره تلاش کنید.',
+            'Could not stop the service. Try again.',
           ),
           warning: true,
         );
@@ -1857,12 +1924,12 @@ class QuickSendPageState extends State<QuickSendPage> {
         );
       }
     } catch (error) {
+      LogService.instance.debug(
+        'Quick Send page: hotspot settings launch failed type=${error.runtimeType}',
+      );
       if (mounted) {
         _notice(
-          _t(
-            'تنظیمات هات‌اسپات باز نشد: $error',
-            'Could not open hotspot settings: $error',
-          ),
+          _t('تنظیمات هات‌اسپات باز نشد.', 'Could not open hotspot settings.'),
           warning: true,
         );
       }
@@ -1986,7 +2053,7 @@ class QuickSendStatusPanel extends StatelessWidget {
               Text(
                 _t(
                   context,
-                  'هنوز IP شبکه محلی پیدا نشده است؛ پس از اتصال به Wi-Fi یا Hotspot دکمه Refresh را بزنید.',
+                  'هنوز IP شبکهٔ محلی پیدا نشده است؛ پس از اتصال به وای‌فای یا نقطهٔ اتصال، دکمهٔ تازه‌سازی را بزنید.',
                   'No local-network IP is available yet. Connect to Wi-Fi or a hotspot, then tap Refresh.',
                 ),
                 style: Theme.of(context).textTheme.bodySmall,
@@ -2009,7 +2076,7 @@ class QuickSendStatusPanel extends StatelessWidget {
               Text(
                 _t(
                   context,
-                  'در دستگاه فرستنده، کنار Nearby devices روی + بزنید و یکی از این IPها را با پورت ${settings.port} و حالت ${settings.encryption ? 'HTTPS' : 'HTTP'} وارد کنید.',
+                  'در دستگاه فرستنده، کنار «دستگاه‌های نزدیک» روی + بزنید و یکی از این IPها را با پورت ${settings.port} و حالت ${settings.encryption ? 'HTTPS' : 'HTTP'} وارد کنید.',
                   'On the sender, tap + beside Nearby devices and enter one of these IPs with port ${settings.port} and ${settings.encryption ? 'HTTPS' : 'HTTP'}.',
                 ),
                 style: Theme.of(context).textTheme.bodySmall,
@@ -2021,8 +2088,8 @@ class QuickSendStatusPanel extends StatelessWidget {
             ServiceLockNotice(
               message: _t(
                 context,
-                'سرویس شبکه کامل اجرا نشد: ${service.lastError}',
-                'The network service did not fully start: ${service.lastError}',
+                'سرویس شبکه کامل اجرا نشد. اتصال و مجوزهای دستگاه را بررسی کنید.',
+                'The network service did not fully start. Check the connection and device permissions.',
               ),
               icon: Icons.warning_amber_outlined,
             ),
@@ -2397,7 +2464,7 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                           'Files are saved directly in the selected folder.',
                         )
                       : _t(
-                          'مسیر پیش‌فرض Localist است و فایل‌ها در پوشه‌های Images، Videos، Audio، Documents، Archives، Apps و Other دسته‌بندی می‌شوند.',
+                          'مسیر پیش‌فرض Localist است و فایل‌ها در پوشه‌های تصاویر (Images)، ویدیوها (Videos)، صدا (Audio)، اسناد (Documents)، آرشیوها (Archives)، برنامه‌ها (Apps) و سایر (Other) دسته‌بندی می‌شوند.',
                           'The Localist default groups files into Images, Videos, Audio, Documents, Archives, Apps, and Other.',
                         ),
                   style: Theme.of(context).textTheme.bodySmall,
@@ -2669,12 +2736,15 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
         _lastSaved = _service.settings ?? draft;
       }
     } catch (error) {
+      LogService.instance.debug(
+        'Quick Send settings: save failed type=${error.runtimeType}',
+      );
       if (mounted) {
         showLocalistNotice(
           context,
           message: _t(
-            'ذخیره تنظیمات ناموفق بود: $error',
-            'Could not save settings: $error',
+            'تنظیمات ذخیره نشد. دوباره تلاش کنید.',
+            'Could not save settings. Try again.',
           ),
           tone: InAppNoticeTone.error,
         );

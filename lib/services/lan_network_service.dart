@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'log_service.dart';
 
 class LanRoute {
   const LanRoute(this.address, this.prefixLength, [this.name = '']);
@@ -54,12 +55,21 @@ class LanNetworkService {
   Future<List<LanRoute>> routes() {
     if (_updated != null &&
         DateTime.now().difference(_updated!) < const Duration(seconds: 20)) {
+      LogService.instance.debug(
+        'LAN routes served from cache count=${_cache.length}',
+      );
       return Future.value(_cache);
     }
+    LogService.instance.debug(
+      'LAN route discovery requested inFlight=${_loading != null}',
+    );
     return _loading ??= _load().whenComplete(() => _loading = null);
   }
 
   Future<List<LanRoute>> _load() async {
+    LogService.instance.debug(
+      'LAN route enumeration started platform=${Platform.operatingSystem}',
+    );
     final routes = <LanRoute>[];
     try {
       List<dynamic>? records;
@@ -75,6 +85,10 @@ class LanNetworkService {
         final value = jsonDecode('${result.stdout}');
         records = value is List ? value : [value];
       }
+      LogService.instance.debug(
+        'LAN native route records count=${records?.length ?? 0}',
+      );
+      var skipped = 0;
       for (final row in records ?? []) {
         final map = row as Map;
         final address = '${map['address'] ?? map['IPAddress']}';
@@ -85,10 +99,20 @@ class LanNetworkService {
             !address.startsWith('127.') &&
             address != '0.0.0.0') {
           routes.add(LanRoute(address, prefix.toInt(), name.trim()));
+        } else {
+          skipped++;
         }
       }
-    } catch (_) {}
+      LogService.instance.debug(
+        'LAN route filtering accepted=${routes.length} rejected=$skipped',
+      );
+    } catch (error) {
+      LogService.instance.debug(
+        'LAN native route enumeration failed type=${error.runtimeType}',
+      );
+    }
     if (routes.isEmpty) {
+      LogService.instance.debug('LAN falling back to Dart network interfaces');
       for (final interface in await NetworkInterface.list(
         type: InternetAddressType.IPv4,
       )) {
@@ -103,6 +127,9 @@ class LanNetworkService {
     routes.sort((a, b) => a.capturePriority.compareTo(b.capturePriority));
     _cache = routes.take(8).toList();
     _updated = DateTime.now();
+    LogService.instance.debug(
+      'LAN route enumeration completed total=${routes.length} cached=${_cache.length}',
+    );
     return _cache;
   }
 }

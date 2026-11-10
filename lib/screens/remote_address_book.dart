@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../l10n/app_localizations.dart';
 import '../remote/remote_peer_presence.dart';
+import '../services/log_service.dart';
 import '../services/remote_device_service.dart';
 import '../widgets/glass.dart';
 
@@ -37,13 +39,20 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
   @override
   void initState() {
     super.initState();
+    LogService.instance.debug(
+      'Remote address book opened deviceCount=${widget.service.devices.length}',
+    );
     unawaited(_loadView());
   }
 
   Future<void> _loadView() async {
+    LogService.instance.debug('Remote address book view preference loading');
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('remote.devices.view.v1');
     if (!mounted) return;
+    LogService.instance.debug(
+      'Remote address book view preference stored=${RemoteDeviceView.values.any((view) => view.name == saved)}',
+    );
     setState(
       () => _view = RemoteDeviceView.values.firstWhere(
         (view) => view.name == saved,
@@ -53,6 +62,9 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
   }
 
   void _changeView(RemoteDeviceView view) {
+    LogService.instance.debug(
+      'Remote address book view changed to=${view.name}',
+    );
     setState(() => _view = view);
     _viewWrite = _viewWrite.catchError((Object _) {}).then((_) async {
       await (await SharedPreferences.getInstance()).setString(
@@ -65,6 +77,11 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
   void _filter(VoidCallback update) => setState(() {
     update();
     _page = 0;
+    if (LogService.instance.debugModeEnabled) {
+      LogService.instance.debug(
+        'Remote address book filter changed queryLength=${_search.text.length} group=${_group.name} sort=${_sort.name} tagCount=${_tags.length}',
+      );
+    }
   });
   String _t(String fa, String en) =>
       Localizations.localeOf(context).languageCode == 'fa' ? fa : en;
@@ -259,7 +276,13 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
                 padding: EdgeInsets.only(top: 12),
                 child: LinearProgressIndicator(),
               ),
-            if (service.error.isNotEmpty) Text(service.error),
+            if (service.error.isNotEmpty)
+              Text(
+                _t(
+                  'جست‌وجوی دستگاه‌های شبکهٔ محلی انجام نشد.',
+                  'Could not scan for devices on the local network.',
+                ),
+              ),
             const SizedBox(height: 16),
             if (visible.isEmpty)
               Padding(
@@ -443,7 +466,7 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
         ),
         if (device.name.isNotEmpty)
           Text(
-            'ID: ${device.id}',
+            '${_t('شناسه', 'ID')}: ${device.id}',
             textDirection: TextDirection.ltr,
             style: Theme.of(context).textTheme.bodySmall,
             maxLines: 1,
@@ -514,6 +537,7 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
   }
 
   Future<void> _forget(RemoteDevice device) async {
+    LogService.instance.debug('Remote address book forget requested');
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -532,23 +556,44 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
       ),
     );
     if (ok == true) {
+      LogService.instance.debug('Remote address book forget confirmed');
       try {
         await widget.onForgetPassword?.call(device.id);
         await widget.service.forget(device.id);
+        LogService.instance.debug('Remote address book forget completed');
       } catch (error) {
-        if (mounted) showLocalistNotice(context, message: '$error');
+        LogService.instance.debug(
+          'Remote address book forget failed type=${error.runtimeType}',
+        );
+        if (mounted) {
+          showLocalistNotice(
+            context,
+            message: context.l10n.remoteConfigurationFailed,
+          );
+        }
       }
     }
   }
 
   Future<void> _edit([RemoteDevice? device]) async {
+    LogService.instance.debug(
+      'Remote address book editor opening existing=${device != null}',
+    );
     String savedPassword;
     try {
       savedPassword = device == null
           ? ''
           : await widget.service.passwordFor(device.id);
     } catch (error) {
-      if (mounted) showLocalistNotice(context, message: '$error');
+      LogService.instance.debug(
+        'Remote address book credential lookup failed type=${error.runtimeType}',
+      );
+      if (mounted) {
+        showLocalistNotice(
+          context,
+          message: context.l10n.remoteConfigurationFailed,
+        );
+      }
       return;
     }
     if (!mounted) return;
@@ -676,6 +721,9 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
               onPressed: saving
                   ? null
                   : () async {
+                      LogService.instance.debug(
+                        'Remote address book save requested editing=${device != null} tagCount=${tags.text.split(RegExp('[,،]')).length}',
+                      );
                       update(() => saving = true);
                       try {
                         await widget.service.saveAddress(
@@ -690,18 +738,27 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
                         );
                         if (password.text != savedPassword ||
                             clearRememberedPassword) {
+                          LogService.instance.debug(
+                            'Remote address book credential update requested hasPassword=${password.text.isNotEmpty} clear=$clearRememberedPassword',
+                          );
                           await widget.onForgetPassword?.call(peerId);
                           await widget.service.savePassword(
                             peerId,
                             password.text,
                           );
                         }
+                        LogService.instance.debug(
+                          'Remote address book save completed',
+                        );
                         if (ctx.mounted) Navigator.pop(ctx);
                       } catch (e) {
+                        LogService.instance.debug(
+                          'Remote address book save failed type=${e.runtimeType}',
+                        );
                         if (ctx.mounted) {
                           update(() {
                             saving = false;
-                            error = '$e';
+                            error = ctx.l10n.remoteConfigurationFailed;
                           });
                         }
                       }
@@ -720,6 +777,9 @@ class _RemoteAddressBookState extends State<RemoteAddressBook> {
   }
 
   Future<void> _manageTags() async {
+    LogService.instance.debug(
+      'Remote address book tag manager opened count=${widget.service.tags.length}',
+    );
     final old = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(

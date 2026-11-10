@@ -162,10 +162,16 @@ class CaptureSignalingServer {
   String token = '';
   int get port => _server?.port ?? 0;
   Future<void> start({int port = 0}) async {
+    LogService.instance.debug(
+      'Capture signaling: binding server requestedPort=$port maxViewers=$maxViewers',
+    );
     token = base64UrlEncode(
       List.generate(32, (_) => Random.secure().nextInt(256)),
     );
     _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+    LogService.instance.debug(
+      'Capture signaling: server listening port=${_server!.port}',
+    );
     _server!.listen((request) async {
       try {
         request.response.headers.set('Cache-Control', 'no-store');
@@ -186,11 +192,17 @@ class CaptureSignalingServer {
               'http://${request.headers.value(HttpHeaders.hostHeader)}';
           if (request.uri.queryParameters['key'] != token ||
               (origin != null && origin != ownOrigin)) {
+            LogService.instance.debug(
+              'Capture signaling: WebSocket upgrade rejected authentication/origin',
+            );
             request.response.statusCode = 403;
             await request.response.close();
             return;
           }
           if (clients.length >= maxViewers) {
+            LogService.instance.debug(
+              'Capture signaling: viewer limit reached active=${clients.length}',
+            );
             request.response.statusCode = 503;
             await request.response.close();
             return;
@@ -199,6 +211,9 @@ class CaptureSignalingServer {
               request.connectionInfo?.remoteAddress.address ?? '';
           final socket = await WebSocketTransformer.upgrade(request);
           clients.add(socket);
+          LogService.instance.debug(
+            'Capture signaling: viewer accepted active=${clients.length}',
+          );
           clientHosts[socket] = remoteHost;
           socket.pingInterval = const Duration(seconds: 15);
           unawaited(
@@ -206,25 +221,37 @@ class CaptureSignalingServer {
                 .whenComplete(() {
                   clients.remove(socket);
                   clientHosts.remove(socket);
+                  LogService.instance.debug(
+                    'Capture signaling: viewer disconnected remaining=${clients.length}',
+                  );
                 })
                 .catchError((Object _) => false),
           );
           try {
             await accept(socket);
-          } catch (_) {
+          } catch (e) {
+            LogService.instance.debug(
+              'Capture signaling: viewer setup failed type=${e.runtimeType}',
+            );
             await socket.close(WebSocketStatus.internalServerError);
           }
         } else {
           request.response.statusCode = 404;
           await request.response.close();
         }
-      } catch (_) {
+      } catch (e) {
+        LogService.instance.debug(
+          'Capture signaling: HTTP handler failed type=${e.runtimeType}',
+        );
         await request.response.close().catchError((Object _) {});
       }
     });
   }
 
   Future<void> stop() async {
+    LogService.instance.debug(
+      'Capture signaling: stop requested viewers=${clients.length} running=${_server != null}',
+    );
     final server = _server;
     _server = null;
     token = '';
@@ -241,6 +268,7 @@ class CaptureSignalingServer {
             .catchError((Object _) {}),
       ),
     );
+    LogService.instance.debug('Capture signaling: server stopped');
   }
 }
 
@@ -248,6 +276,9 @@ class CaptureSignalingServer {
 /// A proxy accepting discovery but rejecting WebSocket upgrades can return
 /// misleading 404/501 responses. Never send the pairing key through it.
 Future<WebSocket> connectCaptureSocket(Uri uri) async {
+  LogService.instance.debug(
+    'Capture signaling: connecting socket scheme=${uri.scheme}',
+  );
   final client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 8)
     ..findProxy = (_) => 'DIRECT';
@@ -268,14 +299,23 @@ Future<WebSocket> connectCaptureSocket(Uri uri) async {
           .whenComplete(() => client.close(force: true))
           .catchError((Object _) {}),
     );
+    LogService.instance.debug(
+      'Capture signaling: WebSocket upgrade established',
+    );
     return socket;
   } on WebSocketException catch (error) {
+    LogService.instance.debug(
+      'Capture signaling: WebSocket upgrade failed httpStatus=${error.httpStatusCode}',
+    );
     client.close(force: true);
     throw WebSocketException(
       'اتصال محلی دوربین برقرار نشد؛ سرویس فرستنده و مسیر شبکه بررسی شود. / Local capture handshake failed.',
       error.httpStatusCode,
     );
-  } catch (_) {
+  } catch (e) {
+    LogService.instance.debug(
+      'Capture signaling: connection failed type=${e.runtimeType}',
+    );
     client.close(force: true);
     rethrow;
   }
@@ -322,8 +362,7 @@ class LiveCaptureService extends ChangeNotifier {
       notifyListeners();
     } catch (error) {
       LogService.instance.debug(
-        'Capture latency statistics unavailable',
-        error: error,
+        'Capture latency statistics unavailable type=${error.runtimeType}',
       );
     } finally {
       _latencyBusy = false;
@@ -337,6 +376,9 @@ class LiveCaptureService extends ChangeNotifier {
   int pcmPacketsReceived = 0, pcmPacketsSent = 0, pcmPacketsDropped = 0;
   Future<void> _configureAudioCapture() async {
     if (!options.microphone) return;
+    LogService.instance.debug(
+      'Capture audio: configuring native capture source=${options.audioSource} uncompressed=${options.audioSettings.uncompressed}',
+    );
     final args = options.audioSettings.toMap();
     if (Platform.isWindows) {
       await const MethodChannel(
@@ -346,6 +388,9 @@ class LiveCaptureService extends ChangeNotifier {
       await _captureChannel.invokeMethod('audioEffects', args);
     }
     if (options.audioSettings.uncompressed) {
+      LogService.instance.debug(
+        'Capture audio: enabling PCM data channel relay',
+      );
       _audioFrames ??= const EventChannel('localist/audioFrames')
           .receiveBroadcastStream()
           .listen((event) {
@@ -375,6 +420,7 @@ class LiveCaptureService extends ChangeNotifier {
 
   void _receivePcmChannel(RTCDataChannel channel) {
     if (channel.label != 'localist.pcm.v1') return;
+    LogService.instance.debug('Capture audio: PCM channel registered');
     channel.onMessage = (message) {
       if (!message.isBinary || !validCapturePcm(message.binary)) {
         pcmPacketsDropped++;
@@ -400,6 +446,7 @@ class LiveCaptureService extends ChangeNotifier {
         throw error;
       });
   static Future<List<MediaDeviceInfo>> inputDevices() async {
+    LogService.instance.debug('Capture devices: enumeration started');
     await initializeMedia();
     final devices = (await navigator.mediaDevices.enumerateDevices())
         .where(
@@ -410,9 +457,13 @@ class LiveCaptureService extends ChangeNotifier {
           (device) => !device.label.toLowerCase().contains('localist camera'),
         )
         .toList();
-    return {
+    final unique = {
       for (final device in devices) '${device.kind}:${device.deviceId}': device,
     }.values.toList();
+    LogService.instance.debug(
+      'Capture devices: enumerated total=${unique.length} camera=${unique.where((d) => d.kind == 'videoinput').length} microphone=${unique.where((d) => d.kind == 'audioinput').length}',
+    );
+    return unique;
   }
 
   static Future<CaptureCapabilities> deviceCapabilities(
@@ -421,6 +472,9 @@ class LiveCaptureService extends ChangeNotifier {
     int height = 720,
     int fps = 30,
   }) async {
+    LogService.instance.debug(
+      'Capture devices: capabilities requested resolution=${width}x$height fps=$fps',
+    );
     final args = {
       'cameraId': cameraId,
       'width': width,
@@ -459,7 +513,7 @@ class LiveCaptureService extends ChangeNotifier {
   String get error => _error;
   set error(String value) {
     if (value.isNotEmpty && value != _error) {
-      LogService.instance.warning('Camera & Mic: ${redactCaptureError(value)}');
+      LogService.instance.warning('Camera & Mic: capture error reported');
     }
     _error = value;
   }
@@ -484,6 +538,9 @@ class LiveCaptureService extends ChangeNotifier {
     }
     _controlMicrophones = microphones;
     _controlCameras = cameras;
+    LogService.instance.debug(
+      'Capture devices: available inputs changed cameras=${cameras.length} microphones=${microphones.length}',
+    );
     if (broadcasting) _changed();
   }
 
@@ -544,9 +601,12 @@ class LiveCaptureService extends ChangeNotifier {
   int get viewers => _peers.length;
   int get signalingPort => _server?.port ?? 0;
   String get signalingKey => _server?.token ?? '';
+
+  /// Language selected in the Localist settings for the browser viewer UI.
+  String viewerLanguage = 'en';
   List<String> get links => [
     for (final address in addresses)
-      'http://$address:${_server?.port}/#${_server?.token}',
+      'http://$address:${_server?.port}/?lang=$viewerLanguage#${_server?.token}',
   ];
   static const _configuration = <String, dynamic>{
     'iceServers': <dynamic>[],
@@ -577,14 +637,25 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   Future<void> start(LiveCaptureOptions value, {int port = 0}) async {
+    LogService.instance.debug(
+      'Capture sender: start requested camera=${value.camera} microphone=${value.microphone} source=${value.audioSource} resolution=${value.width}x${value.height} fps=${value.fps}',
+    );
     final stopping = _stopping;
     if (stopping != null) await stopping;
-    if (_disposed || busy || active) return;
+    if (_disposed || busy || active) {
+      LogService.instance.debug(
+        'Capture sender: start skipped disposed=$_disposed busy=$busy active=$active',
+      );
+      return;
+    }
     value.validate();
     if (!FeatureActivityService.instance.reserve(
       this,
       LocalistFeature.capture,
     )) {
+      LogService.instance.debug(
+        'Capture sender: start blocked by another feature',
+      );
       throw StateError(
         'ابتدا سرویس فعال را متوقف کنید. / Stop the active service first.',
       );
@@ -598,6 +669,9 @@ class LiveCaptureService extends ChangeNotifier {
         if (value.camera) FeatureAccess.camera,
         if (value.microphone) FeatureAccess.microphone,
       ])) {
+        LogService.instance.debug(
+          'Capture sender: camera or microphone permission denied',
+        );
         throw StateError(
           'دسترسی دوربین/میکروفون داده نشد. / Camera/microphone permission denied.',
         );
@@ -614,6 +688,9 @@ class LiveCaptureService extends ChangeNotifier {
       final inputs = await inputDevices();
       final cameras = inputs.where((d) => d.kind == 'videoinput').toList();
       final microphones = inputs.where((d) => d.kind == 'audioinput').toList();
+      LogService.instance.debug(
+        'Capture sender: device selection cameras=${cameras.length} microphones=${microphones.length}',
+      );
       final cameraId =
           cameras
               .where((d) => d.deviceId == value.cameraId)
@@ -672,21 +749,37 @@ class LiveCaptureService extends ChangeNotifier {
         }
       }
       options = value;
+      LogService.instance.debug(
+        'Capture sender: negotiated resolution=${value.width}x${value.height} fps=${value.fps} bitrateKbps=${value.bitrateKbps}',
+      );
       _captureSourceOwned = true;
       if (_disposed || generation != _captureGeneration) return;
       await initializeMedia();
       if (Platform.isAndroid && value.background) {
         _captureChannel.setMethodCallHandler((call) async {
           if (call.method == 'captureDiagnostics') {
-            LogService.instance.info('${call.arguments}');
+            LogService.instance.debug(
+              'Capture sender: native diagnostics event received payloadType=${call.arguments.runtimeType}',
+            );
           }
-          if (call.method == 'stopCapture') await stop();
+          if (call.method == 'stopCapture') {
+            LogService.instance.debug(
+              'Capture sender: native stop callback received',
+            );
+            await stop();
+          }
           if (call.method == 'captureError') {
+            LogService.instance.debug(
+              'Capture sender: native capture error callback received',
+            );
             error = '${call.arguments}';
             await stop();
           }
         });
         _foregroundOwned = true;
+        LogService.instance.debug(
+          'Capture sender: starting Android foreground capture service',
+        );
         await _captureChannel.invokeMethod<bool>('start', {
           'camera': value.camera,
           'microphone': value.microphone,
@@ -750,6 +843,9 @@ class LiveCaptureService extends ChangeNotifier {
       } else {
         localStream = await navigator.mediaDevices.getUserMedia(constraints);
       }
+      LogService.instance.debug(
+        'Capture sender: media tracks acquired video=${localStream?.getVideoTracks().length ?? 0} audio=${localStream?.getAudioTracks().length ?? 0}',
+      );
       await _configureAudioCapture();
       if (_disposed || generation != _captureGeneration) {
         await stop();
@@ -786,6 +882,9 @@ class LiveCaptureService extends ChangeNotifier {
         return;
       }
       _server = server;
+      LogService.instance.debug(
+        'Capture sender: signaling active listeners=${server.clients.length}',
+      );
       if (_disposed) {
         await stop();
         return;
@@ -794,6 +893,9 @@ class LiveCaptureService extends ChangeNotifier {
           .map((r) => r.address)
           .toList();
       if (addresses.isEmpty) addresses = ['127.0.0.1'];
+      LogService.instance.debug(
+        'Capture sender: advertising interfaces=${addresses.length}',
+      );
       status = 'waiting';
       _latencyTimer?.cancel();
       _latencyTimer = Timer.periodic(
@@ -801,6 +903,9 @@ class LiveCaptureService extends ChangeNotifier {
         (_) => unawaited(_sampleLatency()),
       );
     } catch (e) {
+      LogService.instance.debug(
+        'Capture sender: start failed type=${e.runtimeType}, stopping session',
+      );
       error = '$e';
       await stop();
       rethrow;
@@ -813,6 +918,9 @@ class LiveCaptureService extends ChangeNotifier {
   Future<void> _acceptViewer(WebSocket socket) async {
     final stream = localStream;
     if (stream == null) {
+      LogService.instance.debug(
+        'Capture sender: viewer rejected, media stream unavailable',
+      );
       await socket.close();
       return;
     }
@@ -821,9 +929,15 @@ class LiveCaptureService extends ChangeNotifier {
       _server?.clientHosts[socket] ?? '',
     );
     _peers[socket] = peer;
+    LogService.instance.debug(
+      'Capture sender: RTC negotiation started peers=${_peers.length} tracks=${stream.getTracks().length}',
+    );
     var mediaConnected = false;
     final handshakeDeadline = Timer(const Duration(seconds: 20), () {
       if (_peers[socket] == peer && !mediaConnected) {
+        LogService.instance.debug(
+          'Capture sender: peer negotiation deadline reached',
+        );
         LogService.instance.warning(
           'Camera sender: media handshake timed out; releasing viewer slot.',
         );
@@ -839,6 +953,7 @@ class LiveCaptureService extends ChangeNotifier {
     };
     peer.onConnectionState = (state) {
       if (_peers[socket] != peer) return;
+      LogService.instance.debug('Capture sender: RTC state=${state.name}');
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         mediaConnected = true;
         handshakeDeadline.cancel();
@@ -858,6 +973,9 @@ class LiveCaptureService extends ChangeNotifier {
             .then((_) async {
               final data = decodeCaptureSignal(message);
               if (data['type'] == 'answer') {
+                LogService.instance.debug(
+                  'Capture sender: received SDP answer bufferedCandidates=${candidates.length}',
+                );
                 await peer.setRemoteDescription(
                   RTCSessionDescription(data['sdp'] as String, 'answer'),
                 );
@@ -873,6 +991,12 @@ class LiveCaptureService extends ChangeNotifier {
                   await peer.addCandidate(candidate);
                 }
               } else if (data['type'] == 'control') {
+                if (LogService.instance.debugModeEnabled) {
+                  final command = data['command'];
+                  LogService.instance.debug(
+                    'Capture sender: remote control command received fieldCount=${command is Map ? command.length : -1}',
+                  );
+                }
                 final id = data['id'];
                 try {
                   await requestCaptureControl(
@@ -884,6 +1008,9 @@ class LiveCaptureService extends ChangeNotifier {
                     );
                   }
                 } catch (error) {
+                  LogService.instance.debug(
+                    'Capture sender: control command failed type=${error.runtimeType}',
+                  );
                   if (socket.readyState == WebSocket.open) {
                     socket.add(
                       jsonEncode({
@@ -898,12 +1025,13 @@ class LiveCaptureService extends ChangeNotifier {
             })
             .catchError((Object e) {
               LogService.instance.warning(
-                'Camera sender signaling: ${redactCaptureError('$e')}',
+                'Camera sender signaling failed (${e.runtimeType})',
               );
               unawaited(socket.close(WebSocketStatus.invalidFramePayloadData));
             });
       },
       onDone: () {
+        LogService.instance.debug('Capture sender: viewer signaling closed');
         handshakeDeadline.cancel();
         _peers.remove(socket);
         unawaited(_pcmChannels.remove(socket)?.close() ?? Future<void>.value());
@@ -912,9 +1040,12 @@ class LiveCaptureService extends ChangeNotifier {
         _changed();
       },
       onError: (Object e) {
+        LogService.instance.debug(
+          'Capture sender: viewer signaling error type=${e.runtimeType}',
+        );
         handshakeDeadline.cancel();
         LogService.instance.warning(
-          'Camera sender socket: ${redactCaptureError('$e')}',
+          'Camera sender socket failure (${e.runtimeType})',
         );
         unawaited(socket.close());
       },
@@ -939,6 +1070,9 @@ class LiveCaptureService extends ChangeNotifier {
       );
       await peer.setLocalDescription(RTCSessionDescription(sdp, 'offer'));
       socket.add(jsonEncode({'type': 'offer', 'sdp': sdp}));
+      LogService.instance.debug(
+        'Capture sender: SDP offer dispatched video=${stream.getVideoTracks().length} audio=${stream.getAudioTracks().length}',
+      );
       try {
         for (final sender in await peer.getSenders()) {
           if (sender.track?.kind != 'video' && sender.track?.kind != 'audio') {
@@ -959,11 +1093,14 @@ class LiveCaptureService extends ChangeNotifier {
         // Some OEM encoders reject live rate controls. Keep negotiated media
         // flowing at the encoder's supported rate instead of dropping the peer.
         LogService.instance.warning(
-          'Camera rate control unavailable: ${redactCaptureError('$e')}',
+          'Camera rate control unavailable (${e.runtimeType})',
         );
       }
       _changed();
     } catch (e) {
+      LogService.instance.debug(
+        'Capture sender: RTC negotiation failed type=${e.runtimeType}',
+      );
       error = 'Camera sender negotiation: ${redactCaptureError('$e')}';
       await socket.close();
       rethrow;
@@ -971,12 +1108,23 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   Future<void> connect(String link) async {
-    if (_disposed || active || busy) return;
+    LogService.instance.debug(
+      'Capture receiver: connect requested active=$active busy=$busy disposed=$_disposed',
+    );
+    if (_disposed || active || busy) {
+      LogService.instance.debug(
+        'Capture receiver: connect skipped due to session state',
+      );
+      return;
+    }
     final uri = Uri.tryParse(link.trim());
     if (uri == null ||
         !['http', 'https'].contains(uri.scheme) ||
         uri.host.isEmpty ||
         !RegExp(r'^[A-Za-z0-9_=-]{40,64}$').hasMatch(uri.fragment)) {
+      LogService.instance.debug(
+        'Capture receiver: signaling information rejected by validation',
+      );
       throw const FormatException(
         'اطلاعات دستگاه فرستنده معتبر نیست. / Invalid sender discovery information.',
       );
@@ -985,6 +1133,7 @@ class LiveCaptureService extends ChangeNotifier {
       this,
       LocalistFeature.capture,
     )) {
+      LogService.instance.debug('Capture receiver: feature reservation denied');
       throw StateError('Stop the active service first.');
     }
     busy = true;
@@ -994,6 +1143,7 @@ class LiveCaptureService extends ChangeNotifier {
     try {
       await initializeMedia();
       final socket = await connectCaptureSocket(uri);
+      LogService.instance.debug('Capture receiver: signaling socket connected');
       if (_disposed || generation != _captureGeneration) {
         await socket.close();
         return;
@@ -1009,6 +1159,7 @@ class LiveCaptureService extends ChangeNotifier {
         return;
       }
       _peers[socket] = peer;
+      LogService.instance.debug('Capture receiver: RTC peer created');
       peer.onDataChannel = _receivePcmChannel;
       final preferredAddresses = await _usbAddresses(uri.host);
       if (_disposed || generation != _captureGeneration) {
@@ -1017,6 +1168,9 @@ class LiveCaptureService extends ChangeNotifier {
       }
       peer.onTrack = (event) {
         if (_receiver != socket) return;
+        LogService.instance.debug(
+          'Capture receiver: RTC media track attached kind=${event.track.kind} streams=${event.streams.length}',
+        );
         if (event.streams.isNotEmpty) remoteStream = event.streams.first;
         if (event.track.kind == 'audio' && playbackMuted) {
           unawaited(Helper.setVolume(0, event.track));
@@ -1031,6 +1185,7 @@ class LiveCaptureService extends ChangeNotifier {
       };
       peer.onConnectionState = (state) {
         if (_receiver != socket) return;
+        LogService.instance.debug('Capture receiver: RTC state=${state.name}');
         status = state.name
             .replaceFirst('RTCPeerConnectionState', '')
             .toLowerCase();
@@ -1042,6 +1197,9 @@ class LiveCaptureService extends ChangeNotifier {
           unawaited(stop());
         } else if (state ==
             RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          LogService.instance.debug(
+            'Capture receiver: RTC disconnected, checking reconnect grace period',
+          );
           Timer(const Duration(seconds: 5), () {
             if (_receiver == socket && status == 'disconnected') {
               error = 'ارتباط رسانه قطع شد. / Media connection disconnected.';
@@ -1055,6 +1213,9 @@ class LiveCaptureService extends ChangeNotifier {
       _receiverWatchdog?.cancel();
       _receiverWatchdog = Timer(const Duration(seconds: 15), () {
         if (_receiver == socket && status != 'connected') {
+          LogService.instance.debug(
+            'Capture receiver: negotiation watchdog deadline reached',
+          );
           error = 'مهلت اتصال رسانه تمام شد. / Media connection timed out.';
           unawaited(stop());
         }
@@ -1066,6 +1227,9 @@ class LiveCaptureService extends ChangeNotifier {
                 if (_receiver != socket) return;
                 final data = decodeCaptureSignal(message);
                 if (data['type'] == 'offer') {
+                  LogService.instance.debug(
+                    'Capture receiver: SDP offer received pendingCandidates=${_pendingCandidates.length}',
+                  );
                   await peer.setRemoteDescription(
                     RTCSessionDescription(data['sdp'] as String, 'offer'),
                   );
@@ -1082,6 +1246,9 @@ class LiveCaptureService extends ChangeNotifier {
                     RTCSessionDescription(sdp, 'answer'),
                   );
                   socket.add(jsonEncode({'type': 'answer', 'sdp': sdp}));
+                  LogService.instance.debug(
+                    'Capture receiver: SDP answer dispatched',
+                  );
                 } else if (data['candidate'] is Map) {
                   final candidate = _candidate(data['candidate'] as Map);
                   if (await peer.getRemoteDescription() == null) {
@@ -1099,6 +1266,9 @@ class LiveCaptureService extends ChangeNotifier {
                   _changed();
                 } else if (data['type'] == 'control-result') {
                   final pending = _controlRequests.remove(data['id']);
+                  LogService.instance.debug(
+                    'Capture receiver: remote control result success=${data['error'] is! String} pending=${_controlRequests.length}',
+                  );
                   if (data['error'] is String) {
                     pending?.completeError(StateError(data['error'] as String));
                   } else {
@@ -1108,22 +1278,34 @@ class LiveCaptureService extends ChangeNotifier {
               })
               .catchError((Object e) {
                 if (_receiver != socket) return;
+                LogService.instance.debug(
+                  'Capture receiver: signaling packet failed type=${e.runtimeType}',
+                );
                 error = '$e';
                 unawaited(stop());
               });
         },
         onDone: () {
           if (_receiver != socket) return;
+          LogService.instance.debug(
+            'Capture receiver: signaling socket closed',
+          );
           error = 'ارتباط با فرستنده قطع شد. / Sender disconnected.';
           unawaited(stop());
         },
         onError: (Object e) {
           if (_receiver != socket) return;
+          LogService.instance.debug(
+            'Capture receiver: signaling socket error type=${e.runtimeType}',
+          );
           error = '$e';
           unawaited(stop());
         },
       );
     } catch (e) {
+      LogService.instance.debug(
+        'Capture receiver: connection failed type=${e.runtimeType}',
+      );
       error = '$e';
       await stop();
       rethrow;
@@ -1147,6 +1329,7 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   void muteMicrophone(bool mute) {
+    LogService.instance.debug('Capture sender: microphone muted=$mute');
     microphoneMuted = mute;
     for (final track in localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
       track.enabled = !mute;
@@ -1155,6 +1338,7 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   void pauseCamera(bool pause) {
+    LogService.instance.debug('Capture sender: camera paused=$pause');
     cameraPaused = pause;
     for (final track in localStream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
       track.enabled = !pause;
@@ -1163,6 +1347,9 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   Future<void> selectMicrophone(String id) async {
+    LogService.instance.debug(
+      'Capture sender: microphone input selection requested',
+    );
     final inputs = await inputDevices();
     if (!inputs.any(
       (device) => device.kind == 'audioinput' && device.deviceId == id,
@@ -1173,11 +1360,13 @@ class LiveCaptureService extends ChangeNotifier {
     }
     await Helper.selectAudioInput(id);
     options = options.copyWith(microphoneId: id);
+    LogService.instance.debug('Capture sender: microphone input changed');
     _changed();
   }
 
   Future<void> setPlaybackMuted(bool mute) async {
     if (playbackMuted == mute) return;
+    LogService.instance.debug('Capture receiver: playback muted=$mute');
     for (final track
         in remoteStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
       await Helper.setVolume(mute ? 0 : 1, track);
@@ -1187,6 +1376,7 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   Future<void> setOrientation(String value) async {
+    LogService.instance.debug('Capture sender: orientation requested=$value');
     if (!['auto', 'portrait', 'landscape'].contains(value)) {
       throw const FormatException('Invalid camera orientation.');
     }
@@ -1204,8 +1394,16 @@ class LiveCaptureService extends ChangeNotifier {
 
   Future<void> requestCaptureControl(Map<String, dynamic> command) async {
     validateCaptureControl(command);
+    if (LogService.instance.debugModeEnabled) {
+      LogService.instance.debug(
+        'Capture control: dispatch keys=${command.keys.join(',')} receiving=$receiving',
+      );
+    }
     if (receiving) {
       if (_remoteControls['enabled'] != true || _controlRequests.isNotEmpty) {
+        LogService.instance.debug(
+          'Capture control: remote request rejected unavailable/busy',
+        );
         throw StateError('Sender controls are unavailable or busy.');
       }
       final id = ++_controlSequence;
@@ -1216,6 +1414,9 @@ class LiveCaptureService extends ChangeNotifier {
       );
       try {
         await pending.future.timeout(const Duration(seconds: 15));
+        LogService.instance.debug(
+          'Capture control: remote request acknowledged',
+        );
       } finally {
         _controlRequests.remove(id);
       }
@@ -1230,6 +1431,9 @@ class LiveCaptureService extends ChangeNotifier {
       return;
     }
     if (!broadcasting || busy) {
+      LogService.instance.debug(
+        'Capture control: local request rejected unavailable/busy',
+      );
       throw StateError('Receiver controls are not enabled by the sender.');
     }
     if (options.audioSource == 'system' &&
@@ -1450,6 +1654,9 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   Future<void> refreshCameraControls() async {
+    LogService.instance.debug(
+      'Capture sender: refreshing camera hardware controls',
+    );
     maxZoom = zoom = 1;
     hasTorch = torch = false;
     final track = localStream?.getVideoTracks().firstOrNull;
@@ -1461,7 +1668,11 @@ class LiveCaptureService extends ChangeNotifier {
           height: options.height,
           fps: options.fps,
         );
-      } catch (_) {}
+      } catch (e) {
+        LogService.instance.debug(
+          'Capture sender: camera capability refresh failed type=${e.runtimeType}',
+        );
+      }
     }
     if (!Platform.isAndroid || track == null) return;
     try {
@@ -1473,7 +1684,10 @@ class LiveCaptureService extends ChangeNotifier {
           {};
       maxZoom = ((result['maxZoom'] as num?)?.toDouble() ?? 1).clamp(1, 100);
       hasTorch = result['torch'] == true;
-    } catch (_) {
+    } catch (e) {
+      LogService.instance.debug(
+        'Capture sender: optional camera controls unavailable type=${e.runtimeType}',
+      );
       /* Optional hardware controls never block capture. */
     }
     _changed();
@@ -1485,6 +1699,7 @@ class LiveCaptureService extends ChangeNotifier {
     final target = value.clamp(1, maxZoom);
     await Helper.setZoom(track, target.toDouble());
     zoom = target.toDouble();
+    LogService.instance.debug('Capture sender: camera zoom=$zoom');
     _changed();
   }
 
@@ -1493,6 +1708,7 @@ class LiveCaptureService extends ChangeNotifier {
     if (track == null || !hasTorch) return;
     await track.setTorch(enabled);
     torch = enabled;
+    LogService.instance.debug('Capture sender: torch=$enabled');
     // Upstream torch rebuilds its Camera2 request; reapply the current crop.
     await Helper.setZoom(track, zoom);
     _changed();
@@ -1500,6 +1716,9 @@ class LiveCaptureService extends ChangeNotifier {
 
   Future<void> prepareBackgroundCapture() async {
     if (!broadcasting || !Platform.isAndroid) return;
+    LogService.instance.debug(
+      'Capture sender: preparing background capture foregroundOwned=$_foregroundOwned',
+    );
     if (!_foregroundOwned) {
       _captureChannel.setMethodCallHandler((call) async {
         if (call.method == 'stopCapture') await stop();
@@ -1514,7 +1733,10 @@ class LiveCaptureService extends ChangeNotifier {
           'camera': options.camera,
           'microphone': options.microphone,
         });
-      } catch (_) {
+      } catch (e) {
+        LogService.instance.debug(
+          'Capture sender: foreground service handoff failed type=${e.runtimeType}',
+        );
         _foregroundOwned = false;
         _captureChannel.setMethodCallHandler(null);
         rethrow;
@@ -1530,6 +1752,7 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   Future<void> continueWithScreenOff() async {
+    LogService.instance.debug('Capture sender: continuing with display off');
     await prepareBackgroundCapture();
     if (broadcasting && Platform.isAndroid) {
       await _captureChannel.invokeMethod('background');
@@ -1538,6 +1761,9 @@ class LiveCaptureService extends ChangeNotifier {
 
   Future<void> switchCamera({String? cameraId}) async {
     if (busy || _stopping != null || !broadcasting) return;
+    LogService.instance.debug(
+      'Capture sender: switching camera requested explicit=${cameraId != null}',
+    );
     busy = true;
     final generation = _captureGeneration;
     _changed();
@@ -1560,6 +1786,7 @@ class LiveCaptureService extends ChangeNotifier {
         await Helper.switchCamera(track, next);
         if (_disposed || generation != _captureGeneration) return;
         activeCameraId = next;
+        LogService.instance.debug('Capture sender: camera switch completed');
         options = options.copyWith(cameraId: next);
         await setOrientation(options.orientation);
         await refreshCameraControls();
@@ -1574,6 +1801,9 @@ class LiveCaptureService extends ChangeNotifier {
   Future<void> stop() =>
       _stopping ??= _stop().whenComplete(() => _stopping = null);
   Future<void> _stop() async {
+    LogService.instance.debug(
+      'Capture session: stopping sender=$broadcasting receiver=$receiving peers=${_peers.length} pcmSent=$pcmPacketsSent pcmReceived=$pcmPacketsReceived pcmDropped=$pcmPacketsDropped',
+    );
     final ownedSource =
         _captureSourceOwned ||
         localStream != null ||
@@ -1671,6 +1901,9 @@ class LiveCaptureService extends ChangeNotifier {
       false,
     );
     _changed();
+    LogService.instance.debug(
+      'Capture session: stopped and released feature activity',
+    );
   }
 
   @override

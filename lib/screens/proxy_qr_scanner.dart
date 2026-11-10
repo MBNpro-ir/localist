@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../l10n/app_localizations.dart';
 import '../models/service_state.dart';
+import '../services/log_service.dart';
 
 /// A mounted, bounded camera view also works on short Android 8/9 screens.
 class ProxyQrScanner extends StatefulWidget {
@@ -28,9 +29,17 @@ class _ProxyQrScannerState extends State<ProxyQrScanner>
 
   Future<void> _start() async {
     if (!mounted || _handled) return;
+    LogService.instance.debug(
+      'Proxy QR camera start requested handled=$_handled',
+    );
     try {
       await _controller.start();
-    } catch (_) {
+      LogService.instance.debug('Proxy QR camera started');
+    } catch (error, stack) {
+      LogService.instance.debug(
+        'Proxy QR camera start failed type=${error.runtimeType}',
+        stack: stack,
+      );
       if (mounted) {
         setState(
           () => _error = context.l10n.isPersian
@@ -43,6 +52,7 @@ class _ProxyQrScannerState extends State<ProxyQrScanner>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    LogService.instance.debug('Proxy QR lifecycle state=${state.name}');
     if (state == AppLifecycleState.resumed) {
       unawaited(_start());
     } else {
@@ -52,6 +62,7 @@ class _ProxyQrScannerState extends State<ProxyQrScanner>
 
   @override
   void dispose() {
+    LogService.instance.debug('Proxy QR scanner disposed handled=$_handled');
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_controller.dispose());
     super.dispose();
@@ -75,13 +86,28 @@ class _ProxyQrScannerState extends State<ProxyQrScanner>
         ),
         onDetect: (capture) {
           if (_handled) return;
+          if (LogService.instance.debugModeEnabled) {
+            LogService.instance.debug(
+              'Proxy QR scan callback barcodes=${capture.barcodes.length}',
+            );
+          }
           for (final code in capture.barcodes) {
             final value = code.rawValue;
-            if (value == null ||
-                (SmartProxyPayload.tryParse(value) == null &&
-                    RemoteProxyConfig.tryParse(value) == null)) {
+            final smart = value == null
+                ? null
+                : SmartProxyPayload.tryParse(value);
+            final remote = value == null
+                ? null
+                : RemoteProxyConfig.tryParse(value);
+            if (smart == null && remote == null) {
+              LogService.instance.debug(
+                'Proxy QR scan ignored unrecognized code',
+              );
               continue;
             }
+            LogService.instance.debug(
+              'Proxy QR scan accepted format=${smart != null ? 'smart' : 'remote'}',
+            );
             _handled = true;
             Navigator.pop(context, value);
             break;

@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import 'glass.dart';
 import 'localist_bottom_navigation.dart';
 
@@ -240,7 +241,7 @@ class _LocalistWindowsNavigationState extends State<LocalistWindowsNavigation> {
         ? Duration.zero
         : const Duration(milliseconds: 380);
     final hovered = _hoveredIndex == widget.items.length;
-    final label = widget.actionTooltip ?? 'Stats';
+    final label = widget.actionTooltip ?? context.l10n.stats;
     final button = Semantics(
       button: true,
       label: label,

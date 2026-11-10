@@ -1,8 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/remote/remote_session_return.dart';
 
 void main() {
+  testWidgets('remote return action follows the selected Persian locale', (
+    tester,
+  ) async {
+    final key = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('fa'),
+        supportedLocales: const [Locale('en'), Locale('fa')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        navigatorKey: key,
+        home: RemoteSessionReturnPage(navigatorKey: key, onClose: () async {}),
+      ),
+    );
+    expect(find.text('بازگشت به لوکالیست'), findsOneWidget);
+    expect(find.text('Return to Localist'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets(
     'returning from the final session closes only its activity once',
     (tester) async {

@@ -113,7 +113,11 @@ void main() {
       await tester.tap(find.text('Set password'));
       await tester.pumpAndSettle();
       expect(engine.passwords, isEmpty);
-      expect(find.textContaining('Native daemon rejected'), findsOneWidget);
+      expect(
+        find.text('Remote control settings could not be saved or applied.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Native daemon rejected'), findsNothing);
       expect(find.byType(AlertDialog), findsOneWidget);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
@@ -156,6 +160,50 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       engine.dispose();
+    },
+  );
+
+  testWidgets(
+    'Persian server configuration controls and errors have no English labels',
+    (tester) async {
+      tester.view.physicalSize = const Size(1440, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final engine = _SettingsEngine();
+      addTearDown(engine.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('fa'),
+          supportedLocales: const [Locale('en'), Locale('fa')],
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            ...GlobalMaterialLocalizations.delegates,
+          ],
+          home: Scaffold(body: RemoteControlSettingsSection(service: engine)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('شبکه').first);
+      await tester.pumpAndSettle();
+      expect(find.text('سرور شناسه و واسط'), findsOneWidget);
+      expect(find.text('وارد کردن تنظیمات'), findsOneWidget);
+      expect(find.text('کپی کردن تنظیمات'), findsOneWidget);
+      expect(find.text('ID/Relay server'), findsNothing);
+      expect(find.text('Import configuration'), findsNothing);
+      await tester.enterText(
+        find.byKey(const ValueKey('remote-server-code')),
+        'invalid-configuration-code',
+      );
+      await tester.tap(find.text('وارد کردن تنظیمات'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('تنظیمات کنترل از راه دور ذخیره یا اعمال نشد.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('FormatException'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 }

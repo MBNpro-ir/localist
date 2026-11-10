@@ -293,7 +293,7 @@ class _SharingControlPanel extends StatelessWidget {
                                 !busy && !running && !oppositeServiceActive,
                             onSelected: (selected) {
                               LogService.instance.debug(
-                                'Sharing local IP chip changed ip=$ip selected=$selected',
+                                'Sharing local interface selection changed selected=$selected',
                               );
                               settings.setLocalIpSelected(ip, selected);
                             },
@@ -344,7 +344,11 @@ class _SharingControlPanel extends StatelessWidget {
               if (rootMode && snapshot.root.lastError.isNotEmpty)
                 Chip(
                   avatar: const Icon(Icons.error_outline, size: 18),
-                  label: Text(snapshot.root.lastError),
+                  label: Text(
+                    l10n.isPersian
+                        ? 'راه‌اندازی دسترسی روت با مشکل مواجه شد. تنظیمات و مجوزها را بررسی کنید.'
+                        : 'Root access could not start. Check settings and permissions.',
+                  ),
                 ),
               if (isWindows && settings.windowsVpnProxyEnabled)
                 Chip(
@@ -561,6 +565,9 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
   Future<void> _save() async {
     final port = int.tryParse(_portController.text.trim());
     if (_portError(_portController.text) != null || port == null) {
+      LogService.instance.debug(
+        'Sharing page: VPN proxy settings rejected invalid port',
+      );
       showLocalistNotice(
         context,
         message: context.l10n.enterValidVpnProxyPortFirst,
@@ -576,6 +583,9 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
       await widget.settings.setWindowsVpnProxy(
         enabled: _enabledDraft,
         port: port,
+      );
+      LogService.instance.debug(
+        'Sharing page: Windows VPN proxy settings saved enabled=$_enabledDraft',
       );
       if (mounted) {
         showLocalistNotice(
@@ -877,7 +887,7 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
                       selectedId: _selectedIosId,
                       onSelect: (config) => setState(() {
                         LogService.instance.debug(
-                          'iOS QR config selected id=${config.id}',
+                          'iOS QR configuration selected',
                         );
                         _selectedIosId = config.id;
                       }),
@@ -900,7 +910,7 @@ class _ProxyQrSectionState extends State<_ProxyQrSection> {
                                 selected: endpoint.id == _selectedId,
                                 onTap: () => setState(() {
                                   LogService.instance.debug(
-                                    'Proxy QR endpoint selected id=${endpoint.id}',
+                                    'Proxy QR endpoint selected smart=${endpoint.isSmart}',
                                   );
                                   _selectedId = endpoint.id;
                                 }),
@@ -1130,9 +1140,7 @@ class _QrPreview extends StatelessWidget {
                 IconButton.filledTonal(
                   tooltip: l10n.closeQrCode,
                   onPressed: () {
-                    LogService.instance.debug(
-                      'Proxy QR close button pressed id=${endpoint.id}',
-                    );
+                    LogService.instance.debug('Proxy QR close button pressed');
                     onClose();
                   },
                   icon: const Icon(Icons.close),
@@ -1157,7 +1165,7 @@ class _QrPreview extends StatelessWidget {
                     child: FilledButton.tonalIcon(
                       onPressed: () async {
                         LogService.instance.debug(
-                          'Proxy QR copy button pressed id=${endpoint.id}',
+                          'Proxy QR copy button pressed',
                         );
                         await Clipboard.setData(
                           ClipboardData(text: endpoint.data),
@@ -1180,7 +1188,7 @@ class _QrPreview extends StatelessWidget {
                       tooltip: l10n.shareConfig,
                       onPressed: () {
                         LogService.instance.debug(
-                          'Proxy QR share button pressed id=${endpoint.id}',
+                          'Proxy QR share button pressed',
                         );
                         NativeBridgeService.instance.shareText(
                           text: endpoint.data,
@@ -1339,9 +1347,7 @@ class _QrConfigPreview extends StatelessWidget {
                 IconButton.filledTonal(
                   tooltip: l10n.copyConfig,
                   onPressed: () async {
-                    LogService.instance.debug(
-                      'iOS QR copy button pressed id=${config.id}',
-                    );
+                    LogService.instance.debug('iOS QR copy button pressed');
                     await Clipboard.setData(ClipboardData(text: config.data));
                     if (context.mounted) {
                       showLocalistNotice(
@@ -1357,9 +1363,7 @@ class _QrConfigPreview extends StatelessWidget {
                 IconButton.filledTonal(
                   tooltip: l10n.closeQrCode,
                   onPressed: () {
-                    LogService.instance.debug(
-                      'iOS QR close button pressed id=${config.id}',
-                    );
+                    LogService.instance.debug('iOS QR close button pressed');
                     onClose();
                   },
                   icon: const Icon(Icons.close),
@@ -1443,7 +1447,7 @@ void _logIphoneHotspotEndpoint(List<String> endpointIps) {
     return;
   }
   LogService.instance.debug(
-    'iPhone Personal Hotspot client IP detected: $signature. The hotspot owner may not be able to connect back to this proxy.',
+    'iPhone Personal Hotspot client network detected interfaces=${matches.length}; hotspot owner may not be able to connect back to proxy.',
   );
 }
 

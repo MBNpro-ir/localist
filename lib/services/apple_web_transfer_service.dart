@@ -67,6 +67,9 @@ class AppleWebTransferService extends ChangeNotifier {
   bool get manualHotspotRequired => _manualHotspotRequired;
   String get hotspotSsid => _hotspotSsid;
   String get hotspotPassword => _hotspotPassword;
+
+  /// Language chosen in Localist, forwarded to connected browser views.
+  bool persian = false;
   String get statusMessage => _statusMessage;
   String get errorMessage => _errorMessage;
   int get sharedFileCount => _sharedFiles.length;
@@ -85,6 +88,7 @@ class AppleWebTransferService extends ChangeNotifier {
             host: address,
             port: currentPort,
             path: '/$_sessionToken/',
+            queryParameters: {'lang': persian ? 'fa' : 'en'},
           ).toString(),
         )
         .toList(growable: false);
@@ -139,6 +143,9 @@ class AppleWebTransferService extends ChangeNotifier {
     if (nextSignature == currentSignature && normalizedText == _selectedText) {
       return;
     }
+    _logs.debug(
+      'Browser transfer: shared selection changed files=${next.length} textPresent=${normalizedText.isNotEmpty}',
+    );
     _sharedFiles
       ..clear()
       ..addAll(next);
@@ -164,7 +171,11 @@ class AppleWebTransferService extends ChangeNotifier {
     String selectedText = '',
     bool useHotspot = true,
   }) async {
+    _logs.debug(
+      'Browser transfer: start requested files=${paths.length} textPresent=${selectedText.trim().isNotEmpty} useHotspot=$useHotspot active=$_active starting=$_starting',
+    );
     if (!FeatureActivityService.instance.allows(LocalistFeature.quickSend)) {
+      _logs.debug('Browser transfer: start rejected due to active feature');
       throw StateError(
         'ابتدا سرویس فعال را متوقف کنید. / Stop the active service first.',
       );
@@ -175,9 +186,13 @@ class AppleWebTransferService extends ChangeNotifier {
       selectedText: selectedText,
     );
     if (_active) {
+      _logs.debug(
+        'Browser transfer: reusing active server managedHotspot=$_managedHotspot',
+      );
       return _managedHotspot;
     }
     if (_starting) {
+      _logs.debug('Browser transfer: duplicate start suppressed');
       return false;
     }
     _cancelStart = false;
@@ -190,8 +205,12 @@ class AppleWebTransferService extends ChangeNotifier {
     LocalOnlyHotspotInfo hotspotInfo = const LocalOnlyHotspotInfo.unsupported();
     try {
       await _quickSend.initialize();
+      _logs.debug('Browser transfer: Quick Send initialized');
       if (Platform.isAndroid && useHotspot) {
         final permissionGranted = await _ensureHotspotPermission();
+        _logs.debug(
+          'Browser transfer: nearby devices permission granted=$permissionGranted',
+        );
         if (permissionGranted) {
           hotspotInfo = await _bridge.startLocalOnlyHotspot();
         } else {
@@ -199,6 +218,7 @@ class AppleWebTransferService extends ChangeNotifier {
               'Nearby Wi-Fi permission was not granted. Use the Android hotspot settings instead.';
         }
         if (_cancelStart) {
+          _logs.debug('Browser transfer: start cancelled during hotspot setup');
           if (hotspotInfo.active) {
             await _bridge.stopLocalOnlyHotspot();
           }
@@ -206,6 +226,9 @@ class AppleWebTransferService extends ChangeNotifier {
         }
 
         _managedHotspot = hotspotInfo.active && hotspotInfo.managed;
+        _logs.debug(
+          'Browser transfer: hotspot started active=${hotspotInfo.active} managed=$_managedHotspot addresses=${hotspotInfo.addresses.length}',
+        );
         _manualHotspotRequired = !_managedHotspot;
         _hotspotSsid = hotspotInfo.ssid;
         _hotspotPassword = hotspotInfo.password;
@@ -224,6 +247,9 @@ class AppleWebTransferService extends ChangeNotifier {
         _preferredAddresses = const [];
       }
       if (_cancelStart) {
+        _logs.debug(
+          'Browser transfer: start cancelled before listener creation',
+        );
         return false;
       }
 
@@ -239,6 +265,9 @@ class AppleWebTransferService extends ChangeNotifier {
           shared: false,
         );
       } on SocketException {
+        _logs.debug(
+          'Browser transfer: preferred port unavailable, binding ephemeral port',
+        );
         _server = await HttpServer.bind(
           InternetAddress.anyIPv4,
           0,
@@ -246,6 +275,9 @@ class AppleWebTransferService extends ChangeNotifier {
         );
       }
       if (_cancelStart) {
+        _logs.debug(
+          'Browser transfer: start cancelled after listener creation',
+        );
         await _closeServer();
         if (_managedHotspot) {
           await _bridge.stopLocalOnlyHotspot();
@@ -256,11 +288,11 @@ class AppleWebTransferService extends ChangeNotifier {
       _server!.listen(
         _handleRequest,
         onError: (Object error, StackTrace stack) {
-          _logs.warning('Apple / Mac web transfer server error: $error');
+          _logs.warning(
+            'Apple / Mac web transfer server error (${error.runtimeType})',
+          );
           _logs.debug(
-            'Apple / Mac web transfer server stack.',
-            error: error,
-            stack: stack,
+            'Browser transfer: HTTP listener failed type=${error.runtimeType}',
           );
         },
       );
@@ -277,18 +309,17 @@ class AppleWebTransferService extends ChangeNotifier {
         const Duration(seconds: 2),
         (_) => unawaited(_refreshAddresses()),
       );
-      _logs.info(
-        'Apple / Mac web transfer listening on port ${_server!.port}; '
-        'managedHotspot=$_managedHotspot addresses=${_addresses.join(',')}',
+      _logs.debug(
+        'Browser transfer: HTTP listener ready port=${_server!.port} managedHotspot=$_managedHotspot interfaces=${_addresses.length} sharedFiles=${_sharedFiles.length}',
       );
       return _managedHotspot;
-    } catch (error, stack) {
+    } catch (error) {
       _errorMessage = error.toString();
-      _logs.warning('Apple / Mac web transfer failed to start: $error');
+      _logs.warning(
+        'Apple / Mac web transfer failed to start (${error.runtimeType})',
+      );
       _logs.debug(
-        'Apple / Mac web transfer start stack.',
-        error: error,
-        stack: stack,
+        'Browser transfer: start failed type=${error.runtimeType}, cleaning up',
       );
       await _closeServer();
       if (_managedHotspot) {
@@ -299,11 +330,17 @@ class AppleWebTransferService extends ChangeNotifier {
       rethrow;
     } finally {
       _starting = false;
+      _logs.debug(
+        'Browser transfer: start settled active=$_active cancelled=$_cancelStart',
+      );
       notifyListeners();
     }
   }
 
   Future<void> stop() async {
+    _logs.debug(
+      'Browser transfer: stop requested active=$_active pendingDownloads=${_downloadTransfers.length} peers=${_webPeers.length}',
+    );
     _cancelStart = true;
     final stopManagedHotspot = _managedHotspot;
     _active = false;
@@ -325,6 +362,7 @@ class AppleWebTransferService extends ChangeNotifier {
       }
     }
     notifyListeners();
+    _logs.debug('Browser transfer: stopped');
   }
 
   Future<void> disposeService() async {
@@ -333,11 +371,15 @@ class AppleWebTransferService extends ChangeNotifier {
 
   Future<void> createWindowsLocalNetwork() async {
     if (!Platform.isWindows || _starting || _managedHotspot) return;
+    _logs.debug('Browser transfer: Windows hotspot setup requested');
     _starting = true;
     notifyListeners();
     try {
       final info = await _bridge.startWindowsLocalNetwork();
       _managedHotspot = info.active && info.managed;
+      _logs.debug(
+        'Browser transfer: Windows hotspot result active=${info.active} managed=$_managedHotspot',
+      );
       _hotspotSsid = info.ssid;
       _hotspotPassword = info.password;
       _statusMessage = info.active ? info.message : _statusMessage;
@@ -380,7 +422,9 @@ class AppleWebTransferService extends ChangeNotifier {
         }
       }
     } catch (error) {
-      _logs.debug('Web transfer address refresh skipped: $error');
+      _logs.debug(
+        'Browser transfer: network address refresh failed type=${error.runtimeType}',
+      );
     }
     found.sort((a, b) {
       final priority = _interfacePriority(
@@ -393,6 +437,9 @@ class AppleWebTransferService extends ChangeNotifier {
       ...found.map((entry) => entry.address),
     }.take(8).toList(growable: false);
     if (!listEquals(next, _addresses)) {
+      _logs.debug(
+        'Browser transfer: network interfaces changed before=${_addresses.length} after=${next.length}',
+      );
       _addresses = next;
       notifyListeners();
     }
@@ -403,6 +450,9 @@ class AppleWebTransferService extends ChangeNotifier {
       return;
     }
     _managedHotspot = false;
+    _logs.debug(
+      'Browser transfer: managed hotspot stopped unexpectedly, fallback needed',
+    );
     _manualHotspotRequired = true;
     _hotspotSsid = '';
     _hotspotPassword = '';
@@ -414,6 +464,9 @@ class AppleWebTransferService extends ChangeNotifier {
   }
 
   Future<void> _closeServer() async {
+    _logs.debug(
+      'Browser transfer: server cleanup peers=${_webPeers.length} pendingDownloads=${_downloadTransfers.length} pendingUploads=${_uploadingPeers.length} relayBytes=$_relayBytes',
+    );
     _addressRefreshTimer?.cancel();
     _addressRefreshTimer = null;
     await _server?.close(force: true);
@@ -461,6 +514,7 @@ class AppleWebTransferService extends ChangeNotifier {
       }
       final segments = request.uri.pathSegments;
       if (segments.isEmpty || segments.first != _sessionToken) {
+        _logs.debug('Browser transfer: HTTP route rejected, invalid session');
         response.statusCode = HttpStatus.notFound;
         response.write('Not found');
         return;
@@ -477,18 +531,21 @@ class AppleWebTransferService extends ChangeNotifier {
       if (segments.length == 2 &&
           segments[1] == 'join' &&
           request.method == 'POST') {
+        _logs.debug('Browser transfer: HTTP join request');
         await _joinPeer(request);
         return;
       }
       if (segments.length == 2 &&
           segments[1] == 'upload-file' &&
           request.method == 'POST') {
+        _logs.debug('Browser transfer: HTTP browser-to-device upload request');
         await _receivePeerFile(request);
         return;
       }
       if (segments.length == 2 &&
           segments[1] == 'receipt' &&
           request.method == 'POST') {
+        _logs.debug('Browser transfer: HTTP download receipt request');
         _receiveDownloadReceipt(request);
         return;
       }
@@ -501,6 +558,7 @@ class AppleWebTransferService extends ChangeNotifier {
         return;
       }
       if (segments.length == 2 && segments[1] == 'upload') {
+        _logs.debug('Browser transfer: HTTP multipart upload request');
         if (request.method != 'POST') {
           response.statusCode = HttpStatus.methodNotAllowed;
           return;
@@ -517,6 +575,9 @@ class AppleWebTransferService extends ChangeNotifier {
         return;
       }
       if (segments.length == 3 && segments[1] == 'download') {
+        _logs.debug(
+          'Browser transfer: HTTP file download request method=${request.method}',
+        );
         if (request.method != 'GET' && request.method != 'HEAD') {
           response.statusCode = HttpStatus.methodNotAllowed;
           return;
@@ -526,9 +587,11 @@ class AppleWebTransferService extends ChangeNotifier {
       }
       response.statusCode = HttpStatus.notFound;
       response.write('Not found');
-    } catch (error, stack) {
-      _logs.warning('Apple / Mac web request failed: $error');
-      _logs.debug('Apple / Mac web request stack.', error: error, stack: stack);
+    } catch (error) {
+      _logs.warning('Apple / Mac web request failed (${error.runtimeType})');
+      _logs.debug(
+        'Browser transfer: HTTP request failed type=${error.runtimeType}',
+      );
       try {
         response.statusCode = HttpStatus.internalServerError;
         response.headers.contentType = ContentType.text;
@@ -610,18 +673,25 @@ class AppleWebTransferService extends ChangeNotifier {
         _sharedFiles[id] ??
         (peer != null && _inboxOwners[id] == peer.id ? _inboxFiles[id] : null);
     if (shared == null) {
+      _logs.debug(
+        'Browser transfer: download rejected, file unavailable or peer unauthorized',
+      );
       request.response.statusCode = HttpStatus.notFound;
       request.response.write('File not found');
       return;
     }
     final file = File(shared.path);
     if (!await file.exists()) {
+      _logs.debug('Browser transfer: download failed, source removed');
       request.response.statusCode = HttpStatus.gone;
       request.response.write('The selected file is no longer available.');
       return;
     }
     final response = request.response;
     if (request.uri.queryParameters['inline'] == '1') {
+      _logs.debug(
+        'Browser transfer: inline media response size=${shared.size}',
+      );
       await serveMediaFile(request, file, shared.name);
       return;
     }
@@ -635,6 +705,7 @@ class AppleWebTransferService extends ChangeNotifier {
       } else {
         final key = '${peer.id}:$id';
         if (_downloadTransfers.containsKey(key)) {
+          _logs.debug('Browser transfer: duplicate download blocked');
           response.statusCode = HttpStatus.conflict;
           response.contentLength = 0;
           return;
@@ -647,6 +718,9 @@ class AppleWebTransferService extends ChangeNotifier {
           direction: QuickSendDirection.sending,
         );
         final pendingDownload = _BrowserDownload(transferId, shared.size);
+        _logs.debug(
+          'Browser transfer: download initiated expectedBytes=${shared.size}',
+        );
         _downloadTransfers['${peer.id}:$id'] = pendingDownload;
         var sent = 0;
         var lastReported = 0;
@@ -669,6 +743,9 @@ class AppleWebTransferService extends ChangeNotifier {
             }),
           );
         } catch (error) {
+          _logs.debug(
+            'Browser transfer: file download failed type=${error.runtimeType} sent=$sent',
+          );
           _downloadTransfers.remove(key);
           _quickSend.updateBrowserTransfer(
             transferId,
@@ -683,6 +760,7 @@ class AppleWebTransferService extends ChangeNotifier {
   }
 
   Future<int> _receiveUploads(HttpRequest request) async {
+    _logs.debug('Browser transfer: multipart upload parsing started');
     final contentType = request.headers.contentType;
     final boundary = contentType?.parameters['boundary'];
     if (contentType?.mimeType != 'multipart/form-data' ||
@@ -728,7 +806,10 @@ class AppleWebTransferService extends ChangeNotifier {
           await destination.delete();
         }
         await partial.rename(destination.path);
-      } catch (_) {
+      } catch (e) {
+        _logs.debug(
+          'Browser transfer: multipart part failed type=${e.runtimeType} bytes=$byteCount',
+        );
         await sink?.close();
         if (await partial.exists()) {
           await partial.delete();
@@ -741,11 +822,15 @@ class AppleWebTransferService extends ChangeNotifier {
         totalBytes: byteCount,
       );
       uploaded++;
+      _logs.debug(
+        'Browser transfer: multipart part completed bytes=$byteCount files=$uploaded',
+      );
     }
     if (uploaded == 0) {
       throw const FormatException('No file was selected.');
     }
     _quickSend.completeBrowserBatch();
+    _logs.debug('Browser transfer: multipart batch complete files=$uploaded');
     return uploaded;
   }
 
@@ -758,6 +843,7 @@ class AppleWebTransferService extends ChangeNotifier {
 
   Future<void> _joinPeer(HttpRequest request) async {
     if (_webPeers.length >= 64) {
+      _logs.debug('Browser transfer: peer join rejected maximumPeers=64');
       request.response.statusCode = HttpStatus.serviceUnavailable;
       return;
     }
@@ -785,6 +871,9 @@ class AppleWebTransferService extends ChangeNotifier {
       platform,
     );
     _webPeers[peer.id] = peer;
+    _logs.debug(
+      'Browser transfer: browser peer joined platformProvided=${peer.platform.isNotEmpty} activePeers=${_webPeers.length}',
+    );
     request.response.headers.contentType = ContentType.json;
     request.response.write(jsonEncode({'id': peer.id, 'key': peer.secret}));
     notifyListeners();
@@ -798,6 +887,9 @@ class AppleWebTransferService extends ChangeNotifier {
     if (transfer == null ||
         bytes != transfer.size ||
         transfer.sent != transfer.size) {
+      _logs.debug(
+        'Browser transfer: receipt rejected hasTransfer=${transfer != null} bytesMatch=${transfer != null && bytes == transfer.size}',
+      );
       request.response.statusCode = HttpStatus.badRequest;
       return;
     }
@@ -807,16 +899,21 @@ class AppleWebTransferService extends ChangeNotifier {
       state: QuickSendTransferState.completed,
     );
     _downloadTransfers.remove('${peer!.id}:$id');
+    _logs.debug(
+      'Browser transfer: download receipt accepted bytes=$bytes pending=${_downloadTransfers.length}',
+    );
     request.response.statusCode = HttpStatus.noContent;
   }
 
   Future<void> _receivePeerFile(HttpRequest request) async {
     final peer = _peerFor(request);
     if (peer == null) {
+      _logs.debug('Browser transfer: peer upload unauthorized');
       request.response.statusCode = HttpStatus.unauthorized;
       return;
     }
     if (!_uploadingPeers.add(peer.id)) {
+      _logs.debug('Browser transfer: peer upload rejected, concurrent upload');
       request.response.statusCode = HttpStatus.conflict;
       return;
     }
@@ -844,6 +941,13 @@ class AppleWebTransferService extends ChangeNotifier {
           batch.length > 80) {
         throw const FormatException('Invalid file metadata');
       }
+      _logs.debug(
+        'Browser transfer: peer upload validated bytes=$size targetType=${target == 'host'
+            ? 'host'
+            : target.startsWith('app:')
+            ? 'app'
+            : 'browser'} batchCount=$count batchIndex=$index',
+      );
       if (target != 'host' &&
           !target.startsWith('app:') &&
           !_webPeers.containsKey(target)) {
@@ -869,6 +973,9 @@ class AppleWebTransferService extends ChangeNotifier {
         fileName: name,
         path: target == 'host' ? destination.path : '',
         totalBytes: size,
+      );
+      _logs.debug(
+        'Browser transfer: peer upload started expectedBytes=$size relayReserved=$_relayBytes',
       );
       var lastReported = 0;
       var lastReportAt = DateTime.now();
@@ -900,6 +1007,9 @@ class AppleWebTransferService extends ChangeNotifier {
       await partial.rename(destination.path);
       partial = null;
       if (target.startsWith('app:')) {
+        _logs.debug(
+          'Browser transfer: forwarding upload to Localist peer bytes=$received',
+        );
         final device = _quickSend.devices
             .where((d) => 'app:${d.id}' == target)
             .firstOrNull;
@@ -916,6 +1026,7 @@ class AppleWebTransferService extends ChangeNotifier {
           await destination.delete();
         }
       } else if (target != 'host') {
+        _logs.debug('Browser transfer: queuing browser relay bytes=$received');
         final fileId = _randomToken();
         _inboxFiles[fileId] = _BrowserSharedFile(
           id: fileId,
@@ -939,6 +1050,13 @@ class AppleWebTransferService extends ChangeNotifier {
             ? ''
             : 'Uploaded to host relay; destination must download.',
       );
+      _logs.debug(
+        'Browser transfer: peer upload complete bytes=$received targetType=${target == 'host'
+            ? 'host'
+            : target.startsWith('app:')
+            ? 'app'
+            : 'browser'}',
+      );
       final finished = _finishedBatches.putIfAbsent(
         '${peer.id}:$batch',
         () => <int>{},
@@ -946,6 +1064,9 @@ class AppleWebTransferService extends ChangeNotifier {
       finished.add(index);
       _batchActivity['${peer.id}:$batch'] = DateTime.now();
       if (finished.length == count) {
+        _logs.debug(
+          'Browser transfer: browser upload batch finished count=$count',
+        );
         _finishedBatches.remove('${peer.id}:$batch');
         _batchActivity.remove('${peer.id}:$batch');
         _quickSend.completeBrowserBatch();
@@ -954,6 +1075,9 @@ class AppleWebTransferService extends ChangeNotifier {
       request.response.write(jsonEncode({'received': received, 'name': name}));
       notifyListeners();
     } catch (error) {
+      _logs.debug(
+        'Browser transfer: peer upload failed type=${error.runtimeType} received=$received',
+      );
       if (partial != null && await partial.exists()) await partial.delete();
       if (transfer != null) {
         _quickSend.updateBrowserTransfer(
@@ -984,6 +1108,9 @@ class AppleWebTransferService extends ChangeNotifier {
               const Duration(minutes: 10),
         )
         .toList();
+    if (expired.isNotEmpty) {
+      _logs.debug('Browser transfer: receipt timeout count=${expired.length}');
+    }
     for (final entry in expired) {
       _downloadTransfers.remove(entry.key);
       _quickSend.updateBrowserTransfer(
@@ -999,6 +1126,11 @@ class AppleWebTransferService extends ChangeNotifier {
         )
         .map((e) => e.key)
         .toList();
+    if (staleBatches.isNotEmpty) {
+      _logs.debug(
+        'Browser transfer: expiring inactive upload batches count=${staleBatches.length}',
+      );
+    }
     for (final key in staleBatches) {
       _batchActivity.remove(key);
       _finishedBatches.remove(key);

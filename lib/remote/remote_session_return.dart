@@ -61,7 +61,7 @@ class _RemoteSessionReturnPageState extends State<RemoteSessionReturnPage> {
             onPressed: _close,
             child: Text(
               Localizations.localeOf(context).languageCode == 'fa'
-                  ? 'برگشت به Localist'
+                  ? 'بازگشت به لوکالیست'
                   : 'Return to Localist',
             ),
           ),

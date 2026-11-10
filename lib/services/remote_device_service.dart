@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'lan_network_service.dart';
 import 'remote_credential_store.dart';
+import 'log_service.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -184,6 +185,7 @@ class RemoteDiscoveryProtocol {
 }
 
 class RemoteDeviceService extends ChangeNotifier {
+  final LogService _logs = LogService.instance;
   RemoteDeviceService({
     this.queryPresence,
     DateTime Function()? now,
@@ -211,6 +213,9 @@ class RemoteDeviceService extends ChangeNotifier {
     if (_disposed || (server == _presenceServer && ready == _presenceReady)) {
       return;
     }
+    _logs.debug(
+      'Remote presence context changed ready=$ready serverConfigured=${server.isNotEmpty} generation=${_presenceGeneration + 1}',
+    );
     _presenceServer = server;
     _presenceReady = ready;
     _presenceGeneration++;
@@ -223,21 +228,37 @@ class RemoteDeviceService extends ChangeNotifier {
       _polling ??= _refreshPresence().whenComplete(() => _polling = null);
 
   Future<void> _refreshPresence() async {
-    if (_disposed || !_presenceReady || queryPresence == null) return;
+    if (_disposed || !_presenceReady || queryPresence == null) {
+      _logs.debug(
+        'Remote presence refresh skipped disposed=$_disposed ready=$_presenceReady queryConfigured=${queryPresence != null}',
+      );
+      return;
+    }
     final generation = _presenceGeneration;
     final ids = _devices.keys
         .where((id) => RegExp(r'^\d+$').hasMatch(id) && !isLocal(_devices[id]!))
         .toList();
-    if (ids.isEmpty) return;
+    if (ids.isEmpty) {
+      _logs.debug('Remote presence refresh skipped no eligible peers');
+      return;
+    }
+    _logs.debug('Remote presence query started peers=${ids.length}');
     try {
       final states = await queryPresence!(
         ids,
       ).timeout(const Duration(seconds: 12));
-      if (_disposed || generation != _presenceGeneration) return;
+      if (_disposed || generation != _presenceGeneration) {
+        _logs.debug('Remote presence reply discarded stale generation');
+        return;
+      }
       _presence.applySnapshot({
         for (final id in ids) id: states[id] ?? 'unknown',
       });
-    } catch (_) {
+      _logs.debug(
+        'Remote presence query completed peers=${ids.length} returned=${states.length}',
+      );
+    } catch (error) {
+      _logs.debug('Remote presence query failed type=${error.runtimeType}');
       if (_disposed || generation != _presenceGeneration) return;
       _presence.clear();
     }
@@ -257,6 +278,9 @@ class RemoteDeviceService extends ChangeNotifier {
     if (normalized == _localId && addresses == null) return;
     if (normalized.isNotEmpty) _localId = normalized;
     if (addresses != null) _localAddresses = addresses.toSet();
+    _logs.debug(
+      'Remote local identity updated hasId=${_localId.isNotEmpty} addressCount=${_localAddresses.length}',
+    );
     _notify();
   }
 
@@ -283,6 +307,7 @@ class RemoteDeviceService extends ChangeNotifier {
         throw error;
       });
   Future<void> _initialize() async {
+    _logs.debug('Remote device registry initialization started');
     final raw = (await SharedPreferences.getInstance()).getString(
       'remote.devices.v1',
     );
@@ -313,11 +338,17 @@ class RemoteDeviceService extends ChangeNotifier {
                           : device.lastOpened,
                     );
             }
-          } catch (_) {
+          } catch (error) {
+            _logs.debug(
+              'Remote device registry skipped malformed record type=${error.runtimeType}',
+            );
             /* Skip malformed records individually. */
           }
         }
-      } catch (_) {
+      } catch (error) {
+        _logs.debug(
+          'Remote device registry failed to parse saved entries type=${error.runtimeType}',
+        );
         /* Retain valid records when one old record is malformed. */
       }
     }
@@ -328,6 +359,9 @@ class RemoteDeviceService extends ChangeNotifier {
       });
       unawaited(refreshPresence());
     }
+    _logs.debug(
+      'Remote device registry initialized storedDevices=${_devices.length} presenceTimer=${_presenceTimer != null}',
+    );
     _notify();
   }
 
@@ -338,15 +372,20 @@ class RemoteDeviceService extends ChangeNotifier {
   Future<void> _save() =>
       _write = _write.catchError((Object _) {}).then((_) async {
         final data = devices.take(500).map((d) => d.toJson()).toList();
+        _logs.debug('Remote device registry saving entries=${data.length}');
         await (await SharedPreferences.getInstance()).setString(
           'remote.devices.v1',
           jsonEncode(data),
         );
+        _logs.debug('Remote device registry save completed');
       });
   Future<void> rememberOpened(String id) async {
     if (_disposed) return;
     id = id.trim().replaceAll(RegExp(r'\s'), '');
     if (id.isEmpty || isLocal(RemoteDevice(id: id))) return;
+    _logs.debug(
+      'Remote device last-opened timestamp being saved known=${_devices.containsKey(id)}',
+    );
     final previous = _devices[id] ?? RemoteDevice(id: id);
     _devices[id] = previous.copyWith(
       lastOpened: DateTime.now(),
@@ -373,6 +412,7 @@ class RemoteDeviceService extends ChangeNotifier {
       throw const FormatException('Enter a valid ID or IP.');
     }
     if (!_devices.containsKey(id) && _devices.length >= 500) {
+      _logs.debug('Remote address book add rejected capacity reached');
       throw StateError('Address book is full (500 devices).');
     }
     final previous = _devices[id] ?? RemoteDevice(id: id);
@@ -392,6 +432,9 @@ class RemoteDeviceService extends ChangeNotifier {
       createdAt: previous.createdAt ?? DateTime.now(),
     );
     await _save();
+    _logs.debug(
+      'Remote address book entry saved tagCount=${tags.length} total=${_devices.length}',
+    );
     _notify();
   }
 
@@ -399,6 +442,7 @@ class RemoteDeviceService extends ChangeNotifier {
     final device = _devices[id];
     if (device == null || _disposed) return;
     _devices[id] = device.copyWith(favorite: value);
+    _logs.debug('Remote device favorite updated enabled=$value');
     await _save();
     _notify();
   }
@@ -444,6 +488,9 @@ class RemoteDeviceService extends ChangeNotifier {
   }
 
   Future<void> forget(String id) async {
+    _logs.debug(
+      'Remote device forget requested registered=${_devices.containsKey(id)}',
+    );
     await savePassword(id, '');
     _devices.remove(id);
     await _save();
@@ -451,7 +498,13 @@ class RemoteDeviceService extends ChangeNotifier {
   }
 
   Future<void> scan({String localId = ''}) async {
-    if (scanning || _disposed) return;
+    if (scanning || _disposed) {
+      _logs.debug(
+        'Remote LAN scan skipped scanning=$scanning disposed=$_disposed',
+      );
+      return;
+    }
+    _logs.debug('Remote LAN scan starting');
     setLocalIdentity(localId);
     scanning = true;
     // Remove stale advertisements for our own ID from earlier scans.
@@ -460,6 +513,7 @@ class RemoteDeviceService extends ChangeNotifier {
     _notify();
     try {
       final routes = await LanNetworkService.instance.routes();
+      _logs.debug('Remote LAN scan routes=${routes.length}');
       setLocalIdentity(localId, addresses: routes.map((r) => r.address));
       for (final route in routes) {
         final address = InternetAddress(route.address);
@@ -471,59 +525,84 @@ class RemoteDeviceService extends ChangeNotifier {
             break;
           }
           _sockets.add(socket);
+          _logs.debug(
+            'Remote LAN discovery socket ready activeSockets=${_sockets.length}',
+          );
           socket.broadcastEnabled = true;
-          socket.listen((event) {
-            if (_disposed || event != RawSocketEvent.read) return;
-            Datagram? packet;
-            while ((packet = socket.receive()) != null) {
-              final device = RemoteDiscoveryProtocol.decode(
-                packet!.data,
-                packet.address.address,
-              );
-              if (device == null ||
-                  isLocal(device) ||
-                  (!_devices.containsKey(device.id) &&
-                      _devices.length >= 100)) {
-                continue;
+          socket.listen(
+            (event) {
+              if (_disposed || event != RawSocketEvent.read) return;
+              Datagram? packet;
+              while ((packet = socket.receive()) != null) {
+                final device = RemoteDiscoveryProtocol.decode(
+                  packet!.data,
+                  packet.address.address,
+                );
+                if (device == null ||
+                    isLocal(device) ||
+                    (!_devices.containsKey(device.id) &&
+                        _devices.length >= 100)) {
+                  _logs.debug(
+                    'Remote LAN packet ignored parsed=${device != null} local=${device != null && isLocal(device)}',
+                  );
+                  continue;
+                }
+                final previous = _devices[device.id];
+                _devices[device.id] = (previous ?? device).copyWith(
+                  name: previous?.name.isNotEmpty == true
+                      ? previous!.name
+                      : device.name,
+                  model: previous?.model,
+                  lastOpened: previous?.lastOpened,
+                  platform: device.platform,
+                  ip: device.ip,
+                  lastSeen: device.lastSeen,
+                );
+                if (previous == null || previous.ip != device.ip) {
+                  _logs.debug(
+                    'Remote LAN device discovered new=${previous == null} knownDevices=${_devices.length}',
+                  );
+                }
+                _notify();
               }
-              final previous = _devices[device.id];
-              _devices[device.id] = (previous ?? device).copyWith(
-                name: previous?.name.isNotEmpty == true
-                    ? previous!.name
-                    : device.name,
-                model: previous?.model,
-                lastOpened: previous?.lastOpened,
-                platform: device.platform,
-                ip: device.ip,
-                lastSeen: device.lastSeen,
+            },
+            onError: (Object error) {
+              _logs.debug(
+                'Remote LAN discovery socket error type=${error.runtimeType}',
               );
-              _notify();
-            }
-          }, onError: (_) {});
+            },
+          );
           for (final target in {
             '255.255.255.255',
             if (route.broadcast != null) route.broadcast!,
           }) {
             try {
-              socket.send(
+              final sent = socket.send(
                 RemoteDiscoveryProtocol.ping(localId),
                 InternetAddress(target),
                 21119,
               );
-            } on SocketException {
+              _logs.debug('Remote LAN ping sent bytes=$sent');
+            } on SocketException catch (error) {
+              _logs.debug('Remote LAN ping failed type=${error.runtimeType}');
               /* Continue on other LAN routes. */
             }
           }
-        } on SocketException {
+        } on SocketException catch (error) {
+          _logs.debug(
+            'Remote LAN adapter bind failed type=${error.runtimeType}',
+          );
           /* Other adapters may still support discovery. */
         }
       }
       if (_sockets.isEmpty && !_disposed) {
+        _logs.debug('Remote LAN scan found no usable adapter');
         error = 'No LAN adapter is available for discovery.';
       }
       await Future<void>.delayed(const Duration(seconds: 2));
       if (!_disposed) await _save();
-    } catch (_) {
+    } catch (exception) {
+      _logs.debug('Remote LAN scan failed type=${exception.runtimeType}');
       error = 'LAN discovery could not finish.';
     } finally {
       for (final socket in _sockets) {
@@ -531,12 +610,14 @@ class RemoteDeviceService extends ChangeNotifier {
       }
       _sockets.clear();
       scanning = false;
+      _logs.debug('Remote LAN scan stopped storedDevices=${_devices.length}');
       _notify();
     }
   }
 
   @override
   void dispose() {
+    _logs.debug('Remote device registry disposing');
     _disposed = true;
     _expiry?.cancel();
     _presenceTimer?.cancel();

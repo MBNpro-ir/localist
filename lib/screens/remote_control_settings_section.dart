@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../l10n/app_localizations.dart';
 import '../models/remote_control_settings.dart';
 import '../services/rustdesk_debug_service.dart';
+import '../services/log_service.dart';
 
 class RemoteControlSettingsSection extends StatefulWidget {
   const RemoteControlSettingsSection({super.key, this.service});
@@ -91,7 +92,12 @@ class _RemoteControlSettingsSectionState
       final names = await _engine.audioInputNames();
       if (mounted) setState(() => _audioInputs = names);
     } catch (e) {
-      if (mounted) setState(() => _audioError = '$e');
+      LogService.instance.debug(
+        'Remote audio input enumeration failed type=${e.runtimeType}',
+      );
+      if (mounted) {
+        setState(() => _audioError = context.l10n.remoteAudioLoadFailed);
+      }
     } finally {
       if (mounted) setState(() => _loadingAudio = false);
     }
@@ -108,7 +114,12 @@ class _RemoteControlSettingsSectionState
       if (!mounted) return;
       setState(() => _printers = names);
     } catch (e) {
-      if (mounted) setState(() => _printerError = '$e');
+      LogService.instance.debug(
+        'Remote printer enumeration failed type=${e.runtimeType}',
+      );
+      if (mounted) {
+        setState(() => _printerError = context.l10n.remotePrinterLoadFailed);
+      }
     } finally {
       if (mounted) setState(() => _loadingPrinters = false);
     }
@@ -177,11 +188,11 @@ class _RemoteControlSettingsSectionState
               'Use the selected printer': 'چاپگر انتخاب‌شده',
               'ID server': 'سرور شناسه',
               'Relay server': 'سرور واسط',
-              'API server': 'سرور API',
+              'API server': 'سرور رابط برنامه‌نویسی',
               'Key': 'کلید عمومی',
             }[name] ??
             name
-      : name;
+      : (name == 'فارسی' ? 'Persian' : name);
   String _t(String fa, String en) => context.l10n.isPersian ? fa : en;
   String _tabName(RemoteSettingsTab tab) => switch (tab) {
     RemoteSettingsTab.general => _t('عمومی', 'General'),
@@ -404,7 +415,24 @@ class _RemoteControlSettingsSectionState
   };
 
   Widget _setting(RemoteSetting setting) {
-    final label = context.l10n.isPersian ? setting.fa : setting.en;
+    final label = context.l10n.isPersian
+        ? switch (setting.key) {
+            'use-texture-render' => 'نمایش بافت تصویر',
+            'enable-directx-capture' => 'ضبط صفحه با موتور گرافیکی ویندوز',
+            'enable-tcp-punch' => 'اتصال مستقیم تی‌سی‌پی',
+            'enable-udp-punch' => 'اتصال مستقیم یو‌دی‌پی',
+            'enable-ipv6-punch' => 'اتصال مستقیم آی‌پی نسخهٔ ۶',
+            'enable-webrtc' => 'اتصال مستقیم مبتنی بر وب',
+            'relay-fallback-delay' =>
+              'تأخیر اتصال جایگزین به سرور واسط (ثانیه)',
+            'allow-websocket' => 'استفاده از سوکت وب',
+            'allow-insecure-tls-fallback' =>
+              'اجازهٔ اتصال رمزگذاری‌شدهٔ ناامن در صورت شکست اتصال امن',
+            'disable-udp' => 'غیرفعال کردن یو‌دی‌پی',
+            'force-always-relay' => 'همیشه از سرور واسط استفاده شود',
+            _ => setting.fa,
+          }
+        : setting.en;
     final value = setting.key == 'share-rdp'
         ? (_engine.rdpShared ? 'Y' : 'N')
         : setting.key == 'force-always-relay'
@@ -643,7 +671,7 @@ class _RemoteControlSettingsSectionState
     );
   }
 
-  Widget _serverCard() => _card('ID/Relay server', [
+  Widget _serverCard() => _card(_t('سرور شناسه و واسط', 'ID/Relay server'), [
     Wrap(
       spacing: 12,
       runSpacing: 12,
@@ -653,14 +681,14 @@ class _RemoteControlSettingsSectionState
           style: FilledButton.styleFrom(minimumSize: const Size(155, 52)),
           onPressed: () => unawaited(_import()),
           icon: const Icon(Icons.content_paste),
-          label: Text(_t('وارد کردن · Import', 'Import configuration')),
+          label: Text(_t('وارد کردن تنظیمات', 'Import configuration')),
         ),
         OutlinedButton.icon(
           key: const ValueKey('remote-export'),
           style: OutlinedButton.styleFrom(minimumSize: const Size(155, 52)),
           onPressed: () => unawaited(_export()),
           icon: const Icon(Icons.copy),
-          label: Text(_t('کپی کردن · Export', 'Export configuration')),
+          label: Text(_t('کپی کردن تنظیمات', 'Export configuration')),
         ),
         OutlinedButton.icon(
           onPressed: () async {
@@ -687,7 +715,7 @@ class _RemoteControlSettingsSectionState
       maxLines: 4,
       decoration: InputDecoration(
         labelText: _t(
-          'کد تنظیمات (یا Import از کلیپ‌بورد)',
+          'کد تنظیمات (یا وارد کردن از کلیپ‌بورد)',
           'Configuration code (or import from clipboard)',
         ),
       ),
@@ -756,7 +784,7 @@ class _RemoteControlSettingsSectionState
         setState(() {
           _fillServer(config);
           _notice = _t(
-            'Import موفق؛ چهار فیلد خودکار پر و ذخیره شدند',
+            'تنظیمات با موفقیت وارد شد؛ هر چهار فیلد پر و ذخیره شدند.',
             'Imported: all four fields filled and saved',
           );
         });
@@ -996,7 +1024,11 @@ class _RemoteControlSettingsSectionState
                           if (dialogContext.mounted) {
                             update(() {
                               saving = false;
-                              error = '$e';
+                              LogService.instance.debug(
+                                'Remote permanent password change failed type=${e.runtimeType}',
+                              );
+                              error =
+                                  dialogContext.l10n.remoteConfigurationFailed;
                             });
                           }
                         }
@@ -1052,7 +1084,7 @@ class _RemoteControlSettingsSectionState
                   children: [
                     Text(
                       _t(
-                        'کد را با برنامه Authenticator اسکن کنید و کد شش‌رقمی را وارد کنید.',
+                        'کد را با برنامهٔ احراز هویت اسکن کنید و کد شش‌رقمی را وارد کنید.',
                         'Scan with your authenticator and enter the six-digit code.',
                       ),
                     ),
@@ -1111,7 +1143,11 @@ class _RemoteControlSettingsSectionState
                           if (dialogContext.mounted) {
                             update(() {
                               verifying = false;
-                              error = '$e';
+                              LogService.instance.debug(
+                                'Remote two-factor verification failed type=${e.runtimeType}',
+                              );
+                              error =
+                                  dialogContext.l10n.remoteConfigurationFailed;
                             });
                           }
                         }
@@ -1135,6 +1171,11 @@ class _RemoteControlSettingsSectionState
   }
 
   void _showError(Object e) {
-    if (mounted) setState(() => _notice = '$e');
+    LogService.instance.debug(
+      'Remote control settings operation failed type=${e.runtimeType}',
+    );
+    if (mounted) {
+      setState(() => _notice = context.l10n.remoteConfigurationFailed);
+    }
   }
 }

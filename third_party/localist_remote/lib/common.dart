@@ -1677,18 +1677,26 @@ Future<void> initGlobalFFI() async {
   _globalFFIInitialized = true;
 }
 
+/// The host app may select a different language from the OS locale. When
+/// embedded in Localist, its explicit language setting takes precedence.
+String? localistLanguageOverride;
+
 String translate(String name) {
   if (name.startsWith('Failed to') && name.contains(': ')) {
     return name.split(': ').map((x) => translate(x)).join(': ');
   }
-  if (localeName.startsWith('fa')) {
+  final selectedLanguage = localistLanguageOverride;
+  final effectiveLocale = selectedLanguage == 'fa' || selectedLanguage == 'en'
+      ? selectedLanguage
+      : localeName;
+  if (effectiveLocale.startsWith('fa')) {
     const extra = {
       'Allow terminal apps to copy to clipboard': 'اجازه به برنامه‌های ترمینال برای کپی در کلیپ‌بورد',
       'terminal-clipboard-write-tip': 'برنامه‌های ترمینال می‌توانند متن را در کلیپ‌بورد دستگاه شما کپی کنند.',
     };
     if (extra.containsKey(name)) return extra[name]!;
   }
-  return platformFFI.translate(name, localeName).replaceAll('RustDesk', 'Localist');
+  return platformFFI.translate(name, effectiveLocale).replaceAll('RustDesk', 'Localist');
 }
 
 // This function must be kept the same as the one in rust and sciter code.
