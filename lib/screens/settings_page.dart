@@ -1274,7 +1274,14 @@ class _UpdatePanelState extends State<_UpdatePanel>
             if (_updates.error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
-                child: Text(l10n.updaterFailed),
+                child: Text(
+                  _updates.packageUnavailable && Platform.isWindows
+                      ? _t(
+                          'بستهٔ Setup این نسخه هنوز در دسترس نیست. دوباره بررسی کنید یا صفحهٔ دانلود رسمی را باز کنید.',
+                          'The Setup package for this release is not available yet. Retry or open the official download page.',
+                        )
+                      : l10n.updaterFailed,
+                ),
               ),
             if (_updates.state == AutomaticUpdateState.downloading) ...[
               const SizedBox(height: 12),
@@ -1323,7 +1330,8 @@ class _UpdatePanelState extends State<_UpdatePanel>
                     icon: const Icon(Icons.security),
                     label: Text(l10n.allowInstallPermission),
                   ),
-                if (!Platform.isAndroid && !Platform.isWindows)
+                if ((!Platform.isAndroid && !Platform.isWindows) ||
+                    (_updates.packageUnavailable && Platform.isWindows))
                   OutlinedButton.icon(
                     onPressed: () => _bridge.openUri(localistLatestReleaseUrl),
                     icon: const Icon(Icons.open_in_new),

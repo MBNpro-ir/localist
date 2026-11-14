@@ -40,8 +40,7 @@ class AppUpdateService {
       'Update staging: format=${p.extension(archive.path).toLowerCase()} version=$version',
     );
     if (archive.path.toLowerCase().endsWith('.exe')) {
-      if (p.basename(archive.path).toLowerCase() !=
-          'localist-windows-setup-x64-${version.displayName}.exe') {
+      if (!isWindowsSetupForVersion(p.basename(archive.path), version)) {
         throw const FormatException('Unexpected Windows Setup package.');
       }
       final input = await archive.open();
@@ -351,7 +350,7 @@ class AppUpdateService {
         'Localist updater',
         '--header',
         'Accept: application/vnd.github+json',
-        _latestReleaseApi,
+        (latestReleaseUri ?? Uri.parse(_latestReleaseApi)).toString(),
       ],
       runInShell: false,
       stdoutEncoding: utf8,
@@ -620,6 +619,21 @@ class AppUpdateCheck {
   bool get canInstallOnThisDevice => compatibleAsset != null;
 }
 
+/// Only versioned Localist x64 Setup packages may update Windows integrations.
+/// Keep parsing shared by release selection and downloaded-package staging.
+bool isWindowsSetupForVersion(String name, AppVersion version) {
+  final normalized = name.toLowerCase();
+  final match =
+      RegExp(
+        r'^localist-windows-setup-x64-v?(\d+\.\d+\.\d+(?:\+\d+)?)\.exe$',
+      ).firstMatch(normalized) ??
+      RegExp(
+        r'^localist-v?(\d+\.\d+\.\d+(?:\+\d+)?)-windows-setup-x64\.exe$',
+      ).firstMatch(normalized);
+  return match != null &&
+      AppVersion.tryParse(match.group(1)!)?.displayName == version.displayName;
+}
+
 class AppRelease {
   const AppRelease({
     required this.name,
@@ -700,8 +714,7 @@ class AppRelease {
 
   UpdateAsset? pickWindowsAsset() {
     for (final asset in assets) {
-      final name = asset.name.toLowerCase();
-      if (name == 'localist-windows-setup-x64-${version.displayName}.exe') {
+      if (isWindowsSetupForVersion(asset.name, version)) {
         return asset;
       }
     }

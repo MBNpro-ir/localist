@@ -2,6 +2,9 @@
 #ifndef Product
   #error Product is required
 #endif
+#ifndef QaIntegrationProbe
+  #define QaIntegrationProbe 0
+#endif
 [Setup]
 AppId={#AppId}
 AppName={#DisplayName}
@@ -51,7 +54,7 @@ WelcomeLabel2=این Setup وبکم‌های Localist و درایور صوتی V
 Name: "desktopicon"; Description: "ساخت میان‌بر روی دسکتاپ"; GroupDescription: "میان‌برها:"
 
 [Files]
-Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "LocalistRemote.exe,LocalistCamera*.dll"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "LocalistRemote.exe,LocalistCamera*.dll,capture-devices.ini"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#BundleDir}\LocalistCamera*-{#Version}.{#BuildNumber}.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BundleDir}\LocalistRemote.exe"; DestDir: "{app}"; Attribs: hidden; Flags: ignoreversion
 Source: "{#SourcePath}Vazirmatn-OFL.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
@@ -80,10 +83,12 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var Key: String; ResultCode: Integer;
 begin
-#if Int(IsQa) == 0
+#if Int(IsQa) == 0 || Int(QaIntegrationProbe) != 0
+  { Only the explicit QA integration probe uses a harmless fixture executable.
+    Ordinary QA packages continue to skip all machine-wide integration. }
   if CurStep = ssPostInstall then
     if not Exec(ExpandConstant('{app}\{#Executable}'),
-       '--install-windows-integration --camera-count={param:CameraCount|0} --microphone-count={param:MicrophoneCount|0} --cable-packages="{param:CablePackages|}"',
+       ExpandConstant('--install-windows-integration --camera-count={param:CameraCount|0} --microphone-count={param:MicrophoneCount|0} --cable-packages="{param:CablePackages|}"'),
        ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       RaiseException('نصب وبکم و میکروفون‌های Localist اجرا نشد. نصب را دوباره انجام دهید.')
     else if ResultCode = 3010 then

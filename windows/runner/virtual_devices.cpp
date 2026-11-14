@@ -65,6 +65,19 @@ bool IsLocalistCameraInstalled(const std::wstring& directory, int slot) {
   }
   return true;
 }
+int InstalledLocalistCameraCount(const std::wstring& directory) {
+  int count = 0;
+  // Migration from older installs may have no capture-devices.ini. Keep every
+  // registered slot owned by this installation, regardless of DLL version.
+  for (int slot = 0; slot < 4; ++slot) {
+    for (bool x64 : {true, false}) {
+      const auto path = std::filesystem::path(RegisteredPath(x64, slot));
+      if (!path.empty() && _wcsicmp(path.parent_path().c_str(), directory.c_str()) == 0)
+        count = slot + 1;
+    }
+  }
+  return count;
+}
 bool ConfigureLocalistCamera(const std::wstring& directory, bool install, int slot) {
   if (slot < 0 || slot >= 4) return false;
   if (install && IsLocalistCameraInstalled(directory, slot)) return true;

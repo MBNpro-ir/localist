@@ -14,6 +14,7 @@ class FakeUpdates extends AppUpdateService {
   final File file;
   int checks = 0, downloads = 0, preparations = 0;
   bool fail = false;
+  bool noPackage = false;
   AppVersion version = AppVersion.tryParse('6.0.1')!;
   @override
   Future<AppUpdateCheck> checkForUpdate() async {
@@ -35,7 +36,7 @@ class FakeUpdates extends AppUpdateService {
         assets: [asset],
       ),
       androidAsset: asset,
-      windowsAsset: asset,
+      windowsAsset: noPackage ? null : asset,
       supportedAbis: [],
     );
   }
@@ -121,6 +122,86 @@ void main() {
       expect(release.assets.any((a) => a.name.endsWith('.zip')), false);
     },
   );
+  test(
+    'published 7.3.1 metadata selects Windows Setup without Android ABIs',
+    () {
+      final release = AppRelease.fromJson({
+        'tag_name': 'v7.3.1',
+        'name': '🚀 Localist v7.3.1',
+        'assets': [
+          for (final name in [
+            'localist-v7.3.1-android-arm64-v8a.apk',
+            'localist-v7.3.1-android-armeabi-v7a.apk',
+            'Localist-Windows-Setup-x64-7.3.1.exe',
+            'Localist-Windows-Setup-x64-7.3.1.exe.sha256',
+          ])
+            {'name': name, 'browser_download_url': 'https://example.com/$name'},
+        ],
+      });
+      expect(release.pickAndroidAsset([]), isNull);
+      expect(
+        release.pickWindowsAsset()?.name,
+        'Localist-Windows-Setup-x64-7.3.1.exe',
+      );
+    },
+  );
+  test('versioned Setup aliases share selection and staging rules', () async {
+    final version = AppVersion.tryParse('7.3.2')!;
+    for (final name in [
+      'Localist-Windows-Setup-x64-7.3.2.exe',
+      'localist-v7.3.2-windows-setup-x64.exe',
+      'LOCALIST-WINDOWS-SETUP-X64-v7.3.2+2079.EXE',
+    ]) {
+      expect(isWindowsSetupForVersion(name, version), isTrue);
+      final file = await File(
+        p.join(directory.path, name),
+      ).writeAsBytes([0x4d, 0x5a, 1, 2]);
+      expect(
+        await AppUpdateService().prepareWindowsUpdate(file, version),
+        file.path,
+      );
+    }
+    for (final name in [
+      'Localist-Windows-Setup-x64-7.3.1.exe',
+      'localist-v7.3.2-windows-64bit.zip',
+      'Localist-Windows-Setup-arm64-7.3.2.exe',
+      'unrelated-7.3.2.exe',
+      'Localist-Windows-Setup-x64-7.3.2.exe.sha256',
+    ]) {
+      expect(isWindowsSetupForVersion(name, version), isFalse);
+    }
+  });
+  test(
+    'missing release package is recoverable and does not download a ZIP',
+    () async {
+      final backend = FakeUpdates(File('${directory.path}/update.exe'))
+        ..noPackage = true;
+      final updates = AutomaticUpdateController(
+        service: backend,
+        windows: true,
+      );
+      await updates.checkAndPrepare();
+      expect(updates.state, AutomaticUpdateState.failed);
+      expect(updates.packageUnavailable, isTrue);
+      expect(backend.downloads, 0);
+      backend.noPackage = false;
+      await updates.checkAndPrepare();
+      expect(updates.state, AutomaticUpdateState.ready);
+      expect(updates.packageUnavailable, isFalse);
+      updates.dispose();
+    },
+  );
+  test('deleted prepared download is fetched again before install', () async {
+    final backend = FakeUpdates(File('${directory.path}/update.exe'));
+    final updates = AutomaticUpdateController(service: backend, windows: true);
+    await updates.checkAndPrepare();
+    await updates.package!.delete();
+    await updates.checkAndPrepare();
+    expect(backend.downloads, 2);
+    expect(await updates.package!.exists(), isTrue);
+    expect(updates.state, AutomaticUpdateState.ready);
+    updates.dispose();
+  });
   test(
     'startup and settings share a single preparation; download is reused',
     () async {

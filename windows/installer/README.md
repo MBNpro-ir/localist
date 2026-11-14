@@ -32,6 +32,9 @@ confirmed application exit, then invokes its maintenance mode in the existing
 installation directory. Setup registers the selected x86/x64 virtual cameras
 before reporting success. Removal unregisters only this installation's cameras.
 Older ZIP-only updaters require one manual Setup upgrade to migrate.
+The updater recognizes versioned x64 Setup names and never uses a portable ZIP
+to update an installation with registered devices. A missing release package
+offers the official download page; a deleted cached package is downloaded again.
 Setup now asks for independent camera and microphone counts (1–4). It installs
 only the selected camera registrations and stores counts in capture-devices.ini;
 silent updates retain those values. Microphone output uses the official base
@@ -41,6 +44,14 @@ users selecting multiple microphones supply their licensed extracted packages,
 or use already installed independent cables. The app never installs devices.
 Shared VB-CABLE drivers remain installed when Localist is removed.
 `-Qa` only bypasses machine-wide integration for isolated installer fixtures.
+`Test-WindowsSetupMaintenance.ps1` explicitly enables `-QaIntegrationProbe` with
+its harmless fixture executable to exercise the same post-install argument
+expansion as production. Do not use that test-only switch with an app bundle.
+Build-tree `capture-devices.ini` is excluded from Setup. If an older installation
+has no configuration file, migration retains its own registered camera slots
+and already-installed audio cables. Existing shared VB-CABLE devices are never
+reinstalled by an update; versioned previous camera DLLs remain available while
+registration changes, including rollback after a registration failure.
 See `docs/WINDOWS_VB_CABLE.md` for routing, licensing and validation limits.
 These executables are not Authenticode-signed unless a signing stage is supplied;
 the checksum verifies file integrity and does not establish a trusted publisher.

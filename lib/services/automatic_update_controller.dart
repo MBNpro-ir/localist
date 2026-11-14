@@ -59,6 +59,7 @@ class AutomaticUpdateController extends ChangeNotifier {
   String? error;
   int received = 0, total = 0;
   bool installPermissionNeeded = false;
+  bool packageUnavailable = false;
   Future<void>? _running;
   String? _assetUrl;
   String? _automaticInstallUrl;
@@ -126,6 +127,7 @@ class AutomaticUpdateController extends ChangeNotifier {
       return;
     }
     error = null;
+    packageUnavailable = false;
     _state(AutomaticUpdateState.checking);
     try {
       check = await _service.checkForUpdate();
@@ -138,7 +140,12 @@ class AutomaticUpdateController extends ChangeNotifier {
       }
       final asset = windows ? check!.windowsAsset : check!.androidAsset;
       if (asset == null) {
-        LogService.instance.debug('Auto update: no compatible release asset');
+        packageUnavailable = true;
+        LogService.instance.warning(
+          'Auto update: release ${check!.release.version} has no compatible '
+          '${windows ? 'Windows Setup' : 'Android'} package '
+          '(assets=${check!.release.assets.length}).',
+        );
         throw StateError('No update package supports this device.');
       }
       if (_assetUrl != asset.downloadUrl) {
@@ -161,7 +168,11 @@ class AutomaticUpdateController extends ChangeNotifier {
         'Auto update: deferred=$deferred expectedBytes=${asset.size}',
       );
       // A completed download may already be prepared by the startup check.
-      if (package != null && await package!.exists()) {
+      if (package != null && !await package!.exists()) {
+        package = null;
+        bundle = null;
+      }
+      if (package != null) {
         try {
           await validateUpdateFile(package!, asset);
         } catch (e) {

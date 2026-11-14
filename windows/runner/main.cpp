@@ -348,8 +348,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   const auto arguments = GetCommandLineArguments();
   if (std::find(arguments.begin(), arguments.end(), "--install-windows-integration") != arguments.end()) {
     const auto configuration=JoinPath(ExeDirectory(),L"capture-devices.ini");
-    int cameras=GetPrivateProfileIntW(L"Devices",L"Cameras",1,configuration.c_str());
-    int microphones=GetPrivateProfileIntW(L"Devices",L"Microphones",1,configuration.c_str());
+    const int registeredCameras = InstalledLocalistCameraCount(ExeDirectory());
+    const int installedMicrophones = InstalledLocalistCableCount();
+    int cameras=GetPrivateProfileIntW(L"Devices",L"Cameras",registeredCameras > 0 ? registeredCameras : 1,configuration.c_str());
+    int microphones=GetPrivateProfileIntW(L"Devices",L"Microphones",installedMicrophones > 0 ? installedMicrophones : 1,configuration.c_str());
     std::wstring packages;
     for(const auto& argument:arguments){
       if(argument.rfind("--camera-count=",0)==0){const int n=atoi(argument.c_str()+15);if(n)cameras=n;}
@@ -364,8 +366,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     if (!InstallLocalistCameras(ExeDirectory(),cameras)) return EXIT_FAILURE;
     if (!ConfigureLocalistLanAccess(ExeDirectory(), true)) return EXIT_FAILURE;
     if (!MigrateLegacyLocalistStartup(JoinPath(ExeDirectory(), L"Localist.exe"))) return EXIT_FAILURE;
-    WritePrivateProfileStringW(L"Devices",L"Cameras",std::to_wstring(cameras).c_str(),configuration.c_str());
-    WritePrivateProfileStringW(L"Devices",L"Microphones",std::to_wstring(microphones).c_str(),configuration.c_str());
+    if (!WritePrivateProfileStringW(L"Devices",L"Cameras",std::to_wstring(cameras).c_str(),configuration.c_str()) ||
+        !WritePrivateProfileStringW(L"Devices",L"Microphones",std::to_wstring(microphones).c_str(),configuration.c_str())) return EXIT_FAILURE;
     return microphoneReboot ? ERROR_SUCCESS_REBOOT_REQUIRED : EXIT_SUCCESS;
   }
   if (std::find(arguments.begin(), arguments.end(), "--repair-elevated-startup") != arguments.end()) {

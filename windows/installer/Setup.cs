@@ -81,7 +81,10 @@ namespace MbnSetup {
                         return 7;
                 }
                 var command = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR=\""
-                    + destination.TrimEnd('\\') + "\" /LOG=\"" + log + "\"";
+                    + destination.TrimEnd('\\') + "\" /LOG=\"" + log + "\""
+                    // Zero means retain the installed counts (including legacy
+                    // registrations when no settings file exists).
+                    + " /CameraCount=0 /MicrophoneCount=0";
                 using (var process = Process.Start(new ProcessStartInfo(core, command) { UseShellExecute = false, CreateNoWindow = true })) {
                     process.WaitForExit();
                     var result = process.ExitCode;

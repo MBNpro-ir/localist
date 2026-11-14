@@ -186,6 +186,13 @@ bool InstallLocalistVbCable(const std::wstring& directory) {
   return updated;
 }
 
+int InstalledLocalistCableCount() {
+  int count = 0;
+  for (const auto* id : {L"VBAudioVACWDM", L"VBAudioVACWDM_A", L"VBAudioVACWDM_B", L"VBAudioVACWDM_C", L"VBAudioVACWDM_D"})
+    if (HasDevice(id)) ++count;
+  return count > 4 ? 4 : count;
+}
+
 bool InstallLocalistCableCount(const std::wstring& directory, int count, const std::wstring& extraPackages) {
   if(count<1||count>4)return false;
   if(!InstallLocalistVbCable(directory))return false;

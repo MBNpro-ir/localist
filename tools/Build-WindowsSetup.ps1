@@ -2,9 +2,11 @@
     [string]$Bundle = 'build/windows/x64/runner/Release',
     [string]$Output = 'release-assets',
     [string]$Compiler,
-    [switch]$Qa
+    [switch]$Qa,
+    [switch]$QaIntegrationProbe
 )
 $ErrorActionPreference = 'Stop'
+if ($QaIntegrationProbe -and -not $Qa) { throw 'Integration probes require the isolated QA installer identity.' }
 $project = Split-Path $PSScriptRoot -Parent
 $bundlePath = (Resolve-Path -LiteralPath (Join-Path $project $Bundle)).Path
 $outputPath = [IO.Path]::GetFullPath((Join-Path $project $Output))
@@ -106,6 +108,7 @@ $uninstallShell = Join-Path $stage 'MBNUninstall.exe'
 Build-Shell $uninstallShell $true '' ''
 $defines = @("/DProduct=$product", "/DDisplayName=$displayName", "/DVersion=$version", "/DBuildNumber=$build", "/DAppId=$appId", "/DExecutable=$exe", "/DRegistryExe=$registryExe", "/DBundleDir=$bundlePath", "/DOutputDir=$stage", "/DIconFile=$icon", "/DVersionHigh=$versionHigh", "/DVersionLow=$versionLow", "/DUninstallShell=$uninstallShell")
 $defines += if ($Qa) { '/DIsQa=1' } else { '/DIsQa=0' }
+$defines += if ($QaIntegrationProbe) { '/DQaIntegrationProbe=1' } else { '/DQaIntegrationProbe=0' }
 & $Compiler @defines (Join-Path $source 'Installer.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer core compilation failed' }
 $core = Join-Path $stage 'install-core.exe'

@@ -145,7 +145,8 @@ std::wstring SystemExecutable(const wchar_t* relative_path) {
 }
 
 bool RunAndWait(const std::wstring& executable, const std::wstring& arguments,
-                DWORD* exit_code, DWORD timeout = 120000) {
+                DWORD* exit_code, DWORD timeout = 120000,
+                bool allow_elevation = false) {
   std::wstring command_line = QuoteArgument(executable) + L" " + arguments;
   std::vector<wchar_t> buffer(command_line.begin(), command_line.end());
   buffer.push_back(L'\0');
@@ -155,9 +156,20 @@ bool RunAndWait(const std::wstring& executable, const std::wstring& arguments,
   if (!CreateProcessW(executable.c_str(), buffer.data(), nullptr, nullptr, FALSE,
                       CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, nullptr,
                       nullptr, &startup_info, &process_info)) {
-    return false;
+    if (!allow_elevation || GetLastError() != ERROR_ELEVATION_REQUIRED) return false;
+    // Older portable clients can run without an elevated token. Setup still
+    // needs normal Windows consent to maintain machine-wide device identities.
+    SHELLEXECUTEINFOW elevated{};
+    elevated.cbSize = sizeof(elevated);
+    elevated.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+    elevated.lpVerb = L"runas";
+    elevated.lpFile = executable.c_str();
+    elevated.lpParameters = arguments.c_str();
+    elevated.nShow = SW_HIDE;
+    if (!ShellExecuteExW(&elevated) || !elevated.hProcess) return false;
+    process_info.hProcess = elevated.hProcess;
   }
-  CloseHandle(process_info.hThread);
+  if (process_info.hThread) CloseHandle(process_info.hThread);
   const DWORD wait_result = WaitForSingleObject(process_info.hProcess, timeout);
   if (wait_result == WAIT_OBJECT_0) {
     GetExitCodeProcess(process_info.hProcess, exit_code);
@@ -259,8 +271,10 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   if (arguments.archive.size() > 4 &&
       _wcsicmp(arguments.archive.substr(arguments.archive.size() - 4).c_str(), L".exe") == 0) {
     DWORD result = 1;
+    // Never terminate Setup halfway through device registration on a slow
+    // machine. Only restart the app once its complete maintenance process exits.
     const bool installed = RunAndWait(arguments.archive,
-        L"--silent-update --path " + QuoteArgument(arguments.target), &result, 600000) &&
+        L"--silent-update --path " + QuoteArgument(arguments.target), &result, INFINITE, true) &&
         (result == 0 || result == 3010);
     if (!installed) {
       LaunchUpdatedApplication(arguments.launch, L"");
