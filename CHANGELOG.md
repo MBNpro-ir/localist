@@ -2,6 +2,34 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [7.3.2] - 2026-11-14
+
+- Release 7.3.2+2079 includes the locally validated localization/diagnostics
+  changes and Windows updater/device-preservation fixes.
+- Recognize versioned Windows Setup packages consistently during selection and
+  staging. Show an official release recovery link if a package is unavailable,
+  and download a prepared package again if its cached file was deleted.
+- Expand Inno's post-install parameters so selected camera/microphone counts and
+  licensed package paths reach the installed integration process.
+- Exclude build-tree capture settings from Setup. Retain installed counts, infer
+  legacy camera slots/audio cables when settings are absent, check configuration
+  writes, preserve shared vendor drivers and retain previous camera DLLs during
+  registration migration.
+- Request normal Windows consent when Setup requires elevation, and wait for
+  maintenance to complete before relaunching instead of killing an active Setup.
+- Synchronize embedded Remote Control language with Localist; improve localized
+  UI/errors and browser language overrides. Redact diagnostic payloads, guard
+  debug confirmation against duplicate dialogs and synchronize native debug-off.
+- Upload complete release assets to a draft before making a new release public,
+  with package-presence and Windows SHA-256 checks before publication.
+- Validation: 238 Flutter tests, clean analysis, Windows Release build, headless
+  browser transfer/Stream checks, live updater download validation, isolated
+  Setup lifecycle and native migration probes. See
+  docs/VALIDATION_WINDOWS_UPDATER_20261114.md and
+  docs/VALIDATION_MANUAL_CHANGES_20261110.md for evidence and hardware limits.
+- Migration from ZIP-only versions through 7.2.0 requires one manual Setup
+  installation over the existing app. Subsequent updates use Setup.
+
 ## [7.0.0] - 2026-11-08
 
 - Release version 7.0.0+73, incorporating the locally validated 6.1.0

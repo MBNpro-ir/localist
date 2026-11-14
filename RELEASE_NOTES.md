@@ -1,5 +1,36 @@
 # Release Notes
 
+## [7.3.2] — Windows updater recovery and safe device migration
+
+- Fixed Windows update recovery when a prepared download was removed. Setup
+  selection and validation now share the same versioned package-name rules.
+  Missing packages show a useful retry message and official download link.
+- Fixed Setup passing unexpanded device-count parameters. Selected webcam and
+  microphone counts now reach the app correctly, including licensed cable
+  package paths containing spaces.
+- Updates retain the installed capture-device configuration instead of copying
+  stale build settings. Legacy installations without a settings file retain
+  their registered webcam slots and existing audio cables. Shared VB-CABLE
+  devices remain installed; previous versioned webcam modules remain available
+  during registration migration.
+- Windows updater requests normal Setup elevation when needed and waits for
+  device maintenance to finish before restarting the app.
+- Improved Persian/English interfaces and error messages across the app, web
+  transfer and capture viewer. Embedded Remote Control follows the app language.
+- Added redacted diagnostics and debug confirmation; fixed duplicate debug
+  dialogs and sensitive native exception details appearing in debug traces.
+- New GitHub releases remain drafts until every platform package is uploaded.
+
+**Migration:** versions through 7.2.0 use a ZIP-only updater. Install the Windows
+Setup manually once over the existing installation; no uninstall is needed.
+Later versions update through Setup. Windows 10 build 19041 or later is required.
+
+Validation: 238 passing Flutter tests, clean analysis, Windows Release build,
+live release download/SHA-256 verification, isolated real Setup
+install/update/repair/relaunch/uninstall and native device-migration tests.
+Physical driver upgrades, Windows 10 hardware and UAC interaction were not
+repeated for this release.
+
 ## [7.3.1] — Live audio controls, USB microphone recovery and independent outputs
 
 - Added Server and Player panels for camera/microphone sharing. Server input

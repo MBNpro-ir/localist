@@ -325,6 +325,16 @@ jobs:
             exit 1
           fi
 
+          for expected in \
+            "localist-v${APP_VERSION}-android-armeabi-v7a.apk" \
+            "localist-v${APP_VERSION}-android-arm64-v8a.apk" \
+            "Localist-Windows-Setup-x64-${APP_VERSION}.exe" \
+            "Localist-Windows-Setup-x64-${APP_VERSION}.exe.sha256"
+          do
+            test -s "compiled/$expected" || { echo "Missing release package: $expected"; exit 1; }
+          done
+          (cd compiled && sha256sum -c "Localist-Windows-Setup-x64-${APP_VERSION}.exe.sha256")
+
           if gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
               --title "🚀 Localist v${APP_VERSION}" \
@@ -332,6 +342,7 @@ jobs:
               --repo "$GH_REPO"
           else
             gh release create "$RELEASE_TAG" \
+              --draft \
               --target "$GITHUB_SHA" \
               --title "🚀 Localist v${APP_VERSION}" \
               --notes-file RELEASE_NOTES.generated.md \
@@ -347,3 +358,4 @@ jobs:
             gh release delete-asset "$RELEASE_TAG" "$asset" --yes --repo "$GH_REPO"
           done
           gh release upload "$RELEASE_TAG" "${files[@]}" --clobber --repo "$GH_REPO"
+          gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GH_REPO"
