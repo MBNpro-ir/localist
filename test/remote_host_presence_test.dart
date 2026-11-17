@@ -180,6 +180,12 @@ void main() {
                 'target': '183976',
                 'password': 'temporary-secret',
                 'relay': true,
+                if (mode == 'port-forward')
+                  'initialForward': {
+                    'localPort': 15555,
+                    'remoteHost': '127.0.0.1',
+                    'remotePort': 48291,
+                  },
               },
             }),
             {'accepted': true},
@@ -195,6 +201,12 @@ void main() {
                 s['relay'] == true,
           ),
           true,
+        );
+        expect(
+          opened.singleWhere(
+            (s) => s['mode'] == 'port-forward',
+          )['initialForward'],
+          {'localPort': 15555, 'remoteHost': '127.0.0.1', 'remotePort': 48291},
         );
       },
     );
@@ -241,166 +253,4 @@ void main() {
       'current password is read from the synchronized host without opening a window',
       () async {
         expect(
-          await sendDesktopHostCommand(bridge.endpoint, {
-            'command': 'credentials',
-          }),
-          {'id': '123456', 'password': 'current-password'},
-        );
-        expect(synced, 1);
-        expect(opened, isEmpty);
-      },
-    );
-
-    test(
-      'failed profile apply is reported and the next apply can recover',
-      () async {
-        await bridge.close();
-        var attempts = 0;
-        bridge = DesktopHostBridge(
-          presence: presence,
-          synchronize: () async {
-            if (++attempts == 1) throw StateError('Native apply failed');
-          },
-          openSession: (_) async {},
-          queryPresence: (_) async {},
-        );
-        await bridge.start();
-        await expectLater(
-          sendDesktopHostCommand(bridge.endpoint, {'command': 'syncProfile'}),
-          throwsStateError,
-        );
-        expect(
-          await sendDesktopHostCommand(bridge.endpoint, {
-            'command': 'syncProfile',
-          }),
-          {'applied': true},
-        );
-        expect(attempts, 2);
-      },
-    );
-
-    test(
-      'presence reports confirmed online/offline and unknown separately',
-      () async {
-        presence.applyEvent({'onlines': '123', 'offlines': '234'});
-        expect(
-          await sendDesktopHostCommand(bridge.endpoint, {
-            'command': 'presence',
-            'ids': ['123', '234', '345'],
-          }),
-          {
-            'states': {'123': 'online', '234': 'offline', '345': 'unknown'},
-          },
-        );
-        expect(queried.single, ['123', '234', '345']);
-        expect(opened, isEmpty);
-      },
-    );
-
-    test(
-      'untrusted, browser-origin and malformed commands cannot open a window',
-      () async {
-        Future<int> post(String body, {String? token, String? origin}) async {
-          final client = HttpClient()..findProxy = (_) => 'DIRECT';
-          try {
-            final request = await client.postUrl(
-              Uri.parse(
-                'http://127.0.0.1:${bridge.endpoint['commandPort']}/command',
-              ),
-            );
-            if (token != null) {
-              request.headers.set('X-Localist-Host-Token', token);
-            }
-            if (origin != null) request.headers.set('Origin', origin);
-            request.write(body);
-            final response = await request.close();
-            await response.drain<void>();
-            return response.statusCode;
-          } finally {
-            client.close(force: true);
-          }
-        }
-
-        final token = bridge.endpoint['commandToken'] as String;
-        expect(await post('{}'), 403);
-        expect(
-          await post('{}', token: token, origin: 'http://example.test'),
-          403,
-        );
-        for (final body in [
-          '[]',
-          '{',
-          '{"command":"openSession","session":4}',
-          '{"command":"openSession","session":{"mode":"connect","target":"--install"}}',
-          '{"command":"presence","ids":[5]}',
-          '{"command":"presence","ids":["123 456"]}',
-          jsonEncode({'command': 'presence', 'ids': List.filled(501, '123')}),
-          jsonEncode({
-            'command': 'openSession',
-            'session': {
-              'mode': 'connect',
-              'target': '123',
-              'password': 'x' * 33000,
-            },
-          }),
-        ]) {
-          expect(await post(body, token: token), 400);
-        }
-        expect(opened, isEmpty);
-        expect(synced, 0);
-      },
-    );
-
-    test(
-      'concurrent launches serialize; failed creation does not retry or poison the queue',
-      () async {
-        await bridge.close();
-        final first = Completer<void>();
-        final entered = Completer<void>();
-        var active = 0, peak = 0, attempts = 0;
-        bridge = DesktopHostBridge(
-          presence: presence,
-          synchronize: () async {},
-          queryPresence: (_) async {},
-          openSession: (s) async {
-            active++;
-            if (active > peak) peak = active;
-            attempts++;
-            try {
-              if (s['target'] == '123') {
-                entered.complete();
-                await first.future;
-                throw StateError('secret-password');
-              }
-            } finally {
-              active--;
-            }
-          },
-        );
-        await bridge.start();
-        Future<Map<String, dynamic>> launch(String target) =>
-            sendDesktopHostCommand(bridge.endpoint, {
-              'command': 'openSession',
-              'session': {'mode': 'connect', 'target': target},
-            });
-        final failed = expectLater(
-          launch('123'),
-          throwsA(
-            isA<StateError>().having(
-              (e) => e.message,
-              'sanitized error',
-              isNot(contains('secret-password')),
-            ),
-          ),
-        );
-        await entered.future;
-        final second = launch('234');
-        first.complete();
-        await failed;
-        expect(await second, {'accepted': true});
-        expect(peak, 1);
-        expect(attempts, 2);
-      },
-    );
-  });
-}
+          await sendDesktopHostCommand(bridge.en

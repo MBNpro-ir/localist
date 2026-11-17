@@ -149,6 +149,23 @@ class DesktopHostBridge {
             (session['password'] as String? ?? '').length > 2048) {
           throw const FormatException('Invalid session request.');
         }
+        if (session['mode'] == 'port-forward' &&
+            session.containsKey('initialForward')) {
+          final forward = session['initialForward'];
+          if (forward is! Map ||
+              forward['localPort'] is! int ||
+              (forward['localPort'] as int) < 1 ||
+              (forward['localPort'] as int) > 65535 ||
+              forward['remotePort'] is! int ||
+              (forward['remotePort'] as int) < 1 ||
+              (forward['remotePort'] as int) > 65535 ||
+              !const {'127.0.0.1', 'localhost', '::1'}.contains(
+                (forward['remoteHost'] as String?)?.trim().toLowerCase(),
+              )) {
+            throw const FormatException('Invalid network tunnel target.');
+          }
+          session['initialForward'] = Map<String, dynamic>.from(forward);
+        }
         _logs.debug(
           'Remote desktop bridge open-session validated mode=${session['mode']} relay=${session['relay'] == true} passwordProvided=${(session['password'] as String? ?? '').isNotEmpty}',
         );
@@ -167,115 +184,4 @@ class DesktopHostBridge {
             (data['ids'] as List).any((id) => id is! String)) {
           throw const FormatException('Invalid presence IDs.');
         }
-        final ids = (data['ids'] as List).cast<String>().toSet().toList();
-        if (ids.length > 500 ||
-            ids.any((id) => !RegExp(r'^\d{1,200}$').hasMatch(id))) {
-          throw const FormatException('Invalid presence IDs.');
-        }
-        await _synchronize();
-        if (ids.isNotEmpty) await queryPresence(ids);
-        _logs.debug(
-          'Remote desktop bridge presence query completed ids=${ids.length}',
-        );
-        response.write(jsonEncode({'states': presence.snapshot(ids)}));
-      } else {
-        _logs.debug('Remote desktop bridge rejected unknown command');
-        throw const FormatException('Unknown host command.');
-      }
-    } on FormatException catch (error) {
-      _logs.debug('Remote desktop bridge malformed command rejected');
-      response.statusCode = HttpStatus.badRequest;
-      response.write(jsonEncode({'error': error.message}));
-    } catch (error) {
-      _logs.debug(
-        'Remote desktop bridge command failed type=${error.runtimeType}',
-      );
-      response.statusCode = HttpStatus.serviceUnavailable;
-      // Never echo a command/password in a log or error response.
-      response.write(
-        jsonEncode({
-          'error': 'The remote host could not complete the request.',
-        }),
-      );
-    } finally {
-      await response.close();
-      _logs.debug(
-        'Remote desktop bridge command response closed status=${response.statusCode}',
-      );
-    }
-  }
-}
-
-Future<String> _readBody(Stream<List<int>> stream) async {
-  final bytes = <int>[];
-  var oversized = false;
-  await for (final part in stream.timeout(const Duration(seconds: 5))) {
-    if (bytes.length + part.length > 32768) oversized = true;
-    if (!oversized) bytes.addAll(part);
-  }
-  if (oversized) throw const FormatException('Host message too large.');
-  return utf8.decode(bytes);
-}
-
-Future<Map<String, dynamic>> sendDesktopHostCommand(
-  Map<String, dynamic> endpoint,
-  Map<String, dynamic> command, {
-  Duration timeout = const Duration(seconds: 20),
-}) async {
-  final logs = LogService.instance;
-  // Never log the request body or token; only the whitelisted command kind.
-  const commands = {
-    'ping',
-    'syncProfile',
-    'regeneratePassword',
-    'credentials',
-    'openSession',
-    'presence',
-  };
-  final operation = commands.contains(command['command'])
-      ? command['command']
-      : 'unknown';
-  logs.debug(
-    'Remote desktop command outgoing kind=$operation timeoutMs=${timeout.inMilliseconds}',
-  );
-  final port = endpoint['commandPort'];
-  final token = endpoint['commandToken'];
-  if (endpoint['bridgeVersion'] != 1 ||
-      port is! int ||
-      port < 1 ||
-      port > 65535 ||
-      token is! String ||
-      token.isEmpty) {
-    logs.debug('Remote desktop command refused invalid bridge metadata');
-    throw StateError('Restart Localist to load the updated remote host.');
-  }
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
-  // Loopback traffic must bypass the user's network proxy.
-  client.findProxy = (_) => 'DIRECT';
-  try {
-    final request = await client
-        .postUrl(Uri.parse('http://127.0.0.1:$port/command'))
-        .timeout(timeout);
-    request.headers.set('X-Localist-Host-Token', token);
-    request.headers.contentType = ContentType.json;
-    request.write(jsonEncode(command));
-    final response = await request.close().timeout(timeout);
-    logs.debug(
-      'Remote desktop command HTTP response status=${response.statusCode} kind=$operation',
-    );
-    final result =
-        jsonDecode(await _readBody(response).timeout(timeout))
-            as Map<String, dynamic>;
-    if (response.statusCode != HttpStatus.ok) {
-      logs.debug('Remote desktop command returned failure kind=$operation');
-      throw StateError(
-        result['error'] as String? ?? 'The remote host is unavailable.',
-      );
-    }
-    logs.debug('Remote desktop command succeeded kind=$operation');
-    return result;
-  } finally {
-    logs.debug('Remote desktop command connection closing kind=$operation');
-    client.close(force: true);
-  }
-}
+        final ids = (data['ids']

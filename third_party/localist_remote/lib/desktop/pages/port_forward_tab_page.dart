@@ -50,6 +50,9 @@ class _PortForwardTabPageState extends State<PortForwardTabPage> {
           isRDP: isRDP,
           forceRelay: params['forceRelay'],
           connToken: params['connToken'],
+          initialForward: params['initialForward'] is Map
+              ? Map<String, Object?>.from(params['initialForward'] as Map)
+              : null,
         )));
   }
 
@@ -66,9 +69,18 @@ class _PortForwardTabPageState extends State<PortForwardTabPage> {
         final id = args['id'];
         final isRDP = args['isRDP'];
         windowOnTop(windowId());
-        if (tabController.state.value.tabs.indexWhere((e) => e.key == id) >=
-            0) {
+        final existingIndex =
+            tabController.state.value.tabs.indexWhere((e) => e.key == id);
+        if (existingIndex >= 0) {
           debugPrint("port forward $id exists");
+          final route = args['initialForward'];
+          final existingPage =
+              tabController.state.value.tabs[existingIndex].page;
+          if (route is Map && existingPage is PortForwardPage) {
+            await existingPage.applyInitialForward(
+              Map<String, Object?>.from(route),
+            );
+          }
           return;
         }
         tabController.add(TabInfo(
@@ -86,6 +98,9 @@ class _PortForwardTabPageState extends State<PortForwardTabPage> {
               tabController: tabController,
               forceRelay: args['forceRelay'],
               connToken: args['connToken'],
+              initialForward: args['initialForward'] is Map
+                  ? Map<String, Object?>.from(args['initialForward'] as Map)
+                  : null,
             )));
       } else if (call.method == "onDestroy") {
         tabController.clear();
