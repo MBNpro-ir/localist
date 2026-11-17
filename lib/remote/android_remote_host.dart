@@ -98,6 +98,7 @@ class _AndroidRemoteHostState extends State<AndroidRemoteHost>
                 (!capture &&
                     !c.isFileTransfer &&
                     !c.isTerminal &&
+                    !c.isPortForward &&
                     !c.isViewCamera)),
       );
       final context =
@@ -117,6 +118,8 @@ class _AndroidRemoteHostState extends State<AndroidRemoteHost>
           peerId: client.peerId,
           fileTransfer: client.isFileTransfer,
           camera: client.isViewCamera,
+          networkTunnel: client.isPortForward,
+          tunnelTarget: client.portForward,
           onSharePassword: () async {
             final id = await bind.mainGetMyId();
             final password = await bind.mainGetTemporaryPassword();
@@ -136,7 +139,10 @@ class _AndroidRemoteHostState extends State<AndroidRemoteHost>
       _approvalRoute = null;
       // Do not authorize until Android has granted the required capability.
       var allow = accepted == true;
-      if (allow && !client.isFileTransfer && !client.isTerminal) {
+      if (allow &&
+          !client.isFileTransfer &&
+          !client.isTerminal &&
+          !client.isPortForward) {
         allow = await FeaturePermissionService.instance.ensure([
           if (client.isViewCamera)
             FeatureAccess.camera
@@ -156,6 +162,7 @@ class _AndroidRemoteHostState extends State<AndroidRemoteHost>
           current.isNotEmpty &&
           !client.isFileTransfer &&
           !client.isTerminal &&
+          !client.isPortForward &&
           !client.isViewCamera) {
         await engine.gFFI.invokeMethod('start_capture');
         // Viewing remains possible when the user declines optional input.
@@ -219,10 +226,13 @@ class RemoteIncomingConsent extends StatelessWidget {
     required this.peerId,
     this.fileTransfer = false,
     this.camera = false,
+    this.networkTunnel = false,
+    this.tunnelTarget = '',
     required this.onSharePassword,
   });
   final String name, peerId;
-  final bool fileTransfer, camera;
+  final bool fileTransfer, camera, networkTunnel;
+  final String tunnelTarget;
   final Future<void> Function() onSharePassword;
   @override
   Widget build(BuildContext context) {
@@ -230,58 +240,4 @@ class RemoteIncomingConsent extends StatelessWidget {
     String t(String f, String e) => fa ? f : e;
     return AlertDialog(
       scrollable: true,
-      icon: const Icon(Icons.devices_rounded),
-      title: Text(t('درخواست اتصال ورودی', 'Incoming connection request')),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$name · $peerId',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            fileTransfer
-                ? t(
-                    'این دستگاه می‌خواهد فایل منتقل کند.',
-                    'This device wants to transfer files.',
-                  )
-                : camera
-                ? t(
-                    'این دستگاه می‌خواهد دوربین شما را ببیند.',
-                    'This device wants to view your camera.',
-                  )
-                : t(
-                    'این دستگاه درخواست دیدن و کنترل گوشی شما را داده است. فقط اگر شخص مقابل را می‌شناسید قبول کنید.',
-                    'This device wants to view and control your phone. Accept only if you trust the person.',
-                  ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            t(
-              'می‌توانید درخواست را قبول کنید یا رمز یک‌بارمصرف را برای او بفرستید. اگر بعداً رمز ثابت لازم داشتید، آن را در تنظیمات ← کنترل از راه دور ← امنیت تنظیم کنید.',
-              'Accept this request or share your one-time password. You can set a permanent password later in Settings → Remote Control → Security.',
-            ),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: onSharePassword,
-            icon: const Icon(Icons.share_outlined),
-            label: Text(t('ارسال رمز یک‌بارمصرف', 'Share one-time password')),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: Text(t('رد درخواست', 'Decline')),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: Text(t('قبول اتصال', 'Accept connection')),
-        ),
-      ],
-    );
-  }
-}
+      icon: c

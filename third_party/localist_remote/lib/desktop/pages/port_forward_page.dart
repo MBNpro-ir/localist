@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -33,6 +34,7 @@ class PortForwardPage extends StatefulWidget {
     required this.tabController,
     required this.isRDP,
     required this.isSharedPassword,
+    this.initialForward,
     this.forceRelay,
     this.connToken,
   }) : super(key: key);
@@ -44,9 +46,17 @@ class PortForwardPage extends StatefulWidget {
   final bool? forceRelay;
   final bool? isSharedPassword;
   final String? connToken;
+  final Map<String, Object?>? initialForward;
   final SimpleWrapper<State<PortForwardPage>?> _lastState = SimpleWrapper(null);
 
   FFI get ffi => (_lastState.value! as _PortForwardPageState)._ffi;
+
+  Future<void> applyInitialForward(Map<String, Object?> route) async {
+    final state = _lastState.value;
+    if (state is _PortForwardPageState) {
+      await state.applyInitialForward(route);
+    }
+  }
 
   @override
   State<PortForwardPage> createState() {
@@ -77,11 +87,76 @@ class _PortForwardPageState extends State<PortForwardPage>
         connToken: widget.connToken,
         isRdp: widget.isRDP);
     Get.put<FFI>(_ffi, tag: 'pf_${widget.id}');
+    if (!widget.isRDP && widget.initialForward != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(applyInitialForward(widget.initialForward!));
+      });
+    }
     debugPrint("Port forward page init success with id ${widget.id}");
     // Call onSelected in post frame callback, since we cannot guarantee that the callback will not call setState.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.tabController.onSelected?.call(widget.id);
     });
+  }
+
+  Future<void> applyInitialForward(Map<String, Object?> route) async {
+    if (!mounted || widget.isRDP) return;
+    final localPort = route['localPort'];
+    final remoteHost = route['remoteHost'];
+    final remotePort = route['remotePort'];
+    if (localPort is! int || remoteHost is! String || remotePort is! int) {
+      _showInitialForwardError('Invalid initial tunnel mapping.');
+      return;
+    }
+    try {
+      final peer = jsonDecode(bind.mainGetPeerSync(id: widget.id)) as Map;
+      final routes = peer['port_forwards'] as List? ?? const [];
+      List? existing;
+      for (final candidate in routes.whereType<List>()) {
+        if (candidate.length == 3 && candidate[0] == localPort) {
+          existing = candidate;
+          break;
+        }
+      }
+      if (existing != null) {
+        final existingHost = existing[1]?.toString().toLowerCase();
+        if (!const {'127.0.0.1', 'localhost'}.contains(existingHost)) {
+          throw StateError(
+            'Local port $localPort already maps to another target. Remove that mapping before opening the Developer Agent tunnel.',
+          );
+        }
+        if (existingHost != remoteHost.toLowerCase() ||
+            existing[2] != remotePort) {
+          await bind.sessionRemovePortForward(
+            sessionId: _ffi.sessionId,
+            localPort: localPort,
+          );
+          await bind.sessionAddPortForward(
+            sessionId: _ffi.sessionId,
+            localPort: localPort,
+            remoteHost: remoteHost,
+            remotePort: remotePort,
+          );
+        }
+      } else {
+        await bind.sessionAddPortForward(
+          sessionId: _ffi.sessionId,
+          localPort: localPort,
+          remoteHost: remoteHost,
+          remotePort: remotePort,
+        );
+      }
+      refreshTunnelConfig();
+    } catch (error) {
+      _showInitialForwardError(error.toString());
+    }
+  }
+
+  void _showInitialForwardError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
@@ -165,196 +240,3 @@ class _PortForwardPageState extends State<PortForwardPage>
           itemCount: pfs.length + 2,
           itemBuilder: ((context, index) {
             if (index == 0) {
-              return Container(
-                height: 25,
-                color: Theme.of(context).scaffoldBackgroundColor,
-                child: Row(children: [
-                  text('Local Port'),
-                  const SizedBox(width: _kColumn1Width),
-                  text('Remote Host'),
-                  text('Remote Port'),
-                  SizedBox(
-                      width: _kColumn4Width, child: Text(translate('Action')))
-                ]),
-              );
-            } else if (index == 1) {
-              return buildTunnelAddRow(context);
-            } else {
-              return buildTunnelDataRow(context, pfs[index - 2], index - 2);
-            }
-          }))),
-    );
-  }
-
-  buildTunnelAddRow(BuildContext context) {
-    var portInputFormatter = [
-      FilteringTextInputFormatter.allow(RegExp(
-          r'^([0-9]|[1-9]\d|[1-9]\d{2}|[1-9]\d{3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$'))
-    ];
-
-    return Container(
-      height: _kRowHeight,
-      decoration:
-          BoxDecoration(color: Theme.of(context).colorScheme.background),
-      child: Row(children: [
-        buildTunnelInputCell(context,
-            controller: localPortController,
-            inputFormatters: portInputFormatter),
-        const SizedBox(
-            width: _kColumn1Width, child: Icon(Icons.arrow_forward_sharp)),
-        buildTunnelInputCell(context,
-            controller: remoteHostController, hint: 'localhost'),
-        buildTunnelInputCell(context,
-            controller: remotePortController,
-            inputFormatters: portInputFormatter),
-        ElevatedButton(
-          onPressed: () async {
-            int? localPort = int.tryParse(localPortController.text);
-            int? remotePort = int.tryParse(remotePortController.text);
-            if (localPort != null &&
-                remotePort != null &&
-                (remoteHostController.text.isEmpty ||
-                    remoteHostController.text.trim().isNotEmpty)) {
-              await bind.sessionAddPortForward(
-                  sessionId: _ffi.sessionId,
-                  localPort: localPort,
-                  remoteHost: remoteHostController.text.trim().isEmpty
-                      ? 'localhost'
-                      : remoteHostController.text.trim(),
-                  remotePort: remotePort);
-              localPortController.clear();
-              remoteHostController.clear();
-              remotePortController.clear();
-              refreshTunnelConfig();
-            }
-          },
-          child: Text(
-            translate('Add'),
-          ),
-        ).marginSymmetric(horizontal: 10),
-      ]),
-    );
-  }
-
-  buildTunnelInputCell(BuildContext context,
-      {required TextEditingController controller,
-      List<TextInputFormatter>? inputFormatters,
-      String? hint}) {
-    return Expanded(
-      child: Padding(
-          padding: const EdgeInsets.all(10.0),
-          child: TextField(
-              controller: controller,
-              inputFormatters: inputFormatters,
-              decoration: InputDecoration(
-                hintText: hint,
-              )).workaroundFreezeLinuxMint()),
-    );
-  }
-
-  Widget buildTunnelDataRow(BuildContext context, _PortForward pf, int index) {
-    text(String label) => Expanded(
-        child: Text(label, style: const TextStyle(fontSize: 20))
-            .marginOnly(left: _kTextLeftMargin));
-
-    return Container(
-      height: _kRowHeight,
-      decoration: BoxDecoration(
-          color: index % 2 == 0
-              ? MyTheme.currentThemeMode() == ThemeMode.dark
-                  ? const Color(0xFF202020)
-                  : const Color(0xFFF4F5F6)
-              : Theme.of(context).colorScheme.background),
-      child: Row(children: [
-        text(pf.localPort.toString()),
-        const SizedBox(width: _kColumn1Width),
-        text(pf.remoteHost),
-        text(pf.remotePort.toString()),
-        SizedBox(
-          width: _kColumn4Width,
-          child: IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () async {
-              await bind.sessionRemovePortForward(
-                  sessionId: _ffi.sessionId, localPort: pf.localPort);
-              refreshTunnelConfig();
-            },
-          ),
-        ),
-      ]),
-    );
-  }
-
-  void refreshTunnelConfig() async {
-    String peer = bind.mainGetPeerSync(id: widget.id);
-    Map<String, dynamic> config = jsonDecode(peer);
-    List<dynamic> infos = config['port_forwards'] as List;
-    List<_PortForward> result = List.empty(growable: true);
-    for (var e in infos) {
-      result.add(_PortForward.fromJson(e));
-    }
-    pfs.value = result;
-  }
-
-  buildRdp(BuildContext context) {
-    text1(String label) => Expanded(
-        child: Text(translate(label)).marginOnly(left: _kTextLeftMargin));
-    text2(String label) => Expanded(
-            child: Text(
-          label,
-          style: const TextStyle(fontSize: 20),
-        ).marginOnly(left: _kTextLeftMargin));
-    return Theme(
-      data: Theme.of(context)
-          .copyWith(colorScheme: Theme.of(context).colorScheme),
-      child: ListView.builder(
-          controller: ScrollController(),
-          itemCount: 2,
-          itemBuilder: ((context, index) {
-            if (index == 0) {
-              return Container(
-                height: 25,
-                color: Theme.of(context).scaffoldBackgroundColor,
-                child: Row(children: [
-                  text1('Local Port'),
-                  const SizedBox(width: _kColumn1Width),
-                  text1('Remote Host'),
-                  text1('Remote Port'),
-                ]),
-              );
-            } else {
-              return Container(
-                height: _kRowHeight,
-                decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.background),
-                child: Row(children: [
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: SizedBox(
-                        width: 120,
-                        child: ElevatedButton(
-                          onPressed: () =>
-                              bind.sessionNewRdp(sessionId: _ffi.sessionId),
-                          child: Text(
-                            translate('New RDP'),
-                          ),
-                        ).marginSymmetric(vertical: 10),
-                      ).marginOnly(left: 20),
-                    ),
-                  ),
-                  const SizedBox(
-                      width: _kColumn1Width,
-                      child: Icon(Icons.arrow_forward_sharp)),
-                  text2('localhost'),
-                  text2('RDP'),
-                ]),
-              );
-            }
-          })),
-    );
-  }
-
-  @override
-  bool get wantKeepAlive => true;
-}
