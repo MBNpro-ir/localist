@@ -129,7 +129,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                         CaptureAudioEngine.bind(this@MainActivity,call.arguments as? Map<*, *> ?: emptyMap<Any,Any>())
                     }.onSuccess { result.success(it) }.onFailure { result.error("AUDIO_OUTPUT",it.message,null) }
                     "audioOutputPcm" -> result.success(CaptureAudioEngine.pcm(call.argument<Int>("slot") ?: 0,call.argument<ByteArray>("data") ?: byteArrayOf()))
-                    "landscapeCamera" -> runCatching {
+                    "configureCameraOrientation" -> runCatching {
                         CaptureOrientation.set(this@MainActivity, call.argument<String>("track"),
                             call.argument<String>("cameraId"),
                             call.argument<Boolean>("rear") != false)
@@ -137,9 +137,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                         result.error("CAMERA_ORIENTATION", it.message, null)
                     }
                     "previewTrack" -> runCatching {
-                        capturePreview?.bind(call.argument<String>("track"),
-                            call.argument<Int>("width") ?: 1280, call.argument<Int>("height") ?: 720,
-                        )
+                        capturePreview?.bind(call.argument<String>("track"))
                     }.onSuccess { result.success(it) }.onFailure { result.error("CAMERA_PREVIEW", it.message, null) }
                     "cameraCapabilities" -> cameraProbeExecutor.execute {
                         runCatching {

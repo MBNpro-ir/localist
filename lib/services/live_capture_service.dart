@@ -34,7 +34,7 @@ class LiveCaptureOptions {
     this.audioSettings = const CaptureAudioSettings(),
     this.audioSource = 'microphone',
   });
-  String get orientation => 'landscape';
+  String get orientation => 'auto';
   final CaptureAudioSettings audioSettings;
   final String audioSource;
   final String? cameraId, microphoneId;
@@ -504,6 +504,8 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   MediaStream? localStream, remoteStream;
+  bool? _videoPortrait;
+  bool? get videoPortrait => _videoPortrait;
   CaptureSignalingServer? _server;
   WebSocket? _receiver;
   Timer? _receiverWatchdog;
@@ -763,27 +765,10 @@ class LiveCaptureService extends ChangeNotifier {
       _captureSourceOwned = true;
       if (_disposed || generation != _captureGeneration) return;
       await initializeMedia();
+      if (Platform.isAndroid) {
+        _captureChannel.setMethodCallHandler(_handleAndroidCaptureEvent);
+      }
       if (Platform.isAndroid && value.background) {
-        _captureChannel.setMethodCallHandler((call) async {
-          if (call.method == 'captureDiagnostics') {
-            LogService.instance.debug(
-              'Capture sender: native diagnostics event received payloadType=${call.arguments.runtimeType}',
-            );
-          }
-          if (call.method == 'stopCapture') {
-            LogService.instance.debug(
-              'Capture sender: native stop callback received',
-            );
-            await stop();
-          }
-          if (call.method == 'captureError') {
-            LogService.instance.debug(
-              'Capture sender: native capture error callback received',
-            );
-            error = '${call.arguments}';
-            await stop();
-          }
-        });
         _foregroundOwned = true;
         LogService.instance.debug(
           'Capture sender: starting Android foreground capture service',
@@ -854,7 +839,6 @@ class LiveCaptureService extends ChangeNotifier {
       LogService.instance.debug(
         'Capture sender: media tracks acquired video=${localStream?.getVideoTracks().length ?? 0} audio=${localStream?.getAudioTracks().length ?? 0}',
       );
-      await _configureAudioCapture();
       if (_disposed || generation != _captureGeneration) {
         await stop();
         return;
@@ -863,8 +847,13 @@ class LiveCaptureService extends ChangeNotifier {
           localStream?.getVideoTracks().firstOrNull?.getSettings()['deviceId']
               as String?;
       if (value.camera) {
-        await _applyLandscape();
+        await _applyCameraOrientation();
         if (value.startPaused) pauseCamera(true);
+      }
+      await _configureAudioCapture();
+      if (_disposed || generation != _captureGeneration) {
+        await stop();
+        return;
       }
       if (value.microphone && value.startMuted) muteMicrophone(true);
       if (_disposed) {
@@ -873,17 +862,10 @@ class LiveCaptureService extends ChangeNotifier {
       }
       if (value.camera) await refreshCameraControls();
       if (_disposed || generation != _captureGeneration) return;
-      _controlMicrophones =
-          (options.audioSource == 'system'
-                  ? <MediaDeviceInfo>[]
-                  : await inputDevices())
-              .where((device) => device.kind == 'audioinput')
-              .take(12)
-              .toList();
-      _controlCameras = (await inputDevices())
-          .where((d) => d.kind == 'videoinput')
-          .take(12)
-          .toList();
+      _controlMicrophones = options.audioSource == 'system'
+          ? []
+          : microphones.take(12).toList();
+      _controlCameras = cameras.take(12).toList();
       // Preview must never play our own microphone through the local speakers.
       final html = await rootBundle.loadString('assets/live_capture.html');
       if (_disposed || generation != _captureGeneration) return;
@@ -1387,13 +1369,37 @@ class LiveCaptureService extends ChangeNotifier {
     _changed();
   }
 
-  Future<void> _applyLandscape() async {
+  Future<void> _applyCameraOrientation() async {
     if (!Platform.isAndroid) return;
-    await _captureChannel.invokeMethod<void>('landscapeCamera', {
+    await _captureChannel.invokeMethod<void>('configureCameraOrientation', {
       'track': localStream?.getVideoTracks().firstOrNull?.id,
       'cameraId': activeCameraId ?? options.cameraId,
       'rear': options.rearCamera,
     });
+  }
+
+  Future<void> _handleAndroidCaptureEvent(MethodCall call) async {
+    switch (call.method) {
+      case 'captureVideoGeometry':
+        final details = call.arguments;
+        final track = localStream?.getVideoTracks().firstOrNull;
+        if (details is! Map || track == null || details['track'] != track.id) {
+          return;
+        }
+        final width = details['width'];
+        final height = details['height'];
+        if (width is! int || height is! int || width < 1 || height < 1) return;
+        final portrait = height > width;
+        if (_videoPortrait != portrait) {
+          _videoPortrait = portrait;
+          _changed();
+        }
+      case 'stopCapture':
+        await stop();
+      case 'captureError':
+        error = '${call.arguments}';
+        await stop();
+    }
   }
 
   Future<void> requestCaptureControl(Map<String, dynamic> command) async {
@@ -1536,6 +1542,7 @@ class LiveCaptureService extends ChangeNotifier {
         }
         await old?.dispose();
         localStream = null;
+        _videoPortrait = null;
         Future<MediaStream> acquire(LiveCaptureOptions value) async {
           final selected = value.microphoneId;
           if (selected != null && value.microphone) {
@@ -1563,7 +1570,7 @@ class LiveCaptureService extends ChangeNotifier {
         activeCameraId =
             stream.getVideoTracks().firstOrNull?.getSettings()['deviceId']
                 as String?;
-        if (applied.camera) await _applyLandscape();
+        if (applied.camera) await _applyCameraOrientation();
         for (final peer in _peers.values.toList()) {
           for (final sender in await peer.getSenders()) {
             final replacement = stream
@@ -1720,13 +1727,7 @@ class LiveCaptureService extends ChangeNotifier {
       'Capture sender: preparing background capture foregroundOwned=$_foregroundOwned',
     );
     if (!_foregroundOwned) {
-      _captureChannel.setMethodCallHandler((call) async {
-        if (call.method == 'stopCapture') await stop();
-        if (call.method == 'captureError') {
-          error = '${call.arguments}';
-          await stop();
-        }
-      });
+      _captureChannel.setMethodCallHandler(_handleAndroidCaptureEvent);
       _foregroundOwned = true;
       try {
         await _captureChannel.invokeMethod<bool>('start', {
@@ -1738,7 +1739,6 @@ class LiveCaptureService extends ChangeNotifier {
           'Capture sender: foreground service handoff failed type=${e.runtimeType}',
         );
         _foregroundOwned = false;
-        _captureChannel.setMethodCallHandler(null);
         rethrow;
       }
       if (!broadcasting || _disposed) {
@@ -1788,7 +1788,7 @@ class LiveCaptureService extends ChangeNotifier {
         activeCameraId = next;
         LogService.instance.debug('Capture sender: camera switch completed');
         options = options.copyWith(cameraId: next);
-        await _applyLandscape();
+        await _applyCameraOrientation();
         await refreshCameraControls();
       }
     } finally {
@@ -1846,10 +1846,11 @@ class LiveCaptureService extends ChangeNotifier {
     final local = localStream;
     if (Platform.isAndroid && local != null) {
       await _captureChannel
-          .invokeMethod('landscapeCamera')
+          .invokeMethod('configureCameraOrientation')
           .catchError((Object _) {});
     }
     localStream = null;
+    _videoPortrait = null;
     remoteStream = null;
     _changed();
     // Stop private media and its CPU lease before waiting for network peers.
@@ -1870,9 +1871,11 @@ class LiveCaptureService extends ChangeNotifier {
           )
           .catchError((Object _) => null);
     }
+    if (ownedSource && Platform.isAndroid) {
+      _captureChannel.setMethodCallHandler(null);
+    }
     if (_foregroundOwned) {
       _foregroundOwned = false;
-      _captureChannel.setMethodCallHandler(null);
       try {
         await _captureChannel.invokeMethod<bool>('stop');
       } catch (exception) {

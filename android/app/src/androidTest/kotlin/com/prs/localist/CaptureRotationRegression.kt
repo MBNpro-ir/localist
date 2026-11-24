@@ -11,6 +11,59 @@ object CaptureRotationRegression {
             (0 until data.width).map { x -> data.dataY.get(y * data.strideY + x).toInt() and 255 }
         } } finally { data.release() }
     }
+    private fun verifyAutomaticCanvas() {
+        val width = 64
+        val height = 48
+        val buffer = JavaI420Buffer.allocate(width, height)
+        for (y in 0 until height) for (x in 0 until width) {
+            buffer.dataY.put(y * buffer.strideY + x, (4 * y + x).toByte())
+        }
+        try {
+            for (front in listOf(false, true)) {
+                val sensor = if (front) 270 else 90
+                var display = 0
+                val landscape = CaptureOrientation.FrameRotation(
+                    front, 0, { display }, sensorOrientation = sensor
+                )
+                val expected = if (front) listOf(270, 180, 90, 0) else listOf(90, 180, 270, 0)
+                for ((index, pose) in listOf(0, 90, 180, 270).withIndex()) {
+                    landscape.update(pose)
+                    for (screen in listOf(0, pose)) {
+                        display = screen
+                        // The sensor pose wins even when frame metadata still reflects the locked display.
+                        val native = (sensor + (if (front) -display else display) + 360) % 360
+                        buffer.retain()
+                        val source = VideoFrame(buffer, native, 456L)
+                        val output = landscape.onFrame(source)
+                        try {
+                            check(output.rotation == 0 && output.timestampNs == 456L)
+                            val outWidth = output.buffer.width
+                            val outHeight = output.buffer.height
+                            check(if (pose % 180 == 0) outWidth == 36 && outHeight == 64
+                                else outWidth == 64 && outHeight == 36)
+                            val values = pixels(output)
+                            fun at(x: Int, y: Int) = values[y * outWidth + x]
+                            val rotation = expected[index]
+                            val rightBrighter = at(3 * outWidth / 4, outHeight / 2) >
+                                at(outWidth / 4, outHeight / 2)
+                            val bottomBrighter = at(outWidth / 2, 3 * outHeight / 4) >
+                                at(outWidth / 2, outHeight / 4)
+                            check(rightBrighter == (rotation == 0 || rotation == 270) &&
+                                bottomBrighter == (rotation == 0 || rotation == 90)) {
+                                "Wrong automatic orientation landmarks: front=$front pose=$pose display=$screen"
+                            }
+                        } finally {
+                            if (output !== source) output.release()
+                            source.release()
+                        }
+                    }
+                }
+            }
+        } finally {
+            buffer.release()
+        }
+    }
+
     fun verify() {
         System.loadLibrary("jingle_peerconnection_so")
         val buffer = JavaI420Buffer.allocate(4, 2)
@@ -44,28 +97,7 @@ object CaptureRotationRegression {
                     } finally { data.release() }
                 } finally { if (output !== frame) output.release() }
             }
-            // A landscape frame must keep its shape and handedness as the
-            // Android display changes pose, including with auto-rotate disabled.
-            for (front in listOf(false, true)) {
-                val native = if (front) 270 else 90
-                var display = 0
-                val landscape = CaptureOrientation.FrameRotation(front, 0, { display })
-                for ((pose, expectedRotation) in listOf(0 to 0, 90 to 180, 180 to 180, 270 to 0)) {
-                    landscape.update(pose)
-                    for (screen in listOf(0, pose)) {
-                        display = screen
-                        val sourceRotation = (native + (if (front) -display else display) + 360) % 360
-                        val source = VideoFrame(buffer.also { it.retain() }, sourceRotation, 456L)
-                        val output = landscape.onFrame(source)
-                        try {
-                            check(output.rotation == 0 && output.buffer.width > output.buffer.height)
-                            check(pixels(output) == expected.getValue(expectedRotation)) {
-                                "Wrong landscape landmarks: front=$front pose=$pose display=$screen"
-                            }
-                        } finally { if (output !== source) output.release(); source.release() }
-                    }
-                }
-            }
+            verifyAutomaticCanvas()
             check(buffer.dataY.get(0).toInt() == 1)
             var failures = 0
             val damaged = object : VideoFrame.Buffer {

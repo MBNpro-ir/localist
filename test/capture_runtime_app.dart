@@ -8,6 +8,32 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:localist/services/live_capture_service.dart';
 import 'package:localist/screens/live_capture_page.dart';
 
+Future<void> _waitForPreview(
+  LiveCaptureService service,
+  RTCVideoRenderer preview, {
+  bool? expectedPortrait,
+}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  do {
+    final width = preview.videoWidth;
+    final height = preview.videoHeight;
+    final portrait = height > width;
+    final aspect = portrait ? height / width : width / height;
+    if (width > 0 &&
+        height > 0 &&
+        (aspect - 16 / 9).abs() <= .02 &&
+        service.videoPortrait == portrait &&
+        (expectedPortrait == null || expectedPortrait == portrait)) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  } while (DateTime.now().isBefore(deadline));
+  throw StateError(
+    'Preview geometry ${preview.videoWidth}×${preview.videoHeight} did not '
+    'match capture orientation ${service.videoPortrait} and expected pose $expectedPortrait',
+  );
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final service = LiveCaptureService();
@@ -55,13 +81,14 @@ Future<void> main() async {
           service.localStream?.getAudioTracks().length != 1) {
         throw StateError('Missing camera/mic on cycle $i');
       }
-      final deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (preview.videoWidth == 0 && DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
-      if (preview.videoWidth <= 0) throw StateError('Preview did not render');
-      if (preview.videoWidth < preview.videoHeight) {
-        throw StateError('Preview did not remain landscape');
+      await _waitForPreview(service, preview);
+      if (i == 0 && const bool.fromEnvironment('LOCALIST_CAMERA_POSE_TEST')) {
+        for (final (step, portrait) in [true, false, true, false].indexed) {
+          await _waitForPreview(service, preview, expectedPortrait: portrait);
+          debugPrint(
+            'LOCALIST_PREVIEW_POSE $step ${preview.videoWidth}x${preview.videoHeight}',
+          );
+        }
       }
       await service.switchCamera();
       await service.requestCaptureControl({

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -304,17 +305,21 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                 (_service.broadcasting && _service.cameraPaused)
             ? null
             : _service.localStream ?? _service.remoteStream;
-        final track = stream?.getVideoTracks().firstOrNull?.id;
+        final waitingForGeometry =
+            Platform.isAndroid &&
+            widget.renderer == null &&
+            _service.localStream != null &&
+            _service.videoPortrait == null;
+        final track = waitingForGeometry
+            ? null
+            : stream?.getVideoTracks().firstOrNull?.id;
         if (_android &&
             widget.renderer == null &&
             _service.remoteStream == null) {
           if (_previewTrack != track) {
-            _previewTexture = await const MethodChannel('localist/capture')
-                .invokeMethod<int>('previewTrack', {
-                  'track': track,
-                  'width': _service.options.width,
-                  'height': _service.options.height,
-                });
+            _previewTexture = await const MethodChannel(
+              'localist/capture',
+            ).invokeMethod<int>('previewTrack', {'track': track});
             _previewTrack = track;
           }
         } else if (_rendererReady &&
@@ -1090,6 +1095,20 @@ class _LiveCapturePageState extends State<LiveCapturePage>
 
   Widget _receiveCard() => CaptureReceiversPanel(hub: _hub, windows: _windows);
 
+  double get _previewAspectRatio {
+    if (_android && _service.localStream != null) {
+      final portrait =
+          _service.videoPortrait ??
+          MediaQuery.orientationOf(context) == Orientation.portrait;
+      return portrait ? 9 / 16 : 16 / 9;
+    }
+    final width = _service.options.width;
+    final height = _service.options.height;
+    return width == height
+        ? 16 / 9
+        : math.max(width, height) / math.min(width, height);
+  }
+
   Widget _sessionCard() => GlassPanel(
     key: const ValueKey('capture-session-card'),
     child: Column(
@@ -1102,11 +1121,14 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             (_previewTexture != null || _rendererReady)) ...[
           Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 640),
+              constraints: BoxConstraints(
+                maxWidth: math.min(
+                  640,
+                  MediaQuery.sizeOf(context).height * .62 * _previewAspectRatio,
+                ),
+              ),
               child: AspectRatio(
-                aspectRatio:
-                    math.max(_service.options.width, _service.options.height) /
-                    math.min(_service.options.width, _service.options.height),
+                aspectRatio: _previewAspectRatio,
                 child: ColoredBox(
                   color: Colors.black,
                   child: _previewTexture != null

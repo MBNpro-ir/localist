@@ -15,24 +15,21 @@ internal class CapturePreview(private val textures: TextureRegistry) : AutoClose
     private var producer: TextureRegistry.SurfaceProducer? = null
     private var renderer: EglRenderer? = null
 
-    fun bind(trackId: String?, width: Int, height: Int): Long? {
+    fun bind(trackId: String?): Long? {
         close()
         if (trackId == null) return null
         val source = FlutterWebRTCPlugin.sharedSingleton?.getLocalTrack(trackId)?.track as? VideoTrack
             ?: error("The preview track is unavailable")
-        val wide = maxOf(width, height).coerceAtLeast(2)
-        val tall = minOf(width, height).coerceAtLeast(2)
-        val previewWidth = minOf(480, wide)
-        val previewHeight = (previewWidth * tall / wide).coerceAtLeast(2)
         val surface = textures.createSurfaceProducer()
         producer = surface
         val output = EglRenderer("Localist preview")
         try {
-            surface.setSize(previewWidth, previewHeight)
+            // Keep one small surface through rotations; Flutter displays its
+            // full contents at the actual processed frame's aspect ratio.
+            surface.setSize(480, 270)
             output.init(EglUtils.getRootEglBaseContext(), EglBase.CONFIG_PLAIN, GlRectDrawer())
             renderer = output
             output.setFpsReduction(12f)
-            output.setLayoutAspectRatio(previewWidth.toFloat() / previewHeight)
             surface.setCallback(object : TextureRegistry.SurfaceProducer.Callback {
                 override fun onSurfaceAvailable() {
                     if (producer === surface) output.createEglSurface(surface.surface)

@@ -71,16 +71,19 @@ void main() {
       );
     },
   );
-  test('capture has background, receiver controls and landscape defaults', () {
-    const options = LiveCaptureOptions(
-      cameraId: 'front-camera',
-      microphoneId: 'built-in-mic',
-    );
-    expect(options.orientation, 'landscape');
-    expect(options.background && options.receiverControls, true);
-    expect(
-      (options.constraints['video'] as Map).containsKey('facingMode'),
-      false,
-    );
-  });
+  test(
+    'capture has background, receiver controls and automatic rotation by default',
+    () {
+      const options = LiveCaptureOptions(
+        cameraId: 'front-camera',
+        microphoneId: 'built-in-mic',
+      );
+      expect(options.orientation, 'auto');
+      expect(options.background && options.receiverControls, true);
+      expect(
+        (options.constraints['video'] as Map).containsKey('facingMode'),
+        false,
+      );
+    },
+  );
 }

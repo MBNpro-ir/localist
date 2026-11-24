@@ -28,14 +28,23 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   const page=await browser.newPage();await page.goto('http://127.0.0.1:45108/#'+session.key);
   const size=()=>page.evaluate(()=>({width:video.videoWidth,height:video.videoHeight,frames:video.getVideoPlaybackQuality().totalVideoFrames}));
   const results=[];
-  for(const [name,sensor] of [['portrait','0:9.81:0'],['landscape-left','9.81:0:0'],
-    ['portrait-inverted','0:-9.81:0'],['landscape-right','-9.81:0:0']]){
+  for(const [name,sensor,portrait] of [['portrait','0:9.81:0',true],
+    ['landscape-left','9.81:0:0',false],['portrait-inverted','0:-9.81:0',true],
+    ['landscape-right','-9.81:0:0',false]]){
     const initialFrames=(await size()).frames;
+    const started=Date.now();
     setPhysical(sensor);
     await pause(800);
-    await page.waitForFunction(previous=>video.videoWidth>video.videoHeight &&
-      video.getVideoPlaybackQuality().totalVideoFrames>previous,initialFrames,{timeout:20000});
-    results.push({name,...await size()});
+    await page.waitForFunction(({previous,portrait})=>{
+      const short=Math.min(video.videoWidth,video.videoHeight);
+      const long=Math.max(video.videoWidth,video.videoHeight);
+      return (video.videoHeight>video.videoWidth)===portrait &&
+        Math.abs(long/short-16/9)<0.02 &&
+        video.getVideoPlaybackQuality().totalVideoFrames>previous+2;
+    },{previous:initialFrames,portrait},{timeout:20000});
+    const preview=await vm.json(sender.id,"{'portrait':videoPortrait}");
+    if(preview.portrait!==portrait)throw Error('Preview and stream disagree in '+name);
+    results.push({name,...await size(),previewPortrait:preview.portrait,elapsedMs:Date.now()-started});
     if(command('shell','settings','get','system','user_rotation').trim()!=='0')throw Error('Display lock was changed');
   }
   const stats=await page.evaluate(async()=>[...await peer.getStats()].map(([,s])=>s).filter(s=>s.type==='inbound-rtp').map(s=>({kind:s.kind,bytes:s.bytesReceived,frames:s.framesDecoded})));
