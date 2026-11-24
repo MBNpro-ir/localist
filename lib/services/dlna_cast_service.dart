@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mime/mime.dart';
 import 'package:xml/xml.dart';
+import 'lan_network_service.dart';
 import 'log_service.dart';
 
 class DlnaRenderer {
@@ -27,6 +28,8 @@ class DlnaCastService extends ChangeNotifier {
   final _client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
   bool _closed = false;
   final Set<RawDatagramSocket> _sockets = {};
+  HttpClient? _scanClient;
+  Completer<void>? _scanWait;
 
   Future<void> discover() async {
     if (scanning || _closed) {
@@ -36,75 +39,90 @@ class DlnaCastService extends ChangeNotifier {
       return;
     }
     LogService.instance.debug('DLNA: discovery started');
+    final scanClient = _scanClient = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 3);
+    bool current() => identical(_scanClient, scanClient);
     scanning = true;
     error = '';
-    _devices.clear();
     notifyListeners();
     final locations = <Uri>{};
     final sockets = <RawDatagramSocket>[];
     try {
-      for (final interface in await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-      )) {
-        for (final address in interface.addresses) {
-          if (!isLanHost(address.address)) continue;
-          try {
-            final socket = await RawDatagramSocket.bind(address, 0);
-            sockets.add(socket);
-            _sockets.add(socket);
-            socket.listen(
-              (event) {
-                if (event != RawSocketEvent.read) return;
-                Datagram? packet;
-                while ((packet = socket.receive()) != null) {
-                  final data = utf8.decode(packet!.data, allowMalformed: true);
-                  final location = RegExp(
-                    r'^location:\s*(.+)$',
-                    caseSensitive: false,
-                    multiLine: true,
-                  ).firstMatch(data)?.group(1)?.trim();
-                  final uri = Uri.tryParse(location ?? '');
-                  if (uri != null &&
-                      uri.scheme == 'http' &&
-                      isLanHost(uri.host) &&
-                      locations.length < 64) {
-                    locations.add(uri);
-                  }
-                }
-              },
-              onError: (Object e) {
-                LogService.instance.debug(
-                  'DLNA: SSDP socket error type=${e.runtimeType}',
-                );
-              },
-            );
-            socket.send(
-              utf8.encode(
-                'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n',
-              ),
-              InternetAddress('239.255.255.250'),
-              1900,
-            );
-          } on SocketException {
-            LogService.instance.debug(
-              'DLNA: interface bind failed; trying next interface',
-            );
-            /* Other local interfaces can still work. */
+      for (final route in await LanNetworkService.instance.routes()) {
+        if (!current()) return;
+        if (!isLanHost(route.address)) continue;
+        try {
+          final socket = await RawDatagramSocket.bind(
+            InternetAddress(route.address),
+            0,
+          );
+          if (!current()) {
+            socket.close();
+            return;
           }
+          sockets.add(socket);
+          _sockets.add(socket);
+          socket.listen(
+            (event) {
+              if (!current() || event != RawSocketEvent.read) return;
+              Datagram? packet;
+              while ((packet = socket.receive()) != null) {
+                if (packet!.data.length > 8192) continue;
+                final data = utf8.decode(packet.data, allowMalformed: true);
+                final location = RegExp(
+                  r'^location:\s*(.+)$',
+                  caseSensitive: false,
+                  multiLine: true,
+                ).firstMatch(data)?.group(1)?.trim();
+                final uri = Uri.tryParse(location ?? '');
+                if (uri != null &&
+                    uri.scheme == 'http' &&
+                    uri.userInfo.isEmpty &&
+                    isLanHost(uri.host) &&
+                    (route.contains(uri.host) ||
+                        uri.host == packet.address.address) &&
+                    locations.length < 64) {
+                  locations.add(uri);
+                }
+              }
+            },
+            onError: (Object e) {
+              LogService.instance.debug(
+                'DLNA: SSDP socket error type=${e.runtimeType}',
+              );
+            },
+          );
+          socket.send(
+            utf8.encode(
+              'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n',
+            ),
+            InternetAddress('239.255.255.250'),
+            1900,
+          );
+        } on SocketException {
+          LogService.instance.debug(
+            'DLNA: interface bind failed; trying next interface',
+          );
+          /* Other local interfaces can still work. */
         }
       }
-      await Future<void>.delayed(const Duration(seconds: 3));
+      if (!current()) return;
+      final wait = _scanWait = Completer<void>();
+      await wait.future.timeout(const Duration(seconds: 3), onTimeout: () {});
+      if (!current()) return;
+      final devices = <Uri, DlnaRenderer>{};
       final candidates = locations.take(16).toList();
       LogService.instance.debug(
         'DLNA: SSDP discovered ${locations.length} endpoints, probing=${candidates.length}',
       );
       for (var offset = 0; offset < candidates.length; offset += 4) {
-        if (_closed) return;
+        if (!current()) return;
         final results = await Future.wait(
           candidates.skip(offset).take(4).map((location) async {
             try {
-              return await loadRenderer(
+              return await _loadRenderer(
                 location,
+                scanClient,
               ).timeout(const Duration(seconds: 8));
             } catch (e) {
               LogService.instance.debug(
@@ -115,37 +133,62 @@ class DlnaCastService extends ChangeNotifier {
           }),
         );
         for (final renderer in results) {
-          if (renderer != null &&
-              !_devices.any((d) => d.controlUrl == renderer.controlUrl)) {
-            _devices.add(renderer);
-          }
+          if (renderer != null) devices[renderer.controlUrl] = renderer;
         }
       }
-      _devices.sort((a, b) => a.name.compareTo(b.name));
+      if (!current()) return;
+      _devices
+        ..clear()
+        ..addAll(
+          devices.values.toList()..sort((a, b) => a.name.compareTo(b.name)),
+        );
       LogService.instance.debug(
         'DLNA: discovery completed renderers=${_devices.length}',
       );
     } catch (exception) {
-      error = '$exception';
+      if (current()) error = '$exception';
       LogService.instance.debug(
         'DLNA: discovery failed type=${exception.runtimeType}',
       );
     } finally {
       for (final socket in sockets) {
-        socket.close();
-        _sockets.remove(socket);
+        if (_sockets.remove(socket)) socket.close();
       }
+      scanClient.close(force: true);
+      if (current()) {
+        _scanClient = null;
+        _scanWait = null;
+        scanning = false;
+        if (!_closed) notifyListeners();
+      }
+    }
+  }
+
+  void cancelDiscovery() {
+    _scanClient?.close(force: true);
+    _scanClient = null;
+    for (final socket in _sockets) {
+      socket.close();
+    }
+    _sockets.clear();
+    final wait = _scanWait;
+    _scanWait = null;
+    if (wait != null && !wait.isCompleted) wait.complete();
+    if (scanning) {
       scanning = false;
       if (!_closed) notifyListeners();
     }
   }
 
-  Future<DlnaRenderer?> loadRenderer(Uri location) async {
+  Future<DlnaRenderer?> loadRenderer(Uri location) =>
+      _loadRenderer(location, _client);
+
+  Future<DlnaRenderer?> _loadRenderer(Uri location, HttpClient client) async {
     LogService.instance.debug('DLNA: renderer description probe started');
     if (!isLanHost(location.host)) {
       throw const FormatException('A local IP address is required');
     }
-    final request = await _client.getUrl(location);
+    final request = await client.getUrl(location);
     request.followRedirects = false;
     final response = await request.close().timeout(const Duration(seconds: 4));
     if (response.statusCode != 200) {
@@ -258,9 +301,7 @@ class DlnaCastService extends ChangeNotifier {
   void dispose() {
     LogService.instance.debug('DLNA: dispose activeSockets=${_sockets.length}');
     _closed = true;
-    for (final socket in _sockets) {
-      socket.close();
-    }
+    cancelDiscovery();
     _client.close(force: true);
     super.dispose();
   }

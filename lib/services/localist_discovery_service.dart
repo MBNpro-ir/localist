@@ -61,6 +61,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
     _scanning = true;
     _notifySoon();
     await refresh();
+    if (generation != _generation) return;
     _queryTimer = Timer.periodic(
       const Duration(seconds: 6),
       (_) => unawaited(refresh()),
@@ -72,9 +73,10 @@ class LocalistDiscoveryService extends ChangeNotifier {
   }
 
   Future<void> resume() async {
-    if (_scanning) {
-      return;
-    }
+    if (_scanning) return;
+    final generation = _generation;
+    await _starting;
+    if (generation != _generation || _scanning) return;
     await start();
   }
 
@@ -127,6 +129,7 @@ class LocalistDiscoveryService extends ChangeNotifier {
         encodeLocalistDiscoveryQuery(deviceId: deviceId),
       );
       final targets = await _queryTargets();
+      if (socket != _socket) return;
       final signature = targets.map((target) => target.address).join(',');
       if (signature != _lastTargetSignature) {
         _lastTargetSignature = signature;

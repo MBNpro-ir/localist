@@ -21,10 +21,12 @@ class RemoteDebugPage extends StatefulWidget {
     required this.service,
     required this.devices,
     this.receiving,
+    this.visible = true,
   });
   final RustDeskDebugService service;
   final RemoteDeviceService devices;
   final bool? receiving;
+  final bool visible;
   @override
   State<RemoteDebugPage> createState() => _RemoteDebugPageState();
 }
@@ -46,6 +48,14 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_initialize());
     _service.addListener(_refreshSavedPeers);
+  }
+
+  @override
+  void didUpdateWidget(covariant RemoteDebugPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible && !oldWidget.visible) {
+      unawaited(_refreshSavedPeers());
+    }
   }
 
   @override
@@ -80,7 +90,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
 
   bool _loadingPeers = false;
   Future<void> _refreshSavedPeers() async {
-    if (!mounted) return;
+    if (!mounted || !widget.visible) return;
     final config = _service.profile.server.encode();
     if (_relayConfig != config) {
       _relayConfig = config;
@@ -104,6 +114,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     );
     try {
       for (final device in _devices.devices) {
+        if (!mounted || !widget.visible) break;
         await _devices.updatePeerInfo(
           device.id,
           await _service.savedPeer(device.id),
@@ -124,7 +135,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed && widget.visible) {
       unawaited(_service.initialize());
     }
   }

@@ -422,11 +422,14 @@ class QuickSendService extends ChangeNotifier {
     return _initializing ??= _initialize();
   }
 
+  Future<void>? _profileLoading;
+  Future<void> initializeProfile() => _profileLoading ??= _loadProfile();
+
   Future<void> _initialize() async {
     _logs.debug(
       'Quick Send initialization started platform=${Platform.operatingSystem}',
     );
-    await _loadDeviceIdentity();
+    await initializeProfile();
     await _loadReceivedHistory();
     if (Platform.isAndroid) {
       _remoteFilesSubscription ??= NativeBridgeService
@@ -437,6 +440,17 @@ class QuickSendService extends ChangeNotifier {
           });
       await _importRemoteReceivedFiles();
     }
+    _security = await _loadSecurity();
+    await ensureReceiveStorageAccess(request: false);
+    await _startNetwork();
+    _logs.debug(
+      'Quick Send initialization finished receiveEnabled=${_settings?.receiveEnabled} serverRunning=$serverRunning localAddresses=${_localAddresses.length} historyEntries=${_receivedHistory.length}',
+    );
+    notifyListeners();
+  }
+
+  Future<void> _loadProfile() async {
+    await _loadDeviceIdentity();
     final legacyDefaultDestination =
         await QuickSendSettings.hasDestinationCustomizationMarker()
         ? ''
@@ -445,7 +459,6 @@ class QuickSendService extends ChangeNotifier {
       defaultAlias: _deviceAlias,
       legacyDefaultDestination: legacyDefaultDestination,
     );
-    _security = await _loadSecurity();
     if (_settings!.destinationDirectory.isEmpty ||
         !_settings!.destinationCustomized) {
       _settings = _settings!.copyWith(
@@ -455,12 +468,6 @@ class QuickSendService extends ChangeNotifier {
       await _settings!.save();
     }
     _avatarImageBase64 = await _readProfileAvatar(_settings!.profileImagePath);
-    await ensureReceiveStorageAccess(request: false);
-    await _startNetwork();
-    _logs.debug(
-      'Quick Send initialization finished receiveEnabled=${_settings?.receiveEnabled} serverRunning=$serverRunning localAddresses=${_localAddresses.length} historyEntries=${_receivedHistory.length}',
-    );
-    notifyListeners();
   }
 
   Future<void> _importRemoteReceivedFiles() =>
@@ -539,9 +546,10 @@ class QuickSendService extends ChangeNotifier {
     _logs.debug(
       'Quick Send settings saved networkChanged=$networkChanged profileChanged=$profileChanged receiveEnabled=${normalized.receiveEnabled} encryption=${normalized.encryption}',
     );
-    if (networkChanged) {
+    if (networkChanged && _initializing != null) {
+      await _initializing;
       await restart();
-    } else if (profileChanged) {
+    } else if (profileChanged && _discoveryVisible) {
       unawaited(_sendDiscoveryPacket(announce: true));
     }
   }
@@ -621,33 +629,84 @@ class QuickSendService extends ChangeNotifier {
   }
 
   Future<void>? _refreshing;
-  Future<void> refresh() => _refreshing ??= _refreshDiscovery().whenComplete(
-    () => _refreshing = null,
-  );
-  Future<void> _refreshDiscovery() async {
+  bool _discoveryVisible = false;
+  int _discoveryGeneration = 0;
+  final _discoveryClients = <HttpClient>{};
+
+  void setDiscoveryVisible(bool visible) {
+    if (_discoveryVisible == visible) return;
+    _discoveryVisible = visible;
+    _cancelDiscoveryWork();
+    _syncDiscoveryTimers();
+  }
+
+  void _cancelDiscoveryWork() {
+    _discoveryGeneration++;
+    _refreshing = null;
+    for (final client in _discoveryClients) {
+      client.close(force: true);
+    }
+    _discoveryClients.clear();
+    if (_scanning) {
+      _scanning = false;
+      notifyListeners();
+    }
+  }
+
+  void _syncDiscoveryTimers() {
+    _announceTimer?.cancel();
+    _announceTimer = null;
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
+    if (!_discoveryVisible || _discoverySockets.isEmpty) return;
+    unawaited(refresh(probeSubnets: false));
+    _announceTimer = Timer.periodic(
+      const Duration(seconds: 7),
+      (_) => unawaited(_sendDiscoveryPacket(announce: true)),
+    );
+    _pruneTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _pruneDevices(),
+    );
+  }
+
+  Future<void> refresh({bool probeSubnets = true}) {
+    if (!_discoveryVisible) return Future.value();
+    final generation = _discoveryGeneration;
+    return _refreshing ??= _refreshDiscovery(probeSubnets, generation)
+        .whenComplete(() {
+          if (generation == _discoveryGeneration) _refreshing = null;
+        });
+  }
+
+  Future<void> _refreshDiscovery(bool probeSubnets, int generation) async {
     _logs.debug(
       'Quick Send discovery refresh requested knownDevices=${_devices.length}',
     );
     await initialize();
+    if (generation != _discoveryGeneration) return;
     _scanning = true;
-    _devices.clear();
+    _pruneDevices();
     notifyListeners();
     try {
       final routes = await _networkRoutes();
+      if (generation != _discoveryGeneration) return;
       _setLocalAddresses(routes);
       _logs.info(
         'Quick Send refresh is scanning ${routes.length} LAN route(s).',
       );
       await Future.wait([
-        _sendAnnouncementBurst(routes),
-        _scanLocalSubnets(routes),
+        _sendAnnouncementBurst(routes, generation),
+        if (probeSubnets) _scanLocalSubnets(routes, generation),
       ]);
     } finally {
-      _scanning = false;
-      _logs.debug(
-        'Quick Send discovery refresh completed discovered=${_devices.length}',
-      );
-      notifyListeners();
+      if (generation == _discoveryGeneration) {
+        _scanning = false;
+        _logs.debug(
+          'Quick Send discovery refresh completed discovered=${_devices.length}',
+        );
+        notifyListeners();
+      }
     }
   }
 
@@ -768,6 +827,7 @@ class QuickSendService extends ChangeNotifier {
     required Duration timeout,
     String expectedFingerprint = '',
     bool suppressErrors = true,
+    bool scan = false,
   }) async {
     if (!suppressErrors) {
       _logs.debug(
@@ -776,6 +836,7 @@ class QuickSendService extends ChangeNotifier {
     }
     String certificateHash = '';
     final client = HttpClient()..connectionTimeout = timeout;
+    if (scan) _discoveryClients.add(client);
     client.badCertificateCallback = (certificate, _, _) {
       certificateHash = sha256.convert(certificate.der).toString();
       return true;
@@ -801,13 +862,13 @@ class QuickSendService extends ChangeNotifier {
         certificateHash = sha256.convert(certificate.der).toString();
       }
       if (response.statusCode != HttpStatus.ok) {
-        await response.drain<void>();
+        await response.drain<void>().timeout(timeout);
         throw HttpException(
           'Quick Send registration failed (${response.statusCode})',
           uri: uri,
         );
       }
-      final map = await _readResponseMap(response);
+      final map = await _readResponseMap(response).timeout(timeout);
       var device = QuickSendDevice.fromWire(
         map,
         ip: host,
@@ -855,6 +916,7 @@ class QuickSendService extends ChangeNotifier {
       }
       return null;
     } finally {
+      if (scan) _discoveryClients.remove(client);
       client.close(force: true);
     }
   }
@@ -1299,15 +1361,7 @@ class QuickSendService extends ChangeNotifier {
           : '$_lastError; UDP ${current.port}: $error';
       _logs.warning('Quick Send discovery failed.');
     }
-    _announceTimer = Timer.periodic(
-      const Duration(seconds: 7),
-      (_) => unawaited(_sendDiscoveryPacket(announce: true)),
-    );
-    _pruneTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _pruneDevices(),
-    );
-    unawaited(_sendDiscoveryPacket(announce: true));
+    _syncDiscoveryTimers();
     _logs.debug(
       'Quick Send network started UDP sockets=${_discoverySockets.length} serverRunning=$serverRunning',
     );
@@ -1317,7 +1371,7 @@ class QuickSendService extends ChangeNotifier {
     _logs.debug(
       'Quick Send network stopping UDP sockets=${_discoverySockets.length} serverRunning=$serverRunning',
     );
-    await NativeBridgeService.instance.setQuickSendBackgroundService(false);
+    _cancelDiscoveryWork();
     _announceTimer?.cancel();
     _announceTimer = null;
     _pruneTimer?.cancel();
@@ -1326,6 +1380,7 @@ class QuickSendService extends ChangeNotifier {
       socket.close();
     }
     _discoverySockets.clear();
+    await NativeBridgeService.instance.setQuickSendBackgroundService(false);
     await NativeBridgeService.instance.setQuickSendMulticastLock(false);
     _endReceiveSession('Quick Send stopped before the batch completed.');
     await _server?.close(force: true);
@@ -1413,11 +1468,13 @@ class QuickSendService extends ChangeNotifier {
 
   Future<void> _sendAnnouncementBurst(
     List<_QuickSendNetworkRoute> routes,
+    int generation,
   ) async {
     for (final delay in const [0, 350, 1100]) {
       if (delay > 0) {
         await Future<void>.delayed(Duration(milliseconds: delay));
       }
+      if (generation != _discoveryGeneration) return;
       await _sendDiscoveryPacket(announce: true, routes: routes);
     }
   }
@@ -1434,6 +1491,7 @@ class QuickSendService extends ChangeNotifier {
       return;
     }
     final activeRoutes = routes ?? await _networkRoutes();
+    if (announce && !_discoveryVisible) return;
     _logs.debug(
       'Quick Send discovery packet preparing announce=$announce direct=${directAddress != null} routes=${activeRoutes.length}',
     );
@@ -1493,7 +1551,10 @@ class QuickSendService extends ChangeNotifier {
     }
   }
 
-  Future<void> _scanLocalSubnets(List<_QuickSendNetworkRoute> routes) async {
+  Future<void> _scanLocalSubnets(
+    List<_QuickSendNetworkRoute> routes,
+    int generation,
+  ) async {
     final current = _settings;
     if (current == null || routes.isEmpty) {
       return;
@@ -1505,25 +1566,28 @@ class QuickSendService extends ChangeNotifier {
       'Quick Send active discovery is querying ${targets.length} LAN targets.',
     );
     var cursor = 0;
-    final workerCount = min(48, targets.length);
+    final workerCount = min(16, targets.length);
     _logs.debug(
       'Quick Send active subnet probing started targets=${targets.length} workers=$workerCount',
     );
     var discovered = 0;
     await Future.wait(
       List.generate(workerCount, (_) async {
-        while (cursor < targets.length) {
+        while (cursor < targets.length && generation == _discoveryGeneration) {
           final target = targets[cursor++];
           if (_devices.values.any((device) => device.ip == target)) {
             continue;
           }
           for (final https in [current.encryption, !current.encryption]) {
+            if (generation != _discoveryGeneration) return;
             final device = await _discoverTarget(
               host: target,
               port: current.port,
               https: https,
               timeout: const Duration(milliseconds: 850),
+              scan: true,
             );
+            if (generation != _discoveryGeneration) return;
             if (device != null) {
               _devices[device.id] = device;
               discovered++;

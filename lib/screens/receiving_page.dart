@@ -1,12 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'proxy_qr_scanner.dart';
-import '../services/feature_permission_service.dart';
+import 'localist_qr_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:webview_windows/webview_windows.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/app_settings.dart';
@@ -469,105 +466,17 @@ class _ReceivingPageState extends State<ReceivingPage> {
   }
 
   Future<void> _startScanner() async {
-    _logs.debug('QR scanner button pressed locked=${widget.controlsLocked}');
-    if (widget.controlsLocked) {
-      return;
-    }
-    if (Platform.isWindows) {
-      await _startWindowsScanner();
-      return;
-    }
-    if (!await FeaturePermissionService.instance.ensure([
-      FeatureAccess.camera,
-    ])) {
-      return;
-    }
-    if (!mounted) {
-      return;
-    }
-    final value = await showDialog<String>(
-      context: context,
-      builder: (_) => const ProxyQrScanner(),
+    if (widget.controlsLocked) return;
+    final value = await scanLocalistQr(
+      context,
+      title: context.l10n.scanProxyQr,
+      accepts: (value) =>
+          SmartProxyPayload.tryParse(value) != null ||
+          RemoteProxyConfig.tryParse(value) != null,
     );
     if (!mounted || value == null) return;
     setState(() => _configController.text = value);
     await _handleConfigValue(value);
-  }
-
-  Future<void> _startWindowsScanner() async {
-    _logs.debug('Windows QR scanner flow started');
-    final String? device;
-    try {
-      device = await _chooseWindowsCameraDevice();
-    } catch (error) {
-      _logs.error('Unable to start Windows QR scanner (${error.runtimeType})');
-      if (mounted) {
-        showLocalistNotice(
-          context,
-          message: context.l10n.scannerCouldNotStart,
-          tone: InAppNoticeTone.warning,
-        );
-      }
-      return;
-    }
-    if (device == null || !mounted) {
-      _logs.debug('Windows QR scanner cancelled before launch');
-      return;
-    }
-    final deviceName = device;
-    final result = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (context) => _WindowsQrScannerPage(deviceName: deviceName),
-      ),
-    );
-    final value = result?.trim();
-    if (value == null || value.isEmpty || value == '-1' || !mounted) {
-      _logs.debug('Windows QR scanner returned no usable value');
-      return;
-    }
-    _logs.debug('Windows QR scanner returned config length=${value.length}');
-    setState(() => _configController.text = value);
-    await _handleConfigValue(value);
-  }
-
-  Future<String?> _chooseWindowsCameraDevice() async {
-    final devices = await _bridge.getWindowsCameraDevices();
-    _logs.debug('Windows camera devices loaded count=${devices.length}');
-    if (!mounted) {
-      return null;
-    }
-    if (devices.isEmpty) {
-      return showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(context.l10n.scannerDevice),
-          content: Text(context.l10n.useDefaultWindowsCamera),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(context.l10n.cancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop('default'),
-              child: Text(context.l10n.defaultCamera),
-            ),
-          ],
-        ),
-      );
-    }
-    return showDialog<String>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(context.l10n.scannerDevice),
-        children: [
-          for (final device in devices)
-            SimpleDialogOption(
-              onPressed: () => Navigator.of(context).pop(device),
-              child: Text(device),
-            ),
-        ],
-      ),
-    );
   }
 
   Future<void> _handleConfigValue(String value) async {
@@ -1028,171 +937,6 @@ class _NearbyDeviceTile extends StatelessWidget {
         .toSet()
         .join(' / ');
     return l10n.endpointSummary(protocols, hosts.length);
-  }
-}
-
-class _WindowsQrScannerPage extends StatefulWidget {
-  const _WindowsQrScannerPage({required this.deviceName});
-
-  final String deviceName;
-
-  @override
-  State<_WindowsQrScannerPage> createState() => _WindowsQrScannerPageState();
-}
-
-class _WindowsQrScannerPageState extends State<_WindowsQrScannerPage> {
-  late final WebviewController _controller;
-  late final Future<void> _initialized;
-  bool _completed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = WebviewController();
-    _initialized = _initWebview();
-  }
-
-  @override
-  void dispose() {
-    _postClose();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _initWebview() async {
-    await _controller.initialize();
-    _controller.webMessage.listen(_handleWebMessage);
-    await _controller.loadUrl(_scannerAssetUrl());
-  }
-
-  void _handleWebMessage(dynamic event) {
-    if (_completed || !mounted || event is! Map) {
-      return;
-    }
-    if (event['methodName'] != 'successCallback') {
-      return;
-    }
-    final data = event['data'];
-    if (data is! String || data.trim().isEmpty) {
-      return;
-    }
-    _completed = true;
-    Navigator.of(context).pop(data.trim());
-  }
-
-  String _scannerAssetUrl() {
-    final assetsDirectory =
-        '${File(Platform.resolvedExecutable).parent.path}\\data\\flutter_assets\\packages\\simple_barcode_scanner\\assets\\barcode.html';
-    return Uri.file(assetsDirectory).toString();
-  }
-
-  Future<WebviewPermissionDecision> _handlePermissionRequest(
-    String url,
-    WebviewPermissionKind kind,
-    bool isUserInitiated,
-  ) async {
-    if (kind == WebviewPermissionKind.camera) {
-      return WebviewPermissionDecision.allow;
-    }
-    return WebviewPermissionDecision.none;
-  }
-
-  void _closeScanner() {
-    _completed = true;
-    _postClose();
-    Navigator.of(context).pop();
-  }
-
-  void _postClose() {
-    try {
-      _controller.postWebMessage(json.encode({'event': 'close'}));
-    } catch (_) {
-      // The webview may not have finished initializing yet.
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      backgroundColor: scheme.surface,
-      appBar: AppBar(
-        title: Text(context.l10n.localistQr),
-        centerTitle: true,
-        leading: IconButton(
-          tooltip: context.l10n.closeScanner,
-          onPressed: _closeScanner,
-          icon: const Icon(Icons.close),
-        ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 10, 10, 16),
-          child: Column(
-            children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: scheme.outlineVariant.withValues(alpha: .55),
-                  ),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    height: 318,
-                    width: double.infinity,
-                    child: FutureBuilder<void>(
-                      future: _initialized,
-                      builder: (context, snapshot) {
-                        if (snapshot.hasError) {
-                          return Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Text(
-                                context.l10n.scannerCouldNotStart,
-                                style: TextStyle(color: scheme.error),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          );
-                        }
-                        if (snapshot.connectionState != ConnectionState.done) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
-                        return Webview(
-                          _controller,
-                          permissionRequested: _handlePermissionRequest,
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.videocam_outlined),
-                title: Text(context.l10n.scannerDevice),
-                subtitle: Text(widget.deviceName),
-              ),
-              const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.tonalIcon(
-                  onPressed: _closeScanner,
-                  icon: const Icon(Icons.close),
-                  label: Text(context.l10n.closeScanner),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 

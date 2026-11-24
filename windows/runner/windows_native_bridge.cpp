@@ -1,3 +1,6 @@
+#include <winsock2.h>
+#include <iphlpapi.h>
+
 #include "windows_native_bridge.h"
 #include "remote_host_process.h"
 #include "elevated_startup.h"
@@ -72,6 +75,51 @@ std::string WideToUtf8(const std::wstring& value) {
                       static_cast<int>(value.size()), result.data(), size,
                       nullptr, nullptr);
   return result;
+}
+
+EncodableList GetLanInterfaces() {
+  EncodableList records;
+  constexpr ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+                          GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_SKIP_FRIENDLY_NAME;
+  ULONG size = 15 * 1024;
+  std::vector<unsigned char> buffer(size);
+  auto adapters = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buffer.data());
+  ULONG status = GetAdaptersAddresses(AF_INET, flags, nullptr, adapters, &size);
+  if (status == ERROR_BUFFER_OVERFLOW) {
+    buffer.resize(size);
+    adapters = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buffer.data());
+    status = GetAdaptersAddresses(AF_INET, flags, nullptr, adapters, &size);
+  }
+  if (status != NO_ERROR) {
+    return records;
+  }
+  for (auto adapter = adapters; adapter; adapter = adapter->Next) {
+    if (adapter->OperStatus != IfOperStatusUp ||
+        adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK ||
+        adapter->IfType == IF_TYPE_TUNNEL ||
+        adapter->IfType == IF_TYPE_PPP) {
+      continue;
+    }
+    const auto name = WideToUtf8(adapter->Description ? adapter->Description : L"");
+    for (auto unicast = adapter->FirstUnicastAddress; unicast;
+         unicast = unicast->Next) {
+      const auto socket_address = unicast->Address.lpSockaddr;
+      if (!socket_address || socket_address->sa_family != AF_INET) continue;
+      const auto& bytes =
+          reinterpret_cast<const sockaddr_in*>(socket_address)->sin_addr.S_un.S_un_b;
+      const std::string host = std::to_string(bytes.s_b1) + "." +
+                               std::to_string(bytes.s_b2) + "." +
+                               std::to_string(bytes.s_b3) + "." +
+                               std::to_string(bytes.s_b4);
+      records.emplace_back(EncodableMap{
+          {EncodableValue("address"), EncodableValue(host)},
+          {EncodableValue("prefixLength"),
+           EncodableValue(static_cast<int>(unicast->OnLinkPrefixLength))},
+          {EncodableValue("name"), EncodableValue(name)},
+      });
+    }
+  }
+  return records;
 }
 
 const EncodableMap* GetArgumentsMap(const EncodableValue* arguments) {
@@ -1028,6 +1076,11 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
 
   if (method == "getDeviceDetails") {
     result->Success(GetWindowsDeviceDetails());
+    return;
+  }
+
+  if (method == "getLanInterfaces") {
+    result->Success(EncodableValue(GetLanInterfaces()));
     return;
   }
 

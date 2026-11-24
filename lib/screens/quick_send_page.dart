@@ -78,7 +78,6 @@ class QuickSendPageState extends State<QuickSendPage> {
       await _service.ensureReceiveStorageAccess();
     }
     await _loadExternallySharedFiles();
-    await _service.refresh();
     LogService.instance.debug(
       'Quick Send page: initialization complete devices=${_service.devices.length}',
     );

@@ -7,11 +7,13 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../services/media_stream_service.dart';
+import '../services/stream_discovery_service.dart';
 import '../services/dlna_cast_service.dart';
 import '../services/native_bridge_service.dart';
 import '../services/log_service.dart';
 import '../widgets/glass.dart';
 import '../widgets/feature_page_layout.dart';
+import 'localist_qr_scanner.dart';
 
 class StreamPage extends StatefulWidget {
   const StreamPage({super.key, required this.service, this.receiving = false});
@@ -28,6 +30,8 @@ class _StreamPageState extends State<StreamPage> {
   String _notice = '';
   final _receiveAddress = TextEditingController();
   bool _addressError = false;
+  bool _scanningQr = false;
+  String? _qrAddress;
   MediaStreamService get service => widget.service;
   String _t(String fa, String en) =>
       Localizations.localeOf(context).languageCode == 'fa' ? fa : en;
@@ -106,14 +110,6 @@ class _StreamPageState extends State<StreamPage> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      t(
-                        'پورت وب باز است: ${service.port}',
-                        'Web port is open: ${service.port}',
-                      ),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 12),
                     Row(
                       children: [
                         const Icon(Icons.language, size: 22),
@@ -144,15 +140,35 @@ class _StreamPageState extends State<StreamPage> {
                         ),
                       ),
                     if (service.playerUrls.isNotEmpty)
-                      QrImageView(
-                        data: service.playerUrls.first,
-                        size: 190,
-                        backgroundColor: Colors.white,
+                      Center(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: QrImageView(
+                            data: service.playerUrls.contains(_qrAddress)
+                                ? _qrAddress!
+                                : service.playerUrls.first,
+                            size: 174,
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.all(12),
+                          ),
+                        ),
                       ),
                     for (final url in service.playerUrls)
                       Row(
                         children: [
                           Expanded(child: SelectableText(url)),
+                          if (service.playerUrls.length > 1)
+                            IconButton(
+                              tooltip: t(
+                                'نمایش کد QR این آدرس',
+                                'Show QR for this address',
+                              ),
+                              isSelected:
+                                  url ==
+                                  (_qrAddress ?? service.playerUrls.first),
+                              onPressed: () => setState(() => _qrAddress = url),
+                              icon: const Icon(Icons.qr_code_outlined),
+                            ),
                           IconButton(
                             tooltip: t('کپی لینک', 'Copy link'),
                             onPressed: () =>
@@ -325,6 +341,57 @@ class _StreamPageState extends State<StreamPage> {
     useColumns: false,
     children: [
       GlassPanel(
+        child: ListenableBuilder(
+          listenable: service.discovery,
+          builder: (context, _) {
+            final discovery = service.discovery;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _t('استریم‌های نزدیک', 'Nearby streams'),
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: _t('جست‌وجوی دوباره', 'Search again'),
+                      onPressed: discovery.scanning
+                          ? null
+                          : () => unawaited(discovery.refresh()),
+                      icon: const Icon(Icons.refresh_rounded),
+                    ),
+                  ],
+                ),
+                if (discovery.scanning)
+                  const LinearProgressIndicator()
+                else if (discovery.addresses.isEmpty)
+                  Text(
+                    _t(
+                      'استریمی پیدا نشد. دستگاه فرستنده باید به همین شبکه وصل باشد.',
+                      'No streams found. Connect the sharing device to this network.',
+                    ),
+                  ),
+                for (final uri in discovery.addresses)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.video_library_outlined),
+                    title: Text(
+                      '${uri.host}:${uri.port}',
+                      textDirection: TextDirection.ltr,
+                      textAlign: TextAlign.start,
+                    ),
+                    trailing: const Icon(Icons.open_in_browser),
+                    onTap: () => unawaited(_openReceivedStream(uri.toString())),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+      GlassPanel(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -335,8 +402,8 @@ class _StreamPageState extends State<StreamPage> {
             const SizedBox(height: 8),
             Text(
               _t(
-                'آدرس استریم را از دستگاه فرستنده وارد کنید یا QR آن را با دوربین گوشی اسکن کنید.',
-                'Enter the stream address from the sending device, or scan its QR code with your phone camera.',
+                'کد QR پخش‌کننده را اسکن کنید یا آدرس آن را وارد کنید.',
+                'Scan the player QR code or enter its address.',
               ),
             ),
             const SizedBox(height: 12),
@@ -359,10 +426,21 @@ class _StreamPageState extends State<StreamPage> {
               onSubmitted: (_) => unawaited(_openReceivedStream()),
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () => unawaited(_openReceivedStream()),
-              icon: const Icon(Icons.open_in_browser),
-              label: Text(_t('باز کردن در مرورگر', 'Open in browser')),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: _scanningQr ? null : () => unawaited(_scanQr()),
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  label: Text(_t('اسکن کد QR', 'Scan QR code')),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => unawaited(_openReceivedStream()),
+                  icon: const Icon(Icons.open_in_browser),
+                  label: Text(_t('باز کردن در مرورگر', 'Open in browser')),
+                ),
+              ],
             ),
           ],
         ),
@@ -370,16 +448,26 @@ class _StreamPageState extends State<StreamPage> {
     ],
   );
 
-  Future<void> _openReceivedStream() async {
-    final input = _receiveAddress.text.trim();
-    final uri = Uri.tryParse(input.contains('://') ? input : 'http://$input');
-    final valid =
-        uri != null &&
-        const {'http', 'https'}.contains(uri.scheme) &&
-        uri.host.isNotEmpty &&
-        uri.userInfo.isEmpty;
+  Future<void> _scanQr() async {
+    setState(() => _scanningQr = true);
+    try {
+      final value = await scanLocalistQr(
+        context,
+        title: _t('اسکن کد QR استریم', 'Scan stream QR'),
+        accepts: (value) => parseStreamAddress(value, fromQr: true) != null,
+      );
+      if (mounted && value != null) await _openReceivedStream(value);
+    } finally {
+      if (mounted) setState(() => _scanningQr = false);
+    }
+  }
+
+  Future<void> _openReceivedStream([String? address]) async {
+    if (address != null) _receiveAddress.text = address;
+    final uri = parseStreamAddress(_receiveAddress.text);
     final opened =
-        valid && await NativeBridgeService.instance.openUri(uri.toString());
+        uri != null &&
+        await NativeBridgeService.instance.openUri(uri.toString());
     if (mounted) setState(() => _addressError = !opened);
   }
 

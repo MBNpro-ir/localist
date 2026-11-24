@@ -190,6 +190,7 @@ class RemoteDeviceService extends ChangeNotifier {
     this.queryPresence,
     DateTime Function()? now,
     RemoteCredentialStore? credentials,
+    this._discoveryVisible = true,
   }) : _presence = RemotePeerPresenceStore(now: now),
        credentials = credentials ?? RemoteCredentialStore();
   final RemoteCredentialStore credentials;
@@ -206,6 +207,9 @@ class RemoteDeviceService extends ChangeNotifier {
   String _presenceServer = '';
   bool _presenceReady = false;
   int _presenceGeneration = 0;
+  bool _discoveryVisible;
+  int _scanGeneration = 0;
+  Completer<void>? _scanWait;
   RemotePeerPresence presenceOf(RemoteDevice device) =>
       device.onLan ? RemotePeerPresence.online : _presence.get(device.id);
 
@@ -228,7 +232,10 @@ class RemoteDeviceService extends ChangeNotifier {
       _polling ??= _refreshPresence().whenComplete(() => _polling = null);
 
   Future<void> _refreshPresence() async {
-    if (_disposed || !_presenceReady || queryPresence == null) {
+    if (_disposed ||
+        !_discoveryVisible ||
+        !_presenceReady ||
+        queryPresence == null) {
       _logs.debug(
         'Remote presence refresh skipped disposed=$_disposed ready=$_presenceReady queryConfigured=${queryPresence != null}',
       );
@@ -352,6 +359,29 @@ class RemoteDeviceService extends ChangeNotifier {
         /* Retain valid records when one old record is malformed. */
       }
     }
+    _syncDiscoveryTimers();
+    _logs.debug(
+      'Remote device registry initialized storedDevices=${_devices.length} presenceTimer=${_presenceTimer != null}',
+    );
+    _notify();
+  }
+
+  void setDiscoveryVisible(bool value) {
+    if (_discoveryVisible == value) return;
+    _discoveryVisible = value;
+    if (!value) {
+      _presenceGeneration++;
+      _cancelScan();
+    }
+    _syncDiscoveryTimers();
+  }
+
+  void _syncDiscoveryTimers() {
+    _expiry?.cancel();
+    _expiry = null;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    if (_disposed || !_discoveryVisible) return;
     _expiry = Timer.periodic(const Duration(seconds: 10), (_) => _notify());
     if (queryPresence != null) {
       _presenceTimer = Timer.periodic(const Duration(seconds: 4), (_) {
@@ -359,10 +389,6 @@ class RemoteDeviceService extends ChangeNotifier {
       });
       unawaited(refreshPresence());
     }
-    _logs.debug(
-      'Remote device registry initialized storedDevices=${_devices.length} presenceTimer=${_presenceTimer != null}',
-    );
-    _notify();
   }
 
   void _notify() {
@@ -498,13 +524,14 @@ class RemoteDeviceService extends ChangeNotifier {
   }
 
   Future<void> scan({String localId = ''}) async {
-    if (scanning || _disposed) {
+    if (scanning || _disposed || !_discoveryVisible) {
       _logs.debug(
         'Remote LAN scan skipped scanning=$scanning disposed=$_disposed',
       );
       return;
     }
     _logs.debug('Remote LAN scan starting');
+    final generation = ++_scanGeneration;
     setLocalIdentity(localId);
     scanning = true;
     // Remove stale advertisements for our own ID from earlier scans.
@@ -513,14 +540,15 @@ class RemoteDeviceService extends ChangeNotifier {
     _notify();
     try {
       final routes = await LanNetworkService.instance.routes();
+      if (generation != _scanGeneration) return;
       _logs.debug('Remote LAN scan routes=${routes.length}');
       setLocalIdentity(localId, addresses: routes.map((r) => r.address));
       for (final route in routes) {
         final address = InternetAddress(route.address);
-        if (_disposed) break;
+        if (generation != _scanGeneration) break;
         try {
           final socket = await RawDatagramSocket.bind(address, 0);
-          if (_disposed) {
+          if (generation != _scanGeneration) {
             socket.close();
             break;
           }
@@ -531,7 +559,10 @@ class RemoteDeviceService extends ChangeNotifier {
           socket.broadcastEnabled = true;
           socket.listen(
             (event) {
-              if (_disposed || event != RawSocketEvent.read) return;
+              if (generation != _scanGeneration ||
+                  event != RawSocketEvent.read) {
+                return;
+              }
               Datagram? packet;
               while ((packet = socket.receive()) != null) {
                 final device = RemoteDiscoveryProtocol.decode(
@@ -595,22 +626,38 @@ class RemoteDeviceService extends ChangeNotifier {
           /* Other adapters may still support discovery. */
         }
       }
-      if (_sockets.isEmpty && !_disposed) {
+      if (generation != _scanGeneration) return;
+      if (_sockets.isEmpty) {
         _logs.debug('Remote LAN scan found no usable adapter');
         error = 'No LAN adapter is available for discovery.';
       }
-      await Future<void>.delayed(const Duration(seconds: 2));
-      if (!_disposed) await _save();
+      final wait = _scanWait = Completer<void>();
+      await wait.future.timeout(const Duration(seconds: 2), onTimeout: () {});
+      if (generation == _scanGeneration) await _save();
     } catch (exception) {
       _logs.debug('Remote LAN scan failed type=${exception.runtimeType}');
-      error = 'LAN discovery could not finish.';
-    } finally {
-      for (final socket in _sockets) {
-        socket.close();
+      if (generation == _scanGeneration) {
+        error = 'LAN discovery could not finish.';
       }
-      _sockets.clear();
+    } finally {
+      if (generation == _scanGeneration) {
+        _cancelScan();
+        _logs.debug('Remote LAN scan stopped storedDevices=${_devices.length}');
+      }
+    }
+  }
+
+  void _cancelScan() {
+    _scanGeneration++;
+    for (final socket in _sockets) {
+      socket.close();
+    }
+    _sockets.clear();
+    final wait = _scanWait;
+    _scanWait = null;
+    if (wait != null && !wait.isCompleted) wait.complete();
+    if (scanning) {
       scanning = false;
-      _logs.debug('Remote LAN scan stopped storedDevices=${_devices.length}');
       _notify();
     }
   }
@@ -622,10 +669,7 @@ class RemoteDeviceService extends ChangeNotifier {
     _expiry?.cancel();
     _presenceTimer?.cancel();
     _presenceGeneration++;
-    for (final socket in _sockets) {
-      socket.close();
-    }
-    _sockets.clear();
+    _cancelScan();
     super.dispose();
   }
 }

@@ -367,7 +367,7 @@ class _QuickSendProfileGateState extends State<QuickSendProfileGate> {
   }
 
   Future<void> _load() async {
-    await _service.initialize();
+    await _service.initializeProfile();
     final settings = _service.settings;
     if (!mounted || settings == null) {
       return;

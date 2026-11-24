@@ -16,6 +16,8 @@ import 'package:flutter_hbb/common.dart' as remote;
 /// Remote-control bridge. The upstream engine keeps ownership of its session
 /// process and IPC; Localist provides discovery, settings and controls.
 class RustDeskDebugService extends ChangeNotifier {
+  RustDeskDebugService({this._viewVisible = true});
+
   final LogService _logs = LogService.instance;
   String enginePath = '';
   String localId = '';
@@ -40,6 +42,9 @@ class RustDeskDebugService extends ChangeNotifier {
   bool hardwareCodecSupported = false;
   bool installedService = false;
   Timer? _refreshTimer;
+  bool _viewVisible;
+  bool _initialized = false;
+  Future<void>? _initializing;
   RemoteControlProfile profile = RemoteControlProfile();
   String applyStatus = '';
   bool get engineAvailable =>
@@ -89,6 +94,7 @@ class RustDeskDebugService extends ChangeNotifier {
       key.startsWith('enable-') ? options[key] != 'N' : options[key] == 'Y';
   void _notify() {
     if (!_disposed) {
+      _syncRefreshTimer();
       FeatureActivityService.instance.setActive(
         this,
         LocalistFeature.remoteControl,
@@ -116,7 +122,31 @@ class RustDeskDebugService extends ChangeNotifier {
     super.dispose();
   }
 
-  Future<void> initialize() async {
+  void setViewVisible(bool value) {
+    if (_viewVisible == value) return;
+    _viewVisible = value;
+    _syncRefreshTimer();
+    if (value && _initialized) unawaited(refresh());
+  }
+
+  void _syncRefreshTimer() {
+    if (!_disposed &&
+        _initialized &&
+        (_viewVisible || sessionActive || (Platform.isAndroid && hosting))) {
+      _refreshTimer ??= Timer.periodic(
+        const Duration(seconds: 3),
+        (_) => unawaited(refresh()),
+      );
+    } else {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+    }
+  }
+
+  Future<void> initialize() =>
+      _initializing ??= _initialize().whenComplete(() => _initializing = null);
+
+  Future<void> _initialize() async {
     _logs.debug(
       'Remote control initialization started platform=${Platform.operatingSystem}',
     );
@@ -143,9 +173,8 @@ class RustDeskDebugService extends ChangeNotifier {
       await saveProfileValue('verification-method', 'use-temporary-password');
       await refresh();
     }
-    _refreshTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
-      unawaited(refresh());
-    });
+    _initialized = true;
+    _syncRefreshTimer();
     _logs.debug(
       'Remote control initialization finished ready=$ready online=$online engineAvailable=$engineAvailable',
     );

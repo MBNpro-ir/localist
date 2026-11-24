@@ -11,6 +11,7 @@ import 'apple_web_transfer_service.dart';
 import 'media_stream_gallery.dart';
 import 'media_stream_player.dart';
 import 'log_service.dart';
+import 'stream_discovery_service.dart';
 export 'media_stream_player.dart' show buildMediaPlayerHtml;
 
 class StreamMediaItem {
@@ -33,6 +34,8 @@ class MediaStreamService extends ChangeNotifier {
   static final instance = MediaStreamService._();
 
   HttpServer? _server;
+  RawDatagramSocket? _discoveryResponder;
+  final discovery = StreamDiscoveryService();
   List<StreamMediaItem> _items = const [];
   int _selectedIndex = 0;
   String _token = '';
@@ -142,6 +145,14 @@ class MediaStreamService extends ChangeNotifier {
         onError: (_) {},
       );
       _addresses = await _privateAddresses();
+      try {
+        _discoveryResponder = await StreamDiscoveryService.serve(port);
+        discovery.ownPlayerPort = port;
+      } on SocketException catch (error) {
+        LogService.instance.debug(
+          'Media stream: discovery listener unavailable code=${error.osError?.errorCode}',
+        );
+      }
       LogService.instance.debug(
         'Media stream: HTTP listener active items=${_items.length} interfaces=${_addresses.length}',
       );
@@ -161,6 +172,9 @@ class MediaStreamService extends ChangeNotifier {
         'Media stream: stopping listener items=${_items.length}',
       );
     }
+    _discoveryResponder?.close();
+    _discoveryResponder = null;
+    discovery.ownPlayerPort = null;
     await _server?.close(force: true);
     _server = null;
     _items = const [];

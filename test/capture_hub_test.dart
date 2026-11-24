@@ -588,6 +588,10 @@ void main() {
       expect(found.host, '127.0.0.1');
       expect(found.name, 'Phone 1');
       expect(found.priority, 0);
+      discovery.setModes(search: false, publish: false, keepListening: true);
+      expect(discovery.running, isTrue);
+      discovery.setModes(search: false, publish: false, keepListening: false);
+      expect(discovery.running, isFalse);
     } finally {
       sender.close();
       await discovery.stop();

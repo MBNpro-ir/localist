@@ -51,6 +51,7 @@ import 'services/proxy_endpoint_resolver.dart';
 import 'services/quick_send_service.dart';
 import 'services/quick_send_settings_exit_guard.dart';
 import 'widgets/glass.dart';
+import 'widgets/localist_landing.dart';
 import 'widgets/quick_send_profile.dart';
 
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
@@ -403,12 +404,18 @@ class _LocalistShellState extends State<LocalistShell>
       AppleWebTransferService.instance;
   final _updates = AutomaticUpdateController.instance;
   final _activities = FeatureActivityService.instance;
-  final _remoteService = RustDeskDebugService();
+  final _remoteService = RustDeskDebugService(viewVisible: false);
   final _remoteDevices = RemoteDeviceService(
     queryPresence: LocalistRemoteRuntime.peerPresence,
+    discoveryVisible: false,
   );
   Timer? _remoteDiscoveryTimer;
   Timer? _castDiscoveryTimer;
+  LocalistFeature? _discoveryFeature;
+  bool _discoveryReceiving = false;
+  bool _lanDiscoveryLocked = false;
+  bool _vpnDiscoveryRequested = false;
+  int _settingsRoutes = 0;
   Future<void>? _refreshingState;
   final LogService _logs = LogService.instance;
   final GlobalKey<QuickSendPageState> _quickSendPageKey =
@@ -444,7 +451,6 @@ class _LocalistShellState extends State<LocalistShell>
   String? _announcedQuickSendRequestId;
   String? _announcedAutoAcceptedRequestId;
   String? _activeQuickSendDialogRequestId;
-  final Map<String, QuickSendTransferState> _knownTransferStates = {};
   bool _transferSoundsPrimed = false;
   int _knownReceiveBatchCompletions = 0;
 
@@ -463,8 +469,6 @@ class _LocalistShellState extends State<LocalistShell>
     _quickSend.addListener(_handleQuickSendChanged);
     _activities.addListener(_handleActivityChanged);
     _updates.addListener(_handleUpdateChanged);
-    unawaited(_bridge.setLanDiscoveryLock(true));
-    unawaited(_initializeFeatureDiscovery());
     _sharedQuickSendFilesSubscription = _bridge.sharedQuickSendFiles.listen(
       _handleQuickSendSharedFiles,
     );
@@ -475,15 +479,7 @@ class _LocalistShellState extends State<LocalistShell>
     );
     unawaited(_bridge.initializeNotifications());
     unawaited(_quickSend.initialize());
-    unawaited(CaptureHubService.instance.start());
-    _refreshState();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (_appLifecycleState == AppLifecycleState.resumed ||
-          _sharingActive ||
-          _receivingActive) {
-        unawaited(_refreshState(quiet: true));
-      }
-    });
+    unawaited(_refreshState());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForStartupUpdate();
       if (Platform.isWindows || Platform.isAndroid) {
@@ -514,7 +510,9 @@ class _LocalistShellState extends State<LocalistShell>
     _updates.removeListener(_handleUpdateChanged);
     _remoteDiscoveryTimer?.cancel();
     _castDiscoveryTimer?.cancel();
-    unawaited(_bridge.setLanDiscoveryLock(false));
+    MediaStreamService.instance.discovery.setActive(false);
+    _quickSend.setDiscoveryVisible(false);
+    if (_lanDiscoveryLocked) unawaited(_bridge.setLanDiscoveryLock(false));
     _remoteService.dispose();
     _remoteDevices.dispose();
     DlnaCastService.instance.dispose();
@@ -567,6 +565,7 @@ class _LocalistShellState extends State<LocalistShell>
   @override
   void onWindowFocus() {
     _windowFocused = true;
+    unawaited(_syncDiscoveryLifecycle());
     final pending = _quickSend.pendingRequest;
     if (pending != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -580,6 +579,7 @@ class _LocalistShellState extends State<LocalistShell>
   @override
   void onWindowBlur() {
     _windowFocused = false;
+    unawaited(_syncDiscoveryLifecycle());
   }
 
   @override
@@ -812,6 +812,8 @@ class _LocalistShellState extends State<LocalistShell>
     try {
       await windowManager.setPreventClose(true);
       await windowManager.hide();
+      _windowFocused = false;
+      unawaited(_syncDiscoveryLifecycle());
       _logs.info('Localist moved to the taskbar tray');
     } catch (error) {
       _logs.warning('Unable to move Localist to the taskbar tray: $error');
@@ -971,28 +973,81 @@ class _LocalistShellState extends State<LocalistShell>
     setState(() => _connectedPeers = _peerService.peers);
   }
 
-  bool get _shouldRunDiscovery {
-    return _appLifecycleState == AppLifecycleState.resumed ||
+  bool get _featuresVisible =>
+      _appLifecycleState == AppLifecycleState.resumed &&
+      (!Platform.isWindows || _windowFocused) &&
+      _settingsRoutes == 0;
+
+  void _syncStatePolling() {
+    final poll =
         _sharingActive ||
-        _receivingActive;
+        _receivingActive ||
+        _busy ||
+        (_featuresVisible &&
+            (_feature == LocalistFeature.vpnSharing ||
+                _feature == LocalistFeature.quickSend));
+    if (!poll) {
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+    } else if (_refreshTimer == null) {
+      _refreshTimer = Timer.periodic(
+        const Duration(seconds: 3),
+        (_) => unawaited(_refreshState(quiet: true)),
+      );
+      unawaited(_refreshState(quiet: true));
+    }
   }
 
   Future<void> _syncDiscoveryLifecycle() async {
-    final l10n = context.l10n;
-    try {
+    if (!mounted) return;
+    _syncStatePolling();
+    final feature = _featuresVisible ? _feature : null;
+    if (feature != _discoveryFeature || _receiving != _discoveryReceiving) {
+      _discoveryFeature = feature;
+      _discoveryReceiving = _receiving;
       _logs.debug(
-        'Discovery lifecycle sync shouldRun=$_shouldRunDiscovery busy=$_busy sharing=$_sharingActive receiving=$_receivingActive',
+        'Feature discovery visible=${feature?.name} receiving=$_receiving',
       );
-      if (_shouldRunDiscovery) {
+      _quickSend.setDiscoveryVisible(feature == LocalistFeature.quickSend);
+      CaptureHubService.instance.setSearchEnabled(
+        feature == LocalistFeature.capture && _receiving,
+      );
+      MediaStreamService.instance.discovery.setActive(
+        feature == LocalistFeature.stream && _receiving,
+      );
+      _syncRemoteDiscovery(feature == LocalistFeature.remoteControl);
+      _syncCastDiscovery(feature == LocalistFeature.stream && !_receiving);
+      setState(() {});
+    }
+
+    final searchVpn =
+        feature == LocalistFeature.vpnSharing &&
+        _receiving &&
+        !_sharingActive &&
+        !_receivingActive &&
+        !_busy;
+    final lockLan =
+        searchVpn ||
+        _sharingActive ||
+        _receivingActive ||
+        feature == LocalistFeature.capture;
+    if (_lanDiscoveryLocked != lockLan) {
+      _lanDiscoveryLocked = lockLan;
+      unawaited(_bridge.setLanDiscoveryLock(lockLan));
+    }
+    if (_vpnDiscoveryRequested == searchVpn) return;
+    _vpnDiscoveryRequested = searchVpn;
+    try {
+      if (searchVpn) {
         await _discovery.resume();
       } else {
         await _discovery.suspend();
       }
     } catch (error) {
       _logs.warning('Local discovery lifecycle update failed: $error');
-      if (_shouldRunDiscovery) {
+      if (mounted && _vpnDiscoveryRequested) {
         _showInAppNotice(
-          l10n.nearbySearchCouldNotStart,
+          context.l10n.nearbySearchCouldNotStart,
           tone: InAppNoticeTone.warning,
         );
       }
@@ -1119,11 +1174,7 @@ class _LocalistShellState extends State<LocalistShell>
   int _knownSendBatchCompletions = 0;
   int _knownFailedBatchCompletions = 0;
   void _handleQuickSendTransferSounds() {
-    final transfers = _quickSend.transfers;
     if (!_transferSoundsPrimed) {
-      _knownTransferStates
-        ..clear()
-        ..addEntries(transfers.map((item) => MapEntry(item.id, item.state)));
       _transferSoundsPrimed = true;
       _knownReceiveBatchCompletions = _quickSend.receiveBatchCompletions;
       _knownSendBatchCompletions = _quickSend.sendBatchCompletions;
@@ -1143,9 +1194,6 @@ class _LocalistShellState extends State<LocalistShell>
       _knownReceiveBatchCompletions = _quickSend.receiveBatchCompletions;
       event ??= AppSoundEvent.completed;
     }
-    _knownTransferStates.removeWhere(
-      (id, _) => !transfers.any((transfer) => transfer.id == id),
-    );
     if (event != null &&
         widget.settings.soundEffectsEnabled &&
         (!Platform.isAndroid || _appIsActive)) {
@@ -1899,28 +1947,41 @@ class _LocalistShellState extends State<LocalistShell>
     );
   }
 
-  Future<void> _initializeFeatureDiscovery() async {
-    if (Platform.isAndroid || Platform.isWindows) {
-      await _remoteService.initialize();
-      if (!mounted) return;
-      await _remoteDevices.initialize();
-      if (!mounted) return;
-      unawaited(_scanRemoteDevices());
-      _remoteDiscoveryTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-        if (_appLifecycleState == AppLifecycleState.resumed) {
-          unawaited(_scanRemoteDevices());
-        }
-      });
+  void _syncRemoteDiscovery(bool visible) {
+    _remoteService.setViewVisible(visible);
+    _remoteDevices.setDiscoveryVisible(visible);
+    if (!visible) {
+      _remoteDiscoveryTimer?.cancel();
+      _remoteDiscoveryTimer = null;
+    } else if (_remoteDiscoveryTimer == null) {
+      unawaited(_scanRemoteDevices(initialize: true));
+      _remoteDiscoveryTimer = Timer.periodic(
+        const Duration(seconds: 20),
+        (_) => unawaited(_scanRemoteDevices()),
+      );
     }
-    unawaited(DlnaCastService.instance.discover());
-    _castDiscoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (_appLifecycleState == AppLifecycleState.resumed) {
-        unawaited(DlnaCastService.instance.discover());
-      }
-    });
   }
 
-  Future<void> _scanRemoteDevices() async {
+  void _syncCastDiscovery(bool visible) {
+    final cast = DlnaCastService.instance;
+    if (!visible) {
+      _castDiscoveryTimer?.cancel();
+      _castDiscoveryTimer = null;
+      if (cast.scanning) cast.cancelDiscovery();
+    } else if (_castDiscoveryTimer == null) {
+      unawaited(cast.discover());
+      _castDiscoveryTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) => unawaited(cast.discover()),
+      );
+    }
+  }
+
+  Future<void> _scanRemoteDevices({bool initialize = false}) async {
+    if (initialize) await _remoteService.initialize();
+    if (!mounted || _remoteDiscoveryTimer == null) return;
+    await _remoteDevices.initialize();
+    if (!mounted || _remoteDiscoveryTimer == null) return;
     _remoteDevices.setLocalIdentity(_remoteService.localId);
     _remoteDevices.setPresenceContext(
       server: _remoteService.profile.server.encode(),
@@ -1998,6 +2059,7 @@ class _LocalistShellState extends State<LocalistShell>
         service: _remoteService,
         devices: _remoteDevices,
         receiving: _receiving,
+        visible: _feature == feature && _featuresVisible,
       ),
       LocalistFeature.vpnSharing => VpnSharingPage(
         receivingSelected: _receiving,
@@ -2006,7 +2068,7 @@ class _LocalistShellState extends State<LocalistShell>
         busy: _busy,
         sharing: SharingPage(
           settings: widget.settings,
-          visible: _feature == feature && !_receiving,
+          visible: _feature == feature && !_receiving && _featuresVisible,
           snapshot: _snapshot,
           connectedPeers: _connectedPeers,
           busy: _busy,
@@ -2033,7 +2095,7 @@ class _LocalistShellState extends State<LocalistShell>
       ),
       LocalistFeature.capture => LiveCapturePage(
         receiving: _receiving,
-        visible: _feature == feature,
+        visible: _feature == feature && _featuresVisible,
       ),
       LocalistFeature.stream => StreamPage(
         service: MediaStreamService.instance,
@@ -2051,7 +2113,7 @@ class _LocalistShellState extends State<LocalistShell>
               : Colors.transparent,
           appBar: GlassAppBar(
             leading: _feature != null && _activities.owner == null
-                ? BackButton(onPressed: () => setState(() => _feature = null))
+                ? BackButton(onPressed: _returnHome)
                 : null,
             title: Row(
               mainAxisSize: MainAxisSize.min,
@@ -2124,11 +2186,12 @@ class _LocalistShellState extends State<LocalistShell>
               ),
             ],
           ),
+          bottomNavigationBar: _buildMobileNavigation(context),
           body: PopScope(
             canPop: _feature == null,
             onPopInvokedWithResult: (didPop, _) {
               if (!didPop && _feature != null && _activities.owner == null) {
-                setState(() => _feature = null);
+                _returnHome();
               }
             },
             child: SafeArea(child: _buildMainContent(context, page)),
@@ -2145,14 +2208,8 @@ class _LocalistShellState extends State<LocalistShell>
     final l10n = context.l10n;
     final owner = _activities.owner;
     final feature = _feature;
-    final features = [
-      LocalistFeature.quickSend,
-      if (Platform.isWindows || Platform.isAndroid)
-        LocalistFeature.remoteControl,
-      LocalistFeature.vpnSharing,
-      LocalistFeature.capture,
-      LocalistFeature.stream,
-    ];
+    final features = _availableFeatures;
+    final mobileNavigation = Platform.isAndroid || Platform.isIOS;
     // A stop button must stay accessible while its service owns the screen.
     final sender = CaptureHubService.instance.sender;
     final canSwitchDirection =
@@ -2166,36 +2223,9 @@ class _LocalistShellState extends State<LocalistShell>
       fit: StackFit.expand,
       children: [
         if (feature == null)
-          PageSurface(
-            useColumns: false,
-            maxContentWidth: 640,
-            children: [
-              const SizedBox(height: 18),
-              Text(
-                l10n.isPersian
-                    ? 'چه کاری می‌خواهید انجام دهید؟'
-                    : 'What would you like to do?',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              FilledButton.icon(
-                onPressed: () =>
-                    _selectFeature(LocalistFeature.quickSend, receiving: false),
-                icon: const Icon(Icons.arrow_upward_rounded),
-                label: Text(l10n.isPersian ? 'ارسال' : 'Send'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(58),
-                ),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: () =>
-                    _selectFeature(LocalistFeature.quickSend, receiving: true),
-                icon: const Icon(Icons.arrow_downward_rounded),
-                label: Text(l10n.isPersian ? 'دریافت' : 'Receive'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(58),
-                ),
-              ),
-            ],
+          LocalistLanding(
+            onChooseDirection: (receiving) =>
+                _selectFeature(LocalistFeature.quickSend, receiving: receiving),
           ),
         Offstage(
           offstage: feature == null,
@@ -2225,7 +2255,7 @@ class _LocalistShellState extends State<LocalistShell>
                         ),
                 ),
               ),
-              if (owner == null)
+              if (owner == null && !mobileNavigation)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Wrap(
@@ -2234,13 +2264,7 @@ class _LocalistShellState extends State<LocalistShell>
                     children: [
                       for (final item in features)
                         ChoiceChip(
-                          label: Text(switch (item) {
-                            LocalistFeature.quickSend => l10n.quickSend,
-                            LocalistFeature.remoteControl => l10n.remoteControl,
-                            LocalistFeature.vpnSharing => l10n.vpnSharing,
-                            LocalistFeature.capture => l10n.cameraAndMic,
-                            LocalistFeature.stream => l10n.streaming,
-                          }),
+                          label: Text(_featureLabel(context, item)),
                           selected: feature == item,
                           onSelected: (_) => _selectFeature(item),
                         ),
@@ -2296,6 +2320,58 @@ class _LocalistShellState extends State<LocalistShell>
     );
   }
 
+  static final _availableFeatures = [
+    LocalistFeature.quickSend,
+    if (Platform.isWindows || Platform.isAndroid) LocalistFeature.remoteControl,
+    LocalistFeature.vpnSharing,
+    LocalistFeature.capture,
+    LocalistFeature.stream,
+  ];
+
+  String _featureLabel(BuildContext context, LocalistFeature feature) =>
+      switch (feature) {
+        LocalistFeature.quickSend => context.l10n.quickSend,
+        LocalistFeature.remoteControl => context.l10n.remoteControl,
+        LocalistFeature.vpnSharing => context.l10n.vpnSharing,
+        LocalistFeature.capture => context.l10n.cameraAndMic,
+        LocalistFeature.stream => context.l10n.streaming,
+      };
+
+  Widget? _buildMobileNavigation(BuildContext context) {
+    if ((!Platform.isAndroid && !Platform.isIOS) ||
+        _feature == null ||
+        _activities.owner != null ||
+        MediaQuery.viewInsetsOf(context).bottom > 0) {
+      return null;
+    }
+    final colors = Theme.of(context).colorScheme;
+    return NavigationBar(
+      height: 60,
+      backgroundColor: colors.surfaceContainer,
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+      animationDuration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 220),
+      selectedIndex: _availableFeatures.indexOf(_feature!),
+      onDestinationSelected: (index) =>
+          _selectFeature(_availableFeatures[index]),
+      destinations: [
+        for (final feature in _availableFeatures)
+          NavigationDestination(
+            label: _featureLabel(context, feature),
+            tooltip: _featureLabel(context, feature),
+            icon: Icon(switch (feature) {
+              LocalistFeature.quickSend => Icons.send_outlined,
+              LocalistFeature.remoteControl => Icons.desktop_windows_rounded,
+              LocalistFeature.vpnSharing => Icons.vpn_lock_outlined,
+              LocalistFeature.capture => Icons.video_camera_front_outlined,
+              LocalistFeature.stream => Icons.live_tv_rounded,
+            }),
+          ),
+      ],
+    );
+  }
+
   bool get _sharingActive {
     return _snapshot.proxyRunning ||
         (!Platform.isWindows && _snapshot.root.active);
@@ -2316,6 +2392,13 @@ class _LocalistShellState extends State<LocalistShell>
       _receiving = receiving ?? _receiving;
       _visitedFeatures.add(feature);
     });
+    unawaited(_syncDiscoveryLifecycle());
+  }
+
+  void _returnHome() {
+    if (!mounted || _activities.owner != null) return;
+    setState(() => _feature = null);
+    unawaited(_syncDiscoveryLifecycle());
   }
 
   void _showServiceConflictMessage(String activeService, String targetService) {
@@ -2334,19 +2417,26 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => SettingsRoutePage(
-          settings: widget.settings,
-          portsLocked: _sharingActive,
-          simple: widget.useSimpleTheme,
-          deviceVpnActive: Platform.isWindows
-              ? _snapshot.receivingRunning && _snapshot.deviceVpnActive
-              : _snapshot.deviceVpnActive,
-          section: section,
+    _settingsRoutes++;
+    unawaited(_syncDiscoveryLifecycle());
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => SettingsRoutePage(
+            settings: widget.settings,
+            portsLocked: _sharingActive,
+            simple: widget.useSimpleTheme,
+            deviceVpnActive: Platform.isWindows
+                ? _snapshot.receivingRunning && _snapshot.deviceVpnActive
+                : _snapshot.deviceVpnActive,
+            section: section,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _settingsRoutes--;
+      unawaited(_syncDiscoveryLifecycle());
+    }
   }
 
   Future<void> _configureWindowsStartupPreference() async {

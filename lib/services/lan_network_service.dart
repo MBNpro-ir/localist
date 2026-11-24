@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'log_service.dart';
@@ -73,17 +72,8 @@ class LanNetworkService {
     final routes = <LanRoute>[];
     try {
       List<dynamic>? records;
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid || Platform.isWindows) {
         records = await _channel.invokeListMethod<dynamic>('getLanInterfaces');
-      } else if (Platform.isWindows) {
-        final result = await Process.run('powershell.exe', [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          '@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { \$ip = \$_; \$adapter = Get-NetAdapter -InterfaceIndex \$ip.InterfaceIndex -ErrorAction SilentlyContinue; [pscustomobject]@{IPAddress=\$ip.IPAddress;PrefixLength=\$ip.PrefixLength;InterfaceAlias=\$ip.InterfaceAlias;description=\$adapter.InterfaceDescription} }) | ConvertTo-Json -Compress',
-        ], runInShell: false);
-        final value = jsonDecode('${result.stdout}');
-        records = value is List ? value : [value];
       }
       LogService.instance.debug(
         'LAN native route records count=${records?.length ?? 0}',
@@ -91,14 +81,13 @@ class LanNetworkService {
       var skipped = 0;
       for (final row in records ?? []) {
         final map = row as Map;
-        final address = '${map['address'] ?? map['IPAddress']}';
-        final name =
-            '${map['name'] ?? map['InterfaceAlias']} ${map['description'] ?? ''}';
-        final prefix = (map['prefixLength'] ?? map['PrefixLength']) as num;
+        final address = map['address'] as String;
+        final name = map['name'] as String;
+        final prefix = map['prefixLength'] as int;
         if (isPhysicalLan(name) &&
             !address.startsWith('127.') &&
             address != '0.0.0.0') {
-          routes.add(LanRoute(address, prefix.toInt(), name.trim()));
+          routes.add(LanRoute(address, prefix, name));
         } else {
           skipped++;
         }

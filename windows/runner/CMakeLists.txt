@@ -67,7 +67,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "winmm.lib")
-target_link_libraries(${BINARY_NAME} PRIVATE "wlanapi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "wlanapi.lib" "iphlpapi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "taskschd.lib" "comsuppw.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "wintrust.lib" "bcrypt.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE setupapi newdev crypt32)

@@ -6,11 +6,34 @@ import 'package:localist/services/http_file_stream.dart';
 import 'package:localist/services/dlna_cast_service.dart';
 import 'package:localist/services/media_stream_service.dart';
 import 'package:localist/services/media_stream_gallery.dart';
+import 'package:localist/services/stream_discovery_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   // This suite exercises real loopback HTTP in addition to bundled web assets.
   HttpOverrides.global = null;
+
+  test(
+    'stream QR accepts a local player address and rejects other payloads',
+    () {
+      expect(
+        parseStreamAddress('http://192.168.1.8:51823', fromQr: true)?.port,
+        51823,
+      );
+      expect(parseStreamAddress('phone.local:51823')?.host, 'phone.local');
+      for (final value in [
+        'localist://proxy',
+        'http://example.com:51823',
+        'http://127.0.0.1:51823',
+        'http://192.168.1.8:65536',
+        'http://192.168.1.8:0',
+        'http://user@192.168.1.8:51823',
+        '192.168.1.8:51823',
+      ]) {
+        expect(parseStreamAddress(value, fromQr: true), isNull, reason: value);
+      }
+    },
+  );
   test('DLNA metadata includes MIME resource and the correct media class', () {
     for (final entry in {
       'song.mp3': 'audioItem.musicTrack',
@@ -301,6 +324,13 @@ void main() {
       ).writeAsBytes([60, 61, 62]);
       final service = MediaStreamService.instance;
       final client = HttpClient()..findProxy = (_) => 'DIRECT';
+      var probes = 0;
+      final discovery = StreamDiscoveryService(
+        targets: () async {
+          probes++;
+          return {'127.0.0.1'};
+        },
+      );
       // Use the bound loopback port even when the machine has no physical LAN.
       Future<HttpClientResponse> get(
         String path, {
@@ -318,6 +348,23 @@ void main() {
       try {
         service.persian = true;
         await service.startFiles([photo, movie, song, photo]);
+        await discovery.refresh();
+        expect(probes, 0);
+        discovery.setActive(true);
+        while (discovery.scanning) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(discovery.addresses.single.port, service.port);
+        final discovered = await (await client.getUrl(
+          discovery.addresses.single,
+        )).close();
+        expect(discovered.statusCode, HttpStatus.ok);
+        await discovered.drain<void>();
+        discovery.setActive(false);
+        expect(discovery.scanning, isFalse);
+        expect(discovery.addresses, isEmpty);
+        await discovery.refresh();
+        expect(probes, 1);
         expect(service.items.length, 3);
         final root = await get('/');
         expect(root.statusCode, 200);
@@ -382,6 +429,7 @@ void main() {
         expect(obsolete.statusCode, 404);
         await obsolete.drain<void>();
       } finally {
+        discovery.dispose();
         client.close(force: true);
         await service.stop();
         await dir.delete(recursive: true);

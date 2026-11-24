@@ -107,6 +107,10 @@ class CaptureDiscoveryService {
   static final group = InternetAddress('239.255.77.19');
   RawDatagramSocket? _socket;
   Timer? _timer;
+  Future<void>? _starting;
+  bool _searchEnabled = true;
+  bool _publishing = false;
+  bool _keepListening = false;
   bool _sending = false;
   DateTime? _lastQuery;
   List<LanRoute> _routes = [];
@@ -115,8 +119,44 @@ class CaptureDiscoveryService {
   void Function(CaptureAdvertisement)? onAdvertisement;
   String error = '';
   bool get running => _socket != null;
-  Future<void> start() async {
-    if (_socket != null) {
+  bool get _needsSocket => _searchEnabled || _publishing || _keepListening;
+
+  void setModes({
+    required bool search,
+    required bool publish,
+    required bool keepListening,
+  }) {
+    if (_searchEnabled == search &&
+        _publishing == publish &&
+        _keepListening == keepListening) {
+      return;
+    }
+    _searchEnabled = search;
+    _publishing = publish;
+    _keepListening = keepListening;
+    if (!_needsSocket) _closeSocket();
+    if (search) _lastQuery = null;
+    _syncTimer();
+    unawaited(announce());
+  }
+
+  void _syncTimer() {
+    if (_socket == null || (!_searchEnabled && !_publishing)) {
+      _timer?.cancel();
+      _timer = null;
+    } else {
+      _timer ??= Timer.periodic(
+        const Duration(seconds: 3),
+        (_) => unawaited(_announce()),
+      );
+    }
+  }
+
+  Future<void> start() =>
+      _starting ??= _start().whenComplete(() => _starting = null);
+
+  Future<void> _start() async {
+    if (_socket != null || !_needsSocket) {
       LogService.instance.debug(
         'Capture discovery: start skipped, already listening',
       );
@@ -129,6 +169,10 @@ class CaptureDiscoveryService {
         port,
         reuseAddress: true,
       );
+      if (!_needsSocket) {
+        socket.close();
+        return;
+      }
       _socket = socket;
       error = '';
       socket
@@ -138,6 +182,7 @@ class CaptureDiscoveryService {
       for (final interface in await NetworkInterface.list(
         type: InternetAddressType.IPv4,
       )) {
+        if (_socket != socket) return;
         if (!isPhysicalLan(interface.name)) continue;
         try {
           socket.joinMulticast(group, interface);
@@ -147,6 +192,7 @@ class CaptureDiscoveryService {
           );
         }
       }
+      if (_socket != socket) return;
       socket.listen(
         (event) {
           if (event != RawSocketEvent.read) return;
@@ -194,11 +240,8 @@ class CaptureDiscoveryService {
           );
         },
       );
-      _timer = Timer.periodic(
-        const Duration(seconds: 3),
-        (_) => unawaited(announce()),
-      );
-      await announce(query: true);
+      _syncTimer();
+      await announce();
       LogService.instance.debug('Capture discovery: listener active');
     } catch (e) {
       error = '$e';
@@ -210,19 +253,30 @@ class CaptureDiscoveryService {
     }
   }
 
-  Future<void> announce({bool query = false}) async {
+  Future<void> announce({bool query = false}) =>
+      _announce(query: query, refreshRoutes: true);
+
+  Future<void> _announce({
+    bool query = false,
+    bool refreshRoutes = false,
+  }) async {
     if (_sending || _socket == null) return;
     _sending = true;
     try {
-      // Receivers must refresh routes too: USB tethering can appear after launch.
-      _routes = await _loadRoutes();
       final own = advertisement?.call();
       final now = DateTime.now();
       query =
-          query ||
-          (own == null &&
-              (_lastQuery == null ||
-                  now.difference(_lastQuery!) >= const Duration(seconds: 15)));
+          _searchEnabled &&
+          (query ||
+              (own == null &&
+                  (_lastQuery == null ||
+                      now.difference(_lastQuery!) >=
+                          const Duration(seconds: 15))));
+      if (!query && own == null && !refreshRoutes) return;
+      // Refresh routes when sending so USB tethering can appear after launch.
+      final socket = _socket;
+      _routes = await _loadRoutes();
+      if (_socket != socket || (query && !_searchEnabled)) return;
       if (!query && own == null) return;
       if (++_announcements == 1 || _announcements % 10 == 0) {
         LogService.instance.debug(
@@ -234,12 +288,18 @@ class CaptureDiscoveryService {
         query ? 'localist.capture.query.v1' : jsonEncode(own!.toJson()),
       );
       for (final route in _routes) {
+        if (_socket != socket || (query && !_searchEnabled)) return;
         RawDatagramSocket? output;
         try {
           output = await RawDatagramSocket.bind(
             InternetAddress(route.address),
             0,
           );
+          if (_socket != socket ||
+              (query && !_searchEnabled) ||
+              (!query && advertisement?.call() == null)) {
+            return;
+          }
           output
             ..broadcastEnabled = true
             ..multicastLoopback = false
@@ -267,13 +327,18 @@ class CaptureDiscoveryService {
   }
 
   Future<void> stop() async {
+    await _starting;
     LogService.instance.debug(
       'Capture discovery: stop requested running=$running announcements=$_announcements received=$_received',
     );
+    _closeSocket();
+    LogService.instance.debug('Capture discovery: stopped');
+  }
+
+  void _closeSocket() {
     _timer?.cancel();
     _timer = null;
     _socket?.close();
     _socket = null;
-    LogService.instance.debug('Capture discovery: stopped');
   }
 }

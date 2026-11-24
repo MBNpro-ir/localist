@@ -53,6 +53,7 @@ class CaptureHubService extends ChangeNotifier {
     RTCVideoRenderer Function()? rendererFactory,
     WindowsVirtualDevicesService Function(int)? outputFactory,
     bool? windows,
+    this._searchEnabled = true,
   }) : sender = sender ?? LiveCaptureService(),
        discovery = discovery ?? CaptureDiscoveryService(),
        _receiverFactory = receiverFactory ?? LiveCaptureService.new,
@@ -61,7 +62,7 @@ class CaptureHubService extends ChangeNotifier {
            outputFactory ??
            ((slot) => WindowsVirtualDevicesService(slot: slot)),
        windows = windows ?? Platform.isWindows;
-  static final instance = CaptureHubService();
+  static final instance = CaptureHubService(searchEnabled: false);
   final LiveCaptureService sender;
   final CaptureDiscoveryService discovery;
   final bool windows;
@@ -76,6 +77,7 @@ class CaptureHubService extends ChangeNotifier {
       _receivers.values.toList()..sort((a, b) => a.slot.compareTo(b.slot));
   String id = '', name = '', model = '', error = '';
   bool enabled = true, _stopped = false, _ticking = false;
+  bool _searchEnabled;
   Future<void>? _starting, _tickTask;
   Timer? _timer;
   SharedPreferences? _prefs;
@@ -126,19 +128,7 @@ class CaptureHubService extends ChangeNotifier {
     discovery.onAdvertisement = observe;
     sender.addListener(_senderChanged);
     FeatureActivityService.instance.addListener(_activityChanged);
-    try {
-      await discovery.start();
-      LogService.instance.debug('Capture hub: discovery active');
-    } catch (e) {
-      error = '$e';
-      LogService.instance.debug(
-        'Capture hub: discovery start failed type=${e.runtimeType}',
-      );
-    }
-    _timer = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => unawaited(tick()),
-    );
+    await _syncDiscovery();
     _changed();
     LogService.instance.debug(
       'Capture hub: started savedSlots=${_preferredSlots.length}',
@@ -146,8 +136,54 @@ class CaptureHubService extends ChangeNotifier {
   }
 
   void _senderChanged() {
-    unawaited(discovery.announce());
+    unawaited(_syncDiscovery());
     _changed();
+  }
+
+  void setSearchEnabled(bool value) {
+    if (_searchEnabled == value) return;
+    _searchEnabled = value;
+    if (value) {
+      unawaited(start().then((_) => _syncDiscovery()));
+    } else if (_starting != null) {
+      unawaited(_syncDiscovery());
+    }
+  }
+
+  Future<void> _syncDiscovery() async {
+    if (_stopped || id.isEmpty) return;
+    _syncTimer();
+    if ((_searchEnabled || sender.broadcasting) && !discovery.running) {
+      try {
+        await discovery.start();
+        error = '';
+      } catch (e) {
+        error = '$e';
+        LogService.instance.debug(
+          'Capture hub: discovery start failed type=${e.runtimeType}',
+        );
+      }
+    }
+  }
+
+  void _syncTimer() {
+    final hasReceivers = _receivers.values.any(
+      (r) => r.capture.active || r.working,
+    );
+    discovery.setModes(
+      search: _searchEnabled,
+      publish: sender.broadcasting,
+      keepListening: hasReceivers,
+    );
+    if (_searchEnabled || sender.broadcasting || hasReceivers) {
+      _timer ??= Timer.periodic(
+        const Duration(seconds: 2),
+        (_) => unawaited(tick()),
+      );
+    } else {
+      _timer?.cancel();
+      _timer = null;
+    }
   }
 
   void _activityChanged() => unawaited(tick());
@@ -205,7 +241,11 @@ class CaptureHubService extends ChangeNotifier {
   }
 
   void observe(CaptureAdvertisement advertisement) {
-    if (_stopped || advertisement.id == id) return;
+    if (_stopped ||
+        advertisement.id == id ||
+        (!_searchEnabled && !_receivers.containsKey(advertisement.id))) {
+      return;
+    }
     final paths = _routes.putIfAbsent(advertisement.id, () => {});
     paths.removeWhere(
       (_, route) =>
@@ -356,7 +396,10 @@ class CaptureHubService extends ChangeNotifier {
   }
 
   Future<void> tick() {
-    if (_stopped) return Future.value();
+    if (_stopped ||
+        (!_searchEnabled && !sender.broadcasting && _timer == null)) {
+      return Future.value();
+    }
     return _tickTask ??= _tick().whenComplete(() => _tickTask = null);
   }
 
@@ -364,7 +407,7 @@ class CaptureHubService extends ChangeNotifier {
     if (_stopped || _ticking) return;
     _ticking = true;
     try {
-      if (!discovery.running) {
+      if ((_searchEnabled || sender.broadcasting) && !discovery.running) {
         LogService.instance.debug(
           'Capture hub: discovery unavailable, attempting restart',
         );
@@ -373,7 +416,9 @@ class CaptureHubService extends ChangeNotifier {
       }
       // RTCVideoRenderer initializes the plugin implicitly. Initialize it once
       // before creating several textures so native factories cannot race.
-      if (enabled && receivers.any((r) => r.online && r.enabled)) {
+      if (_searchEnabled &&
+          enabled &&
+          _receivers.values.any((r) => r.online && r.enabled)) {
         await LiveCaptureService.initializeMedia();
       }
       await Future.wait(
@@ -407,7 +452,8 @@ class CaptureHubService extends ChangeNotifier {
             await _syncOutput(r);
             return;
           }
-          if (r.capture.busy ||
+          if (!_searchEnabled ||
+              r.capture.busy ||
               DateTime.now().isBefore(r.retryAt) ||
               !FeatureActivityService.instance.allows(
                 LocalistFeature.capture,
@@ -425,6 +471,7 @@ class CaptureHubService extends ChangeNotifier {
               await r.renderer.initialize().timeout(const Duration(seconds: 8));
               r.ready = true;
             }
+            if (!_searchEnabled || _stopped) return;
             final link = r.advertisement.link;
             LogService.instance.debug(
               'Capture hub: receiver slot=${r.slot} starting local signaling handshake',
@@ -467,6 +514,7 @@ class CaptureHubService extends ChangeNotifier {
       _changed();
     } finally {
       _ticking = false;
+      if (!_stopped) _syncTimer();
     }
   }
 
@@ -573,6 +621,7 @@ class CaptureHubService extends ChangeNotifier {
       'Capture hub: stopping receivers=${_receivers.length} senderActive=${sender.active}',
     );
     _stopped = true;
+    await _starting;
     _timer?.cancel();
     _timer = null;
     sender.removeListener(_senderChanged);
