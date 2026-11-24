@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -14,10 +16,19 @@ import 'package:localist/services/capture_audio_settings.dart';
 import 'package:localist/widgets/capture_receivers_panel.dart';
 
 class _Stream extends Fake implements MediaStream {
+  _Stream({this.video = false});
+
+  final bool video;
+
   @override
-  List<MediaStreamTrack> getVideoTracks() => [];
+  List<MediaStreamTrack> getVideoTracks() => [if (video) _CameraTrack()];
   @override
   List<MediaStreamTrack> getAudioTracks() => [];
+}
+
+class _CameraTrack extends Fake implements MediaStreamTrack {
+  @override
+  String get id => 'test-camera-track';
 }
 
 class _Capture extends LiveCaptureService {
@@ -497,4 +508,42 @@ void main() {
     await tester.pump(const Duration(seconds: 8));
     debugDefaultTargetPlatformOverride = null;
   });
+
+  testWidgets(
+    'Android preview appears when the native texture bind completes',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      const channel = MethodChannel('localist/capture');
+      final bind = Completer<int>();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'previewTrack' && call.arguments?['track'] != null) {
+          return bind.future;
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final capture = _Capture()
+        ..started = true
+        ..localStream = _Stream(video: true);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: LiveCapturePage(service: capture)),
+        ),
+      );
+      await tester.pump();
+      final preview = find.byWidgetPredicate(
+        (widget) => widget is Texture && widget.textureId == 23,
+      );
+      expect(preview, findsNothing);
+      bind.complete(23);
+      await tester.pumpAndSettle();
+      expect(preview, findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 8));
+      debugDefaultTargetPlatformOverride = null;
+    },
+  );
 }

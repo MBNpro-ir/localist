@@ -305,14 +305,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                 (_service.broadcasting && _service.cameraPaused)
             ? null
             : _service.localStream ?? _service.remoteStream;
-        final waitingForGeometry =
-            Platform.isAndroid &&
-            widget.renderer == null &&
-            _service.localStream != null &&
-            _service.videoPortrait == null;
-        final track = waitingForGeometry
-            ? null
-            : stream?.getVideoTracks().firstOrNull?.id;
+        final track = stream?.getVideoTracks().firstOrNull?.id;
         if (_android &&
             widget.renderer == null &&
             _service.remoteStream == null) {
@@ -1102,6 +1095,10 @@ class _LiveCapturePageState extends State<LiveCapturePage>
 
   Widget _receiveCard() => CaptureReceiversPanel(hub: _hub, windows: _windows);
 
+  bool get _nativePreviewReady =>
+      _previewTexture != null &&
+      (!Platform.isAndroid || _service.videoPortrait != null);
+
   double get _previewAspectRatio {
     if (_android && _service.localStream != null) {
       final portrait =
@@ -1125,7 +1122,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         const SizedBox(height: 16),
         if (_hasPreviewVideo &&
             !_service.cameraPaused &&
-            (_previewTexture != null || _rendererReady)) ...[
+            (_nativePreviewReady || _rendererReady)) ...[
           Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(
@@ -1138,7 +1135,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                 aspectRatio: _previewAspectRatio,
                 child: ColoredBox(
                   color: Colors.black,
-                  child: _previewTexture != null
+                  child: _nativePreviewReady
                       ? Transform(
                           alignment: Alignment.center,
                           transform: Matrix4.diagonal3Values(
@@ -1155,7 +1152,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
           ),
           const SizedBox(height: 6),
           Text(
-            _previewTexture != null
+            _nativePreviewReady
                 ? t(
                     'پیش‌نمایش سبک است. خروجی با کیفیت انتخابی ارسال می‌شود.',
                     'Low-power preview. The stream uses your selected quality.',
