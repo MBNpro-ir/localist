@@ -1,5 +1,23 @@
 # Release Notes
 
+## [7.4.0] — Send and Receive, nearby streams, and live capture controls
+
+- Start with Send or Receive. On phones, the feature icons are at the bottom.
+  The Quick Send readiness card scrolls with both pages. Receive shows when
+  nearby discovery is running and how many devices it found.
+- Find shared streams automatically on the local network. Scan the gallery QR
+  in Localist or open the gallery in a browser.
+- Start discovery when its feature becomes visible. Leaving the feature stops
+  searches while active transfers and sessions continue.
+- Change a connected phone’s camera and audio settings directly on its Windows
+  receiver card, including camera input, resolution, zoom, microphone and audio
+  processing.
+- Android camera capture follows device orientation at 16:9 or 9:16. The
+  local preview stays in a 9:16 portrait frame, and camera light is in the
+  live toolbar.
+- Windows VPN proxy settings save as they change and flag invalid values
+  before allowing the service to start.
+
 ## [7.3.2] — Windows updater recovery and safe device migration
 
 - Fixed Windows update recovery when a prepared download was removed. Setup

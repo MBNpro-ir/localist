@@ -2,6 +2,21 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [7.4.0] - 2026-11-25
+
+- Reorganized Localist around Send and Receive, with an icon-only mobile
+  navigation bar. Moved Quick Send readiness into the scrollable content and
+  added nearby discovery status to Receive.
+- Added automatic Stream discovery and in-app QR scanning. Start and stop
+  discovery with feature visibility while keeping active sessions intact.
+- Moved Windows receiver controls for phone camera and audio settings and
+  Windows audio output onto each device card.
+- Fixed Android camera rotation and preview startup. Streamed video follows
+  the phone’s orientation while the preview is fixed to portrait. Camera light
+  is available in the live toolbar.
+- Persist camera and microphone preferences, hide sender settings during
+  capture, and save valid Windows VPN proxy edits immediately.
+
 ## [7.3.2] - 2026-11-14
 
 - Release 7.3.2+2079 includes the locally validated localization/diagnostics

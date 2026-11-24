@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -111,29 +112,68 @@ void main() {
     }
   });
 
-  Widget app(bool vpn, {bool persian = false, bool settingsOnly = false}) =>
-      MaterialApp(
-        locale: Locale(persian ? 'fa' : 'en'),
-        supportedLocales: AppLocalizations.supportedLocales,
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: settingsOnly
-              ? QuickSendStatusPanel(
-                  settings: service.settings!,
-                  deviceVpnActive: vpn,
-                )
-              : QuickSendPage(
-                  key: const ValueKey('transfer'),
-                  deviceVpnActive: vpn,
-                  onOpenProfileSettings: () {},
-                ),
-        ),
+  Widget app(
+    bool vpn, {
+    bool persian = false,
+    bool settingsOnly = false,
+    bool receiving = false,
+  }) => MaterialApp(
+    locale: Locale(persian ? 'fa' : 'en'),
+    supportedLocales: AppLocalizations.supportedLocales,
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    home: Scaffold(
+      body: settingsOnly
+          ? QuickSendStatusPanel(
+              settings: service.settings!,
+              deviceVpnActive: vpn,
+            )
+          : QuickSendPage(
+              key: const ValueKey('transfer'),
+              deviceVpnActive: vpn,
+              receiving: receiving,
+              onOpenProfileSettings: () {},
+            ),
+    ),
+  );
+
+  testWidgets('readiness scrolls in both modes and Receive shows discovery', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final readiness = find.byType(QuickSendReadinessCard);
+    for (final receiving in [false, true]) {
+      await tester.pumpWidget(app(false, receiving: receiving));
+      expect(
+        find.ancestor(of: readiness, matching: find.byType(Scrollable)),
+        findsWidgets,
       );
+      expect(
+        find.textContaining('Automatic discovery is active'),
+        receiving ? findsOneWidget : findsNothing,
+      );
+    }
+    try {
+      await tester.runAsync(() async {
+        service.setDiscoveryVisible(true);
+        unawaited(service.refresh(probeSubnets: false));
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
+      await tester.pump();
+      expect(find.text('Searching for nearby devices…'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    } finally {
+      service.setDiscoveryVisible(false);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
 
   testWidgets('VPN changes warn without interrupting native or web transfers', (
     tester,

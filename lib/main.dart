@@ -2051,7 +2051,6 @@ class _LocalistShellState extends State<LocalistShell>
         deviceVpnActive: quickSendVpnActive,
         active: _feature == feature,
         receiving: _receiving,
-        showIdentity: false,
         onOpenProfileSettings: () =>
             unawaited(_openSettings(SettingsSection.quickSend)),
       ),
@@ -2269,28 +2268,6 @@ class _LocalistShellState extends State<LocalistShell>
                           onSelected: (_) => _selectFeature(item),
                         ),
                     ],
-                  ),
-                ),
-              if (feature == LocalistFeature.quickSend)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 760),
-                    child: AnimatedBuilder(
-                      animation: _quickSend,
-                      builder: (context, _) {
-                        final settings = _quickSend.settings;
-                        return settings == null
-                            ? const SizedBox.shrink()
-                            : QuickSendReadinessCard(
-                                settings: settings,
-                                ready: _quickSend.serverRunning,
-                                onOpenProfileSettings: () => unawaited(
-                                  _openSettings(SettingsSection.quickSend),
-                                ),
-                              );
-                      },
-                    ),
                   ),
                 ),
               Expanded(

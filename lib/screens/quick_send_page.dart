@@ -27,12 +27,11 @@ class QuickSendPage extends StatefulWidget {
     required this.onOpenProfileSettings,
     this.active = true,
     this.receiving = false,
-    this.showIdentity = true,
   });
 
   final bool deviceVpnActive;
   final VoidCallback onOpenProfileSettings;
-  final bool active, receiving, showIdentity;
+  final bool active, receiving;
 
   @override
   State<QuickSendPage> createState() => QuickSendPageState();
@@ -183,13 +182,13 @@ class QuickSendPageState extends State<QuickSendPage> {
           key: const PageStorageKey<String>('quick-send-page'),
           controller: _scrollController,
           children: [
+            QuickSendReadinessCard(
+              settings: settings,
+              ready: _service.serverRunning,
+              onOpenProfileSettings: widget.onOpenProfileSettings,
+            ),
+            if (widget.receiving) _receivingDiscoveryPanel(),
             if (widget.deviceVpnActive) _vpnWarningPanel(),
-            if (widget.showIdentity)
-              QuickSendReadinessCard(
-                settings: settings,
-                ready: _service.serverRunning,
-                onOpenProfileSettings: widget.onOpenProfileSettings,
-              ),
             if (!widget.receiving) ...[
               _selectionPanel(),
               _nearbyPanel(settings),
@@ -204,6 +203,58 @@ class QuickSendPageState extends State<QuickSendPage> {
       },
     );
   }
+
+  Widget _receivingDiscoveryPanel() {
+    final scanning = _service.scanning;
+    final count = _service.devices.length;
+    final status = scanning
+        ? _t(
+            'در حال جست‌وجوی دستگاه‌های نزدیک…',
+            'Searching for nearby devices…',
+          )
+        : count > 0
+        ? _t('$count دستگاه نزدیک پیدا شد.', 'Nearby devices found: $count')
+        : _t(
+            'جست‌وجوی خودکار فعال است. دستگاه فرستنده را به همین شبکه وصل کنید.',
+            'Automatic discovery is active. Connect the sending device to this network.',
+          );
+    return GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: 8,
+        children: [
+          Row(
+            spacing: 10,
+            children: [
+              const Icon(Icons.radar_outlined),
+              Expanded(
+                child: Text(
+                  _t('دستگاه‌های نزدیک', 'Nearby devices'),
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              _discoveryRefreshButton(),
+            ],
+          ),
+          Semantics(liveRegion: scanning, child: Text(status)),
+          if (scanning) const LinearProgressIndicator(),
+        ],
+      ),
+    );
+  }
+
+  Widget _discoveryRefreshButton() => IconButton(
+    tooltip: _t('جست‌وجوی دوباره', 'Search again'),
+    onPressed: _service.scanning || _service.restarting
+        ? null
+        : _service.refresh,
+    icon: _service.scanning
+        ? const SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : const Icon(Icons.sync),
+  );
 
   Widget _vpnWarningPanel() {
     final colors = Theme.of(context).colorScheme;
@@ -650,18 +701,7 @@ class QuickSendPageState extends State<QuickSendPage> {
                 onPressed: _showManualDeviceDialog,
                 icon: const Icon(Icons.add_link),
               ),
-              IconButton(
-                tooltip: _t('جست‌وجوی دوباره', 'Search again'),
-                onPressed: _service.scanning || _service.restarting
-                    ? null
-                    : _service.refresh,
-                icon: _service.scanning
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.sync),
-              ),
+              _discoveryRefreshButton(),
             ],
           ),
           Text(
