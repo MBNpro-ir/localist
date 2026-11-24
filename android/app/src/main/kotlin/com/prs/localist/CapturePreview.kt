@@ -6,12 +6,15 @@ import io.flutter.view.TextureRegistry
 import org.webrtc.EglBase
 import org.webrtc.EglRenderer
 import org.webrtc.GlRectDrawer
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
 import java.util.concurrent.CountDownLatch
 
 /** A small, frame-limited texture attached only to the local preview sink. */
 internal class CapturePreview(private val textures: TextureRegistry) : AutoCloseable {
     private var track: VideoTrack? = null
+    private var sink: VideoSink? = null
     private var producer: TextureRegistry.SurfaceProducer? = null
     private var renderer: EglRenderer? = null
 
@@ -24,9 +27,8 @@ internal class CapturePreview(private val textures: TextureRegistry) : AutoClose
         producer = surface
         val output = EglRenderer("Localist preview")
         try {
-            // Keep one small surface through rotations; Flutter displays its
-            // full contents at the actual processed frame's aspect ratio.
-            surface.setSize(480, 270)
+            // Only the local preview is locked to portrait.
+            surface.setSize(270, 480)
             output.init(EglUtils.getRootEglBaseContext(), EglBase.CONFIG_PLAIN, GlRectDrawer())
             renderer = output
             output.setFpsReduction(12f)
@@ -43,8 +45,23 @@ internal class CapturePreview(private val textures: TextureRegistry) : AutoClose
                 }
             })
             output.createEglSurface(surface.surface)
-            source.addSink(output)
+            val previewSink = VideoSink { frame ->
+                val rotation = CaptureOrientation.previewRotation(frame)
+                if (rotation == frame.rotation) {
+                    output.onFrame(frame)
+                } else {
+                    frame.buffer.retain()
+                    val local = VideoFrame(frame.buffer, rotation, frame.timestampNs)
+                    try {
+                        output.onFrame(local)
+                    } finally {
+                        local.release()
+                    }
+                }
+            }
             track = source
+            sink = previewSink
+            source.addSink(previewSink)
             return surface.id()
         } catch (error: Exception) {
             close()
@@ -59,9 +76,11 @@ internal class CapturePreview(private val textures: TextureRegistry) : AutoClose
         producer = null
         val source = track
         track = null
-        if (output != null && source != null) {
+        val previewSink = sink
+        sink = null
+        if (previewSink != null && source != null) {
             // A live configuration change can dispose the old track first.
-            runCatching { source.removeSink(output) }
+            runCatching { source.removeSink(previewSink) }
         }
         try {
             output?.release()

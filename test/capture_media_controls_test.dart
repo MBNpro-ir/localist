@@ -541,6 +541,8 @@ void main() {
       bind.complete(23);
       await tester.pumpAndSettle();
       expect(preview, findsOneWidget);
+      final size = tester.getSize(preview);
+      expect(size.width / size.height, closeTo(9 / 16, .001));
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 8));
       debugDefaultTargetPlatformOverride = null;

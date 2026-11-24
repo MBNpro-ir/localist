@@ -41,6 +41,10 @@ object CaptureRotationRegression {
                             val outHeight = output.buffer.height
                             check(if (pose % 180 == 0) outWidth == 36 && outHeight == 64
                                 else outWidth == 64 && outHeight == 36)
+                            val previewRotation = landscape.previewRotation(output)
+                            check(previewRotation == (sensor - expected[index] + 360) % 360)
+                            val swapsPreviewAxes = previewRotation % 180 != 0
+                            check(if (swapsPreviewAxes) outWidth > outHeight else outHeight > outWidth)
                             val values = pixels(output)
                             fun at(x: Int, y: Int) = values[y * outWidth + x]
                             val rotation = expected[index]
@@ -63,6 +67,7 @@ object CaptureRotationRegression {
             buffer.release()
         }
     }
+
 
     fun verify() {
         System.loadLibrary("jingle_peerconnection_so")

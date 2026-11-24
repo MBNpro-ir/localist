@@ -22,7 +22,7 @@ import kotlin.math.roundToInt
 /** Physical orientation is independent of Android's display/auto-rotate lock. */
 object CaptureOrientation {
     private var track: LocalVideoTrack? = null
-    private var processor: LocalVideoTrack.ExternalVideoFrameProcessing? = null
+    @Volatile private var processor: FrameRotation? = null
     private var listener: OrientationEventListener? = null
 
     @Synchronized fun set(context: Context, trackId: String?, cameraId: String?, rear: Boolean) {
@@ -82,6 +82,9 @@ object CaptureOrientation {
         processor = null
     }
 
+    internal fun previewRotation(frame: VideoFrame): Int =
+        processor?.previewRotation(frame) ?: if (frame.buffer.width > frame.buffer.height) 90 else 0
+
     internal class FrameRotation(
         private val front: Boolean,
         initial: Int,
@@ -92,13 +95,20 @@ object CaptureOrientation {
         private val failure: ((String) -> Unit)? = null,
     ) : LocalVideoTrack.ExternalVideoFrameProcessing {
         @Volatile private var physical = initial
-        private var layout: FrameLayout? = null
+        @Volatile private var layout: FrameLayout? = null
         private var reported = false
 
         fun update(degrees: Int) {
             // Hysteresis prevents jitter at the portrait/landscape boundary.
             val distance = abs(degrees - physical).let { minOf(it, 360 - it) }
             if (distance >= 60) physical = ((degrees + 45) / 90 * 90) % 360
+        }
+
+        fun previewRotation(frame: VideoFrame): Int {
+            val rotation = layout?.previewRotation ?: frame.rotation
+            val portrait = if (rotation % 180 == 0) frame.buffer.height >= frame.buffer.width
+                else frame.buffer.width >= frame.buffer.height
+            return if (portrait) rotation else (rotation + 90) % 360
         }
 
         override fun onFrame(frame: VideoFrame): VideoFrame = try {
@@ -121,17 +131,19 @@ object CaptureOrientation {
         private fun process(frame: VideoFrame): VideoFrame {
             val pose = physical
             val sign = if (front) -1 else 1
+            val natural = sensorOrientation ?: (frame.rotation - sign * displayPhysical() + 360) % 360
             val rotation = when {
                 !followsDevice -> frame.rotation
-                sensorOrientation != null -> (sensorOrientation + sign * pose + 360) % 360
-                else -> (frame.rotation + sign * (pose - displayPhysical()) + 360) % 360
+                else -> (natural + sign * pose + 360) % 360
             }
             val buffer = frame.buffer
+            val naturalPortrait = (buffer.height > buffer.width) != (natural % 180 != 0)
+            val portraitRotation = if (naturalPortrait) natural else (natural + 90) % 360
             val previous = layout
             val current = if (previous != null &&
                 previous.sourceWidth == buffer.width && previous.sourceHeight == buffer.height &&
-                previous.rotation == rotation
-            ) previous else FrameLayout(buffer.width, buffer.height, rotation).also {
+                previous.rotation == rotation && previous.portraitRotation == portraitRotation
+            ) previous else FrameLayout(buffer.width, buffer.height, rotation, portraitRotation).also {
                 layout = it
                 Log.d("LocalistCapture", "camera pose=$pose rotation=$rotation size=${it.width}x${it.height}")
                 if (previous == null || previous.width != it.width || previous.height != it.height) {
@@ -164,7 +176,13 @@ object CaptureOrientation {
     }
 
     /** Image fills 16:9 or 9:16 without stretching or carrying rotation metadata. */
-    private class FrameLayout(val sourceWidth: Int, val sourceHeight: Int, val rotation: Int) {
+    private class FrameLayout(
+        val sourceWidth: Int,
+        val sourceHeight: Int,
+        val rotation: Int,
+        val portraitRotation: Int,
+    ) {
+        val previewRotation = (portraitRotation - rotation + 360) % 360
         val orientedWidth = if (rotation % 180 == 0) sourceWidth else sourceHeight
         val orientedHeight = if (rotation % 180 == 0) sourceHeight else sourceWidth
         private val portrait = orientedHeight > orientedWidth

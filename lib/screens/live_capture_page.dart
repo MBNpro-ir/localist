@@ -1100,12 +1100,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       (!Platform.isAndroid || _service.videoPortrait != null);
 
   double get _previewAspectRatio {
-    if (_android && _service.localStream != null) {
-      final portrait =
-          _service.videoPortrait ??
-          MediaQuery.orientationOf(context) == Orientation.portrait;
-      return portrait ? 9 / 16 : 16 / 9;
-    }
+    if (_nativePreviewReady) return 9 / 16;
     final width = _service.options.width;
     final height = _service.options.height;
     return width == height
