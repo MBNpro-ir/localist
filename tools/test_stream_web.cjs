@@ -49,8 +49,16 @@ async function makeFixtures(browser) {
     server = spawn('C:/dev/flutter/bin/cache/dart-sdk/bin/dart.exe', ['C:/dev/flutter/bin/cache/flutter_tools.snapshot', 'test', '--no-pub', 'tools/stream_web_browser_probe.dart', '--reporter', 'expanded'], { cwd: root, windowsHide: true });
     const log = fs.createWriteStream(path.join(out, 'server.log'));
     server.stdout.pipe(log); server.stderr.pipe(log, { end: false });
-    await until(() => fs.existsSync(path.join(out, 'port.json')), 45000);
-    const { port } = JSON.parse(fs.readFileSync(path.join(out, 'port.json')));
+    let port;
+    await until(() => {
+      try {
+        ({ port } = JSON.parse(fs.readFileSync(path.join(out, 'port.json'))));
+        return Number.isInteger(port);
+      } catch (error) {
+        if (error instanceof SyntaxError || error.code === 'ENOENT') return false;
+        throw error;
+      }
+    }, 45000);
     const origin = `http://127.0.0.1:${port}`;
     const context = await browser.newContext({ viewport: { width: 1440, height: 1040 }, colorScheme: 'dark', reducedMotion: 'reduce' });
     const external = [], errors = [], policies = [];
