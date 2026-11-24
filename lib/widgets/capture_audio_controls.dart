@@ -329,73 +329,68 @@ class _CaptureAudioControlsState extends State<CaptureAudioControls> {
             ),
           ],
         ],
-        if (!widget.sender)
+        if (!widget.sender && widget.windows)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(t('همگام‌سازی رویدادی', 'Event synchronization')),
+            value: settings.eventSync,
+            onChanged: widget.enabled
+                ? (v) => change({'audioEventSync': v})
+                : null,
+          ),
+        if (!widget.sender && !widget.windows)
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
             title: Text(t('تنظیمات پیشرفتهٔ صدا', 'Advanced audio settings')),
             children: [
-              if (!widget.sender && widget.windows)
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(t('همگام‌سازی رویدادی', 'Event synchronization')),
-                  value: settings.eventSync,
-                  onChanged: widget.enabled
-                      ? (v) => change({'audioEventSync': v})
-                      : null,
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  t('فعال‌سازی افکت‌های خروجی', 'Enable output audio effects'),
                 ),
-              if (!widget.sender && !widget.windows) ...[
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    t(
-                      'فعال‌سازی افکت‌های خروجی',
-                      'Enable output audio effects',
+                value: settings.outputEffects,
+                onChanged: widget.enabled
+                    ? (v) => change({'audioOutputEffects': v})
+                    : null,
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  t('خروجی کم‌تأخیر AudioTrack', 'Low latency AudioTrack'),
+                ),
+                value: settings.lowLatency,
+                onChanged: widget.enabled
+                    ? (v) => change({'audioLowLatency': v})
+                    : null,
+              ),
+              DropdownButtonFormField<String>(
+                key: ValueKey('audio-focus-${settings.focus}'),
+                isExpanded: true,
+                initialValue: settings.focus,
+                decoration: InputDecoration(
+                  labelText: t('هم‌زمانی صدای برنامه‌ها', 'Audio focus'),
+                ),
+                items: [
+                  for (final e in {
+                    'exclusive': t(
+                      'انحصاری · توقف با صدای برنامهٔ دیگر',
+                      'Exclusive · pause for another app',
                     ),
-                  ),
-                  value: settings.outputEffects,
-                  onChanged: widget.enabled
-                      ? (v) => change({'audioOutputEffects': v})
-                      : null,
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    t('خروجی کم‌تأخیر AudioTrack', 'Low latency AudioTrack'),
-                  ),
-                  value: settings.lowLatency,
-                  onChanged: widget.enabled
-                      ? (v) => change({'audioLowLatency': v})
-                      : null,
-                ),
-                DropdownButtonFormField<String>(
-                  key: ValueKey('audio-focus-${settings.focus}'),
-                  isExpanded: true,
-                  initialValue: settings.focus,
-                  decoration: InputDecoration(
-                    labelText: t('هم‌زمانی صدای برنامه‌ها', 'Audio focus'),
-                  ),
-                  items: [
-                    for (final e in {
-                      'exclusive': t(
-                        'انحصاری · توقف با صدای برنامهٔ دیگر',
-                        'Exclusive · pause for another app',
-                      ),
-                      'shared': t('پخش هم‌زمان', 'Mix with other apps'),
-                      'calls': t(
-                        'ادامه هنگام تماس، در صورت پشتیبانی دستگاه',
-                        'Continue during calls, when supported',
-                      ),
-                    }.entries)
-                      DropdownMenuItem(
-                        value: e.key,
-                        child: Text(e.value, overflow: TextOverflow.ellipsis),
-                      ),
-                  ],
-                  onChanged: widget.enabled
-                      ? (v) => change({'audioFocus': v})
-                      : null,
-                ),
-              ],
+                    'shared': t('پخش هم‌زمان', 'Mix with other apps'),
+                    'calls': t(
+                      'ادامه هنگام تماس، در صورت پشتیبانی دستگاه',
+                      'Continue during calls, when supported',
+                    ),
+                  }.entries)
+                    DropdownMenuItem(
+                      value: e.key,
+                      child: Text(e.value, overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: widget.enabled
+                    ? (v) => change({'audioFocus': v})
+                    : null,
+              ),
             ],
           ),
       ],

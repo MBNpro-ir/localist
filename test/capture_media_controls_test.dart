@@ -33,7 +33,12 @@ class _CameraTrack extends Fake implements MediaStreamTrack {
 
 class _Capture extends LiveCaptureService {
   bool started = false;
+  Map<String, dynamic>? remoteSettings;
   final commands = <Map<String, dynamic>>[];
+  @override
+  Map<String, dynamic> get captureControlState =>
+      remoteSettings ?? super.captureControlState;
+
   @override
   Future<void> requestCaptureControl(Map<String, dynamic> command) async {
     commands.add(command);
@@ -340,9 +345,20 @@ void main() {
   );
   for (final camera in [false, true]) {
     testWidgets(
-      'receiver exposes only ${camera ? 'camera' : 'microphone'} controls',
+      'Windows shows ${camera ? 'camera' : 'microphone'} controls directly on the device card',
       (tester) async {
-        final capture = _Capture();
+        final capture = _Capture()
+          ..remoteSettings = {
+            'enabled': true,
+            if (camera) ...{
+              'camera0': 'Rear lens',
+              'selectedCamera': 0,
+              'torchAvailable': true,
+            } else ...{
+              'microphone0': 'Built-in microphone',
+              'selectedMicrophone': 0,
+            },
+          };
         final renderer = _Preview();
         final peer = CaptureReceiver(
           CaptureAdvertisement(
@@ -363,11 +379,12 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
-              body: CaptureReceiversPanel(hub: _Hub(peer), windows: true),
+              body: SingleChildScrollView(
+                child: CaptureReceiversPanel(hub: _Hub(peer), windows: true),
+              ),
             ),
           ),
         );
-        await tester.tap(find.text('Phone'));
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 50)),
         );
@@ -380,6 +397,29 @@ void main() {
           find.byTooltip('Toggle this device audio'),
           camera ? findsNothing : findsOneWidget,
         );
+        expect(find.byTooltip('This device settings'), findsNothing);
+        expect(find.byType(BottomSheet), findsNothing);
+        expect(find.text('Advanced audio settings'), findsNothing);
+        expect(
+          find.text('Event synchronization'),
+          camera ? findsNothing : findsOneWidget,
+        );
+        expect(
+          find.text('Camera input'),
+          camera ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.text('Microphone input'),
+          camera ? findsNothing : findsOneWidget,
+        );
+        final control = find.widgetWithText(
+          SwitchListTile,
+          camera ? 'Camera light' : 'Echo cancellation',
+        );
+        await tester.ensureVisible(control);
+        await tester.tap(control);
+        await tester.pumpAndSettle();
+        expect(capture.commands.single, {camera ? 'torch' : 'echo': true});
         if (!camera) {
           expect(find.textContaining('Localist Camera'), findsNothing);
         }
