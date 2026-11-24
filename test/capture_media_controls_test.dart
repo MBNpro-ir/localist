@@ -52,6 +52,12 @@ class _Capture extends LiveCaptureService {
   Future<void> stop() async {
     started = false;
   }
+
+  @override
+  Future<void> setTorch(bool enabled) async {
+    torch = enabled;
+    notifyListeners();
+  }
 }
 
 class _Preview extends RTCVideoRenderer {
@@ -446,9 +452,49 @@ void main() {
       expect(find.byTooltip('Pause camera'), findsNothing);
       expect(find.byTooltip('Switch camera'), findsNothing);
       expect(find.byTooltip('Mirror preview'), findsNothing);
+      expect(find.byTooltip('Camera light'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('camera light toggles from the live camera toolbar', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final capture = _Capture()
+      ..started = true
+      ..hasTorch = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LiveCapturePage(service: capture, renderer: _Preview()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final light = find.widgetWithIcon(
+      IconButton,
+      Icons.flashlight_off_outlined,
+    );
+    final toolbar = find.ancestor(of: light, matching: find.byType(Wrap)).first;
+    expect(
+      find.descendant(of: toolbar, matching: find.byTooltip('Pause camera')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: toolbar, matching: find.byTooltip('Stop sharing')),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(light);
+    await tester.tap(light);
+    await tester.pumpAndSettle();
+    expect(capture.torch, isTrue);
+    expect(find.byIcon(Icons.flashlight_on_outlined), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 8));
+    debugDefaultTargetPlatformOverride = null;
+  });
 }

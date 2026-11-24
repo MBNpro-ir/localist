@@ -1206,6 +1206,16 @@ class _LiveCapturePageState extends State<LiveCapturePage>
                 icon: const Icon(Icons.cameraswitch_outlined),
                 onPressed: _service.busy ? null : _switchCamera,
               ),
+              if (_android && _service.hasTorch)
+                IconButton.filledTonal(
+                  tooltip: t('چراغ دوربین', 'Camera light'),
+                  isSelected: _service.torch,
+                  icon: const Icon(Icons.flashlight_off_outlined),
+                  selectedIcon: const Icon(Icons.flashlight_on_outlined),
+                  onPressed: _operationRunning || _service.busy
+                      ? null
+                      : () => _run(() => _service.setTorch(!_service.torch)),
+                ),
             ],
             if (_hasPreviewVideo)
               IconButton.filledTonal(
@@ -1234,44 +1244,35 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             ),
           ],
         ),
-        if (_android && _service.broadcasting) ...[
+        if (_android &&
+            _service.broadcasting &&
+            _service.localStream?.getVideoTracks().isNotEmpty == true &&
+            _service.maxZoom > 1) ...[
           const SizedBox(height: 12),
-          if (_service.localStream?.getVideoTracks().isNotEmpty == true) ...[
-            if (_service.maxZoom > 1)
-              Row(
-                children: [
-                  Text(t('زوم', 'Zoom')),
-                  Expanded(
-                    child: Slider(
-                      value: (_zoomDraft ?? _service.zoom).clamp(
-                        1,
-                        _service.maxZoom,
-                      ),
-                      min: 1,
-                      max: _service.maxZoom,
-                      label:
-                          '${(_zoomDraft ?? _service.zoom).toStringAsFixed(1)}×',
-                      onChanged: _operationRunning || _service.busy
-                          ? null
-                          : (value) => setState(() => _zoomDraft = value),
-                      onChangeEnd: (value) async {
-                        await _run(() => _service.setZoom(value));
-                        if (mounted) setState(() => _zoomDraft = null);
-                      },
-                    ),
+          Row(
+            children: [
+              Text(t('زوم', 'Zoom')),
+              Expanded(
+                child: Slider(
+                  value: (_zoomDraft ?? _service.zoom).clamp(
+                    1,
+                    _service.maxZoom,
                   ),
-                  Text('${_service.zoom.toStringAsFixed(1)}×'),
-                ],
+                  min: 1,
+                  max: _service.maxZoom,
+                  label: '${(_zoomDraft ?? _service.zoom).toStringAsFixed(1)}×',
+                  onChanged: _operationRunning || _service.busy
+                      ? null
+                      : (value) => setState(() => _zoomDraft = value),
+                  onChangeEnd: (value) async {
+                    await _run(() => _service.setZoom(value));
+                    if (mounted) setState(() => _zoomDraft = null);
+                  },
+                ),
               ),
-            if (_service.hasTorch)
-              FilterChip(
-                label: Text(t('چراغ دوربین', 'Camera light')),
-                selected: _service.torch,
-                onSelected: _service.busy
-                    ? null
-                    : (value) => _run(() => _service.setTorch(value)),
-              ),
-          ],
+              Text('${_service.zoom.toStringAsFixed(1)}×'),
+            ],
+          ),
         ],
       ],
     ),
