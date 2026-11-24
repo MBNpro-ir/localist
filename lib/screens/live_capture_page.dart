@@ -317,10 +317,17 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             widget.renderer == null &&
             _service.remoteStream == null) {
           if (_previewTrack != track) {
-            _previewTexture = await const MethodChannel(
+            final texture = await const MethodChannel(
               'localist/capture',
             ).invokeMethod<int>('previewTrack', {'track': track});
             _previewTrack = track;
+            if (_previewDisposed) {
+              _previewTexture = texture;
+              return;
+            }
+            if (mounted && _previewTexture != texture) {
+              setState(() => _previewTexture = texture);
+            }
           }
         } else if (_rendererReady &&
             (_renderer.srcObject != (track == null ? null : stream) ||
