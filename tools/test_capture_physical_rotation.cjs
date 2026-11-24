@@ -20,7 +20,7 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   const hub=await vm.eval(vm.library('/capture_hub_service.dart'),'CaptureHubService.instance');
   await vm.wait(await vm.eval(hub.id,'setEnabled(false)'));
   sender=await vm.eval(hub.id,'sender');
-  await vm.wait(await vm.eval(sender.id,"start(const LiveCaptureOptions(width:640,height:480,fps:15,bitrateKbps:750,orientation:'auto'),port:33333)"));
+  await vm.wait(await vm.eval(sender.id,"start(const LiveCaptureOptions(width:640,height:480,fps:15,bitrateKbps:750),port:33333)"));
   const session=await vm.json(sender.id,"{'key':signalingKey,'port':signalingPort}");
   command('forward','tcp:45108','tcp:33333');
   browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,
@@ -28,21 +28,15 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
   const page=await browser.newPage();await page.goto('http://127.0.0.1:45108/#'+session.key);
   const size=()=>page.evaluate(()=>({width:video.videoWidth,height:video.videoHeight,frames:video.getVideoPlaybackQuality().totalVideoFrames}));
   const results=[];
-  for(const [name,sensor,portrait] of [['portrait','0:9.81:0',true],['landscape-left','9.81:0:0',false],
-    ['portrait-inverted','0:-9.81:0',true],['landscape-right','-9.81:0:0',false]]){
+  for(const [name,sensor] of [['portrait','0:9.81:0'],['landscape-left','9.81:0:0'],
+    ['portrait-inverted','0:-9.81:0'],['landscape-right','-9.81:0:0']]){
+    const initialFrames=(await size()).frames;
     setPhysical(sensor);
-    await page.waitForFunction(p=>video.videoWidth>0 && (video.videoHeight>video.videoWidth)===p,portrait,{timeout:20000});
+    await pause(800);
+    await page.waitForFunction(previous=>video.videoWidth>video.videoHeight &&
+      video.getVideoPlaybackQuality().totalVideoFrames>previous,initialFrames,{timeout:20000});
     results.push({name,...await size()});
     if(command('shell','settings','get','system','user_rotation').trim()!=='0')throw Error('Display lock was changed');
-  }
-  for(const [mode,portrait] of [['portrait',true],['landscape',false]]){
-    await vm.wait(await vm.eval(sender.id,`setOrientation('${mode}')`));
-    await page.waitForFunction(p=>(video.videoHeight>video.videoWidth)===p,portrait);
-    for(const sensor of ['0:9.81:0','9.81:0:0']){
-      setPhysical(sensor);await pause(600);
-      const value=await size();if((value.height>value.width)!==portrait)throw Error('Orientation lock failed');
-    }
-    results.push({name:mode+'-lock',...await size()});
   }
   const stats=await page.evaluate(async()=>[...await peer.getStats()].map(([,s])=>s).filter(s=>s.type==='inbound-rtp').map(s=>({kind:s.kind,bytes:s.bytesReceived,frames:s.framesDecoded})));
   if(!stats.some(s=>s.kind==='video'&&s.frames>6)||!stats.some(s=>s.kind==='audio'&&s.bytes>0))throw Error('RTP data missing');

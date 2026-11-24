@@ -14,6 +14,7 @@ import '../services/log_service.dart';
 import '../services/localist_discovery_protocol.dart';
 import '../services/localist_peer_service.dart';
 import '../services/native_bridge_service.dart';
+import '../services/proxy_endpoint_resolver.dart';
 import '../services/v2rayng_socks_uri.dart';
 import '../widgets/glass.dart';
 
@@ -32,9 +33,11 @@ class SharingPage extends StatelessWidget {
     required this.onStopSharing,
     required this.onOpenHotspotSettings,
     required this.onRefresh,
+    this.visible = true,
   });
 
   final AppSettings settings;
+  final bool visible;
   final ServiceSnapshot snapshot;
   final List<LocalistConnectedPeer> connectedPeers;
   final bool busy;
@@ -81,6 +84,7 @@ class SharingPage extends StatelessWidget {
           running: running,
           rootMode: rootSharingMode,
           isWindows: Platform.isWindows,
+          visible: visible,
           activeProtocols: activeProtocols,
           localIps: localIps,
           fallbackIp: fallbackIp,
@@ -178,6 +182,7 @@ class _SharingControlPanel extends StatelessWidget {
     required this.running,
     required this.rootMode,
     required this.isWindows,
+    required this.visible,
     required this.activeProtocols,
     required this.localIps,
     required this.fallbackIp,
@@ -194,7 +199,7 @@ class _SharingControlPanel extends StatelessWidget {
   final String lockMessage;
   final bool running;
   final bool rootMode;
-  final bool isWindows;
+  final bool isWindows, visible;
   final Set<ProxyProtocol> activeProtocols;
   final List<String> localIps;
   final String fallbackIp;
@@ -205,6 +210,21 @@ class _SharingControlPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!isWindows) return _buildPanel(context);
+    return _WindowsVpnProxySettings(
+      settings: settings,
+      enabled: !busy && !running && !controlsLocked,
+      visible: visible,
+      builder: (context, field, error) =>
+          _buildPanel(context, proxyField: field, startError: error),
+    );
+  }
+
+  Widget _buildPanel(
+    BuildContext context, {
+    Widget? proxyField,
+    String? startError,
+  }) {
     final l10n = context.l10n;
     final oppositeServiceActive = controlsLocked && !running;
     final actionLabel = busy
@@ -309,13 +329,7 @@ class _SharingControlPanel extends StatelessWidget {
               icon: Icons.phone_iphone_outlined,
             ),
           ],
-          if (isWindows) ...[
-            const SizedBox(height: 12),
-            _WindowsVpnProxySettings(
-              settings: settings,
-              enabled: !busy && !running && !oppositeServiceActive,
-            ),
-          ],
+          if (proxyField != null) ...[const SizedBox(height: 12), proxyField],
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -361,7 +375,10 @@ class _SharingControlPanel extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: busy || oppositeServiceActive
+              onPressed:
+                  busy ||
+                      oppositeServiceActive ||
+                      (!running && startError != null)
                   ? null
                   : (running ? onStopSharing : onStartSharing),
               icon: busy
@@ -375,6 +392,14 @@ class _SharingControlPanel extends StatelessWidget {
               label: Text(actionLabel),
             ),
           ),
+          if (!running && !oppositeServiceActive && startError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                startError,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
           if (oppositeServiceActive) ...[
             const SizedBox(height: 12),
             ServiceLockNotice(message: lockMessage),
@@ -389,10 +414,14 @@ class _WindowsVpnProxySettings extends StatefulWidget {
   const _WindowsVpnProxySettings({
     required this.settings,
     required this.enabled,
+    required this.visible,
+    required this.builder,
   });
 
   final AppSettings settings;
-  final bool enabled;
+  final bool enabled, visible;
+  final Widget Function(BuildContext context, Widget field, String? startError)
+  builder;
 
   @override
   State<_WindowsVpnProxySettings> createState() =>
@@ -401,35 +430,156 @@ class _WindowsVpnProxySettings extends StatefulWidget {
 
 class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
   late final TextEditingController _portController;
-  late bool _enabledDraft;
-  bool _saving = false;
-  bool _syncing = false;
+  late bool _useProxy;
+  bool _saving = false, _saveFailed = false, _probing = false;
+  bool? _reachable;
+  int _generation = 0;
+  late Set<int> _reservedPorts;
+  Future<void> _writes = Future.value();
+  Timer? _recheck;
 
   @override
   void initState() {
     super.initState();
-    _enabledDraft = widget.settings.windowsVpnProxyEnabled;
+    _useProxy = widget.settings.windowsVpnProxyEnabled;
     _portController = TextEditingController(
-      text: widget.settings.windowsVpnProxyPort.toString(),
+      text: '${widget.settings.windowsVpnProxyPort}',
     );
-    _portController.addListener(_handleChanged);
-    widget.settings.addListener(_syncFromSettings);
+    _reservedPorts = _localistPorts();
+    widget.settings.addListener(_settingsChanged);
+    _scheduleProbe();
   }
 
   @override
   void didUpdateWidget(covariant _WindowsVpnProxySettings oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.settings != widget.settings) {
-      oldWidget.settings.removeListener(_syncFromSettings);
-      widget.settings.addListener(_syncFromSettings);
-      _syncFromSettings();
+      oldWidget.settings.removeListener(_settingsChanged);
+      widget.settings.addListener(_settingsChanged);
+      _settingsChanged();
     }
+    if (oldWidget.visible != widget.visible ||
+        oldWidget.enabled != widget.enabled) {
+      _scheduleProbe();
+    }
+  }
+
+  Set<int> _localistPorts() => {
+    for (final protocol in ProxyProtocol.values)
+      widget.settings.portFor(protocol),
+    3781,
+  };
+
+  void _settingsChanged() {
+    final ports = _localistPorts();
+    if (_reservedPorts.length == ports.length &&
+        _reservedPorts.containsAll(ports)) {
+      return;
+    }
+    setState(() => _reservedPorts = ports);
+    _edited();
+  }
+
+  String? _portError(AppLocalizations l10n) {
+    final port = int.tryParse(_portController.text.trim());
+    if (port == null) return l10n.numbersOnly;
+    if (port < 1024 || port > 65535) return l10n.portRange1024To65535;
+    if (_reservedPorts.contains(port)) return l10n.portBelongsToLocalist;
+    return null;
+  }
+
+  void _edited() {
+    final generation = ++_generation;
+    final enabled = _useProxy;
+    final port = int.tryParse(_portController.text.trim());
+    final valid =
+        port != null &&
+        port >= 1024 &&
+        port <= 65535 &&
+        !_reservedPorts.contains(port);
+    setState(() {
+      _reachable = null;
+      _saveFailed = false;
+      _saving = valid;
+    });
+    _scheduleProbe();
+    if (!valid) return;
+    final settings = widget.settings;
+    _writes = _writes.then((_) async {
+      if (generation != _generation) return;
+      try {
+        await settings.setWindowsVpnProxy(enabled: enabled, port: port);
+      } catch (error) {
+        LogService.instance.warning(
+          'Windows VPN proxy settings write failed: ${error.runtimeType}',
+        );
+        if (mounted && generation == _generation) {
+          setState(() => _saveFailed = true);
+        }
+      } finally {
+        if (mounted && generation == _generation) {
+          setState(() => _saving = false);
+        }
+      }
+    });
+  }
+
+  void _scheduleProbe() {
+    _recheck?.cancel();
+    if (!widget.visible || !widget.enabled || !_useProxy) return;
+    final port = int.tryParse(_portController.text.trim());
+    if (port == null ||
+        port < 1024 ||
+        port > 65535 ||
+        _reservedPorts.contains(port)) {
+      return;
+    }
+    _recheck = Timer(
+      const Duration(milliseconds: 250),
+      () => _probe(port, _generation),
+    );
+  }
+
+  Future<void> _probe(int port, int generation) async {
+    if (!mounted ||
+        !widget.visible ||
+        !widget.enabled ||
+        !_useProxy ||
+        generation != _generation) {
+      return;
+    }
+    if (_probing) {
+      _scheduleProbe();
+      return;
+    }
+    _probing = true;
+    final reachable = await probeProxyConnection(
+      RemoteProxyConfig(
+        protocol: ProxyProtocol.socks5,
+        host: InternetAddress.loopbackIPv4.address,
+        port: port,
+      ),
+      timeout: const Duration(seconds: 1),
+    );
+    _probing = false;
+    if (!mounted ||
+        !widget.visible ||
+        !widget.enabled ||
+        !_useProxy ||
+        generation != _generation) {
+      return;
+    }
+    if (_reachable != reachable) setState(() => _reachable = reachable);
+    _recheck = Timer(
+      const Duration(seconds: 3),
+      () => _probe(port, generation),
+    );
   }
 
   @override
   void dispose() {
-    widget.settings.removeListener(_syncFromSettings);
-    _portController.removeListener(_handleChanged);
+    _recheck?.cancel();
+    widget.settings.removeListener(_settingsChanged);
     _portController.dispose();
     super.dispose();
   }
@@ -437,168 +587,60 @@ class _WindowsVpnProxySettingsState extends State<_WindowsVpnProxySettings> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final errorText = _hasEdits ? _portError(_portController.text) : null;
-    final canSave =
-        widget.enabled && _hasEdits && errorText == null && !_saving;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextField(
-          controller: _portController,
-          enabled: widget.enabled,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            labelText: l10n.internalVpnProxy,
-            prefixIcon: const Icon(Icons.vpn_lock_outlined),
-            suffixIconConstraints: const BoxConstraints(
-              minWidth: 48,
-              minHeight: 48,
-            ),
-            suffixIcon: Tooltip(
-              message: l10n.useInternalVpnProxy,
-              child: Checkbox(
-                value: _enabledDraft,
-                onChanged: widget.enabled
-                    ? (value) {
-                        LogService.instance.debug(
-                          'Windows VPN proxy checkbox changed value=${value ?? false}',
-                        );
-                        setState(() {
-                          _enabledDraft = value ?? false;
-                        });
-                      }
-                    : null,
-              ),
-            ),
-            helperText: widget.enabled
-                ? _enabledDraft
-                      ? l10n.usesV2raynSocks
-                      : l10n.sharingUsesWindowsRoute
-                : l10n.lockedWhileSharingActive,
-            errorText: errorText,
+    final portError = _portError(l10n);
+    final error =
+        portError ??
+        (_saveFailed
+            ? (l10n.isPersian
+                  ? 'ذخیرهٔ تنظیم پراکسی انجام نشد. مقدار را دوباره وارد کنید.'
+                  : 'Could not save the proxy settings. Enter the value again.')
+            : _saving
+            ? (l10n.isPersian
+                  ? 'در حال ذخیرهٔ تنظیم پراکسی…'
+                  : 'Saving proxy settings…')
+            : _useProxy && _reachable != true
+            ? (_reachable == null
+                  ? (l10n.isPersian
+                        ? 'در حال بررسی پراکسی داخلی…'
+                        : 'Checking the internal proxy…')
+                  : l10n.internalVpnProxyUnavailable)
+            : null);
+    return widget.builder(
+      context,
+      TextField(
+        controller: _portController,
+        enabled: widget.enabled,
+        keyboardType: TextInputType.number,
+        onChanged: (_) => _edited(),
+        decoration: InputDecoration(
+          labelText: l10n.internalVpnProxy,
+          prefixIcon: const Icon(Icons.vpn_lock_outlined),
+          suffixIconConstraints: const BoxConstraints(
+            minWidth: 48,
+            minHeight: 48,
           ),
-          onSubmitted: (_) {
-            if (canSave) {
-              _save();
-            }
-          },
+          suffixIcon: Tooltip(
+            message: l10n.useInternalVpnProxy,
+            child: Checkbox(
+              value: _useProxy,
+              onChanged: widget.enabled
+                  ? (value) {
+                      _useProxy = value ?? false;
+                      _edited();
+                    }
+                  : null,
+            ),
+          ),
+          helperText: widget.enabled
+              ? (_useProxy
+                    ? l10n.usesV2raynSocks
+                    : l10n.sharingUsesWindowsRoute)
+              : l10n.lockedWhileSharingActive,
+          errorText: portError,
         ),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          child: _hasEdits || _saving
-              ? Padding(
-                  key: const ValueKey('save-windows-vpn-proxy'),
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton.icon(
-                      onPressed: canSave ? _save : null,
-                      icon: _saving
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.save_outlined),
-                      label: Text(l10n.saveVpnProxy),
-                    ),
-                  ),
-                )
-              : const SizedBox.shrink(),
-        ),
-      ],
+      ),
+      error,
     );
-  }
-
-  bool get _hasEdits {
-    return _enabledDraft != widget.settings.windowsVpnProxyEnabled ||
-        _portController.text.trim() !=
-            widget.settings.windowsVpnProxyPort.toString();
-  }
-
-  void _handleChanged() {
-    if (_syncing || !mounted) {
-      return;
-    }
-    setState(() {});
-  }
-
-  void _syncFromSettings() {
-    if (_hasEdits) {
-      return;
-    }
-    _syncing = true;
-    _enabledDraft = widget.settings.windowsVpnProxyEnabled;
-    final value = widget.settings.windowsVpnProxyPort.toString();
-    if (_portController.text != value) {
-      _portController.value = TextEditingValue(
-        text: value,
-        selection: TextSelection.collapsed(offset: value.length),
-      );
-    }
-    _syncing = false;
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  String? _portError(String value) {
-    final parsed = int.tryParse(value.trim());
-    if (parsed == null) {
-      return context.l10n.numbersOnly;
-    }
-    if (parsed < 1024 || parsed > 65535) {
-      return context.l10n.portRange1024To65535;
-    }
-    final localistPorts = {
-      for (final protocol in ProxyProtocol.values)
-        widget.settings.portFor(protocol),
-      3781,
-    };
-    if (localistPorts.contains(parsed)) {
-      return context.l10n.portBelongsToLocalist;
-    }
-    return null;
-  }
-
-  Future<void> _save() async {
-    final port = int.tryParse(_portController.text.trim());
-    if (_portError(_portController.text) != null || port == null) {
-      LogService.instance.debug(
-        'Sharing page: VPN proxy settings rejected invalid port',
-      );
-      showLocalistNotice(
-        context,
-        message: context.l10n.enterValidVpnProxyPortFirst,
-        tone: InAppNoticeTone.warning,
-      );
-      return;
-    }
-    setState(() => _saving = true);
-    try {
-      LogService.instance.debug(
-        'Windows VPN proxy settings save requested enabled=$_enabledDraft port=$port',
-      );
-      await widget.settings.setWindowsVpnProxy(
-        enabled: _enabledDraft,
-        port: port,
-      );
-      LogService.instance.debug(
-        'Sharing page: Windows VPN proxy settings saved enabled=$_enabledDraft',
-      );
-      if (mounted) {
-        showLocalistNotice(
-          context,
-          message: context.l10n.vpnProxySaved,
-          tone: InAppNoticeTone.success,
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _saving = false);
-      }
-    }
   }
 }
 

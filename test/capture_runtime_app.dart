@@ -60,7 +60,9 @@ Future<void> main() async {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
       if (preview.videoWidth <= 0) throw StateError('Preview did not render');
-      await service.setOrientation(i.isEven ? 'landscape' : 'auto');
+      if (preview.videoWidth < preview.videoHeight) {
+        throw StateError('Preview did not remain landscape');
+      }
       await service.switchCamera();
       await service.requestCaptureControl({
         'width': 640,

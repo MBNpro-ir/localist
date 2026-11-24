@@ -47,11 +47,10 @@ import 'services/localist_discovery_service.dart';
 import 'services/localist_peer_service.dart';
 import 'services/media_stream_service.dart';
 import 'services/native_bridge_service.dart';
+import 'services/proxy_endpoint_resolver.dart';
 import 'services/quick_send_service.dart';
 import 'services/quick_send_settings_exit_guard.dart';
 import 'widgets/glass.dart';
-import 'widgets/localist_bottom_navigation.dart';
-import 'widgets/localist_windows_navigation.dart';
 import 'widgets/quick_send_profile.dart';
 
 const _windowsSettingsSignatureKey = 'windows.settings.signature';
@@ -396,8 +395,6 @@ class LocalistShell extends StatefulWidget {
 
 class _LocalistShellState extends State<LocalistShell>
     with WidgetsBindingObserver, WindowListener, tray.TrayListener {
-  static const _quickSendPageIndex = 0;
-  static const _receivingPageIndex = 2;
   final NativeBridgeService _bridge = NativeBridgeService.instance;
   final LocalistDiscoveryService _discovery = LocalistDiscoveryService.instance;
   final LocalistPeerService _peerService = LocalistPeerService.instance;
@@ -413,11 +410,9 @@ class _LocalistShellState extends State<LocalistShell>
   Timer? _remoteDiscoveryTimer;
   Timer? _castDiscoveryTimer;
   Future<void>? _refreshingState;
-  bool get _navigationLocked => _activities.owner != null;
   final LogService _logs = LogService.instance;
   final GlobalKey<QuickSendPageState> _quickSendPageKey =
       GlobalKey<QuickSendPageState>();
-  late final PageController _pageController;
   StreamSubscription<List<QuickSendSharedFile>>?
   _sharedQuickSendFilesSubscription;
   StreamSubscription<void>? _quickSendNotificationSubscription;
@@ -425,7 +420,9 @@ class _LocalistShellState extends State<LocalistShell>
   Timer? _updateCheckTimer;
   Timer? _refreshTimer;
 
-  int _index = 0;
+  LocalistFeature? _feature;
+  final _visitedFeatures = <LocalistFeature>{};
+  bool _receiving = false;
   ServiceSnapshot _snapshot = ServiceSnapshot.initial(
     protocol: ProxyProtocol.socks5,
     port: ProxyProtocol.socks5.defaultPort,
@@ -455,7 +452,6 @@ class _LocalistShellState extends State<LocalistShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _pageController = PageController();
     if (Platform.isWindows) {
       windowManager.addListener(this);
       tray.trayManager.addListener(this);
@@ -533,7 +529,6 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(MediaStreamService.instance.stop());
     unawaited(CaptureHubService.instance.stop());
     _refreshTimer?.cancel();
-    _pageController.dispose();
     super.dispose();
   }
 
@@ -1029,7 +1024,7 @@ class _LocalistShellState extends State<LocalistShell>
       duration: const Duration(seconds: 7),
       actionLabel: l10n.openReceiving,
       actionIcon: Icons.arrow_forward,
-      onTap: () => _setPage(_receivingPageIndex, force: true),
+      onTap: () => _selectFeature(LocalistFeature.vpnSharing, receiving: true),
     );
   }
 
@@ -1081,7 +1076,7 @@ class _LocalistShellState extends State<LocalistShell>
       if (!mounted) {
         return;
       }
-      _setPage(_quickSendPageIndex, force: true);
+      _selectFeature(LocalistFeature.quickSend, receiving: false);
       if (_usePersianText) {
         _showInAppNotice(
           '${files.length} \u0641\u0627\u06cc\u0644 \u0628\u0631\u0627\u06cc \u0627\u0631\u0633\u0627\u0644 \u0622\u0645\u0627\u062f\u0647 \u0634\u062f.',
@@ -1210,7 +1205,7 @@ class _LocalistShellState extends State<LocalistShell>
     if (widget.settings.soundEffectsEnabled) {
       unawaited(_bridge.playAppSound(AppSoundEvent.accepted));
     }
-    if (_index == _quickSendPageIndex) {
+    if (_feature == LocalistFeature.quickSend && _receiving) {
       return;
     }
     showLocalistNotice(
@@ -1221,7 +1216,7 @@ class _LocalistShellState extends State<LocalistShell>
       duration: const Duration(seconds: 9),
       actionLabel: persian ? 'نمایش' : 'Open',
       actionIcon: Icons.arrow_forward,
-      onTap: () => _setPage(_quickSendPageIndex, force: true),
+      onTap: () => _selectFeature(LocalistFeature.quickSend, receiving: true),
     );
   }
 
@@ -1282,8 +1277,12 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) {
       return;
     }
-    _setPage(_quickSendPageIndex, force: true);
-    await _quickSendPageKey.currentState?.revealPendingRequest();
+    _selectFeature(LocalistFeature.quickSend, receiving: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_quickSendPageKey.currentState?.revealPendingRequest());
+      }
+    });
     final pending = _quickSend.pendingRequest;
     if (pending != null && (requestId == null || requestId == pending.id)) {
       await _showIncomingQuickSendDialog(pending);
@@ -1311,7 +1310,7 @@ class _LocalistShellState extends State<LocalistShell>
     }
     try {
       if (await _bridge.hasQuickSendSharedFiles()) {
-        _setPage(_quickSendPageIndex, force: true);
+        _selectFeature(LocalistFeature.quickSend, receiving: false);
       }
     } catch (error) {
       _logs.warning('Could not inspect pending Quick Send share: $error');
@@ -1489,22 +1488,13 @@ class _LocalistShellState extends State<LocalistShell>
         }
         return;
       }
-      var internalVpnProxyUnavailable = false;
       RemoteProxyConfig? upstreamProxy;
       if (Platform.isWindows && widget.settings.windowsVpnProxyEnabled) {
-        final candidate = RemoteProxyConfig(
+        upstreamProxy = RemoteProxyConfig(
           protocol: ProxyProtocol.socks5,
           host: InternetAddress.loopbackIPv4.address,
           port: widget.settings.windowsVpnProxyPort,
         );
-        if (await _testProxyConnection(candidate)) {
-          upstreamProxy = candidate;
-        } else {
-          internalVpnProxyUnavailable = true;
-          _logs.warning(
-            'Internal VPN proxy is unavailable; starting Sharing without VPN upstream.',
-          );
-        }
       }
       final started = await _bridge.startProxyService(
         protocols: widget.settings.enabledProtocols,
@@ -1522,13 +1512,6 @@ class _LocalistShellState extends State<LocalistShell>
               )
               .join(', '),
         );
-        if (internalVpnProxyUnavailable && mounted) {
-          showLocalistNotice(
-            context,
-            message: l10n.internalVpnProxyUnavailable,
-            tone: InAppNoticeTone.warning,
-          );
-        }
       }
       await _refreshState();
     } catch (error) {
@@ -1812,45 +1795,8 @@ class _LocalistShellState extends State<LocalistShell>
     }
   }
 
-  Future<bool> _testProxyConnection(RemoteProxyConfig config) async {
-    try {
-      _logs.debug(
-        'Proxy reachability test started protocol=${config.protocol.name} port=${config.port}',
-      );
-      final socket = await Socket.connect(
-        config.host,
-        config.port,
-        timeout: const Duration(seconds: 4),
-      );
-      if (config.protocol == ProxyProtocol.socks5) {
-        socket.add([0x05, 0x01, 0x00]);
-        await socket.flush();
-        final response = await socket
-            .cast<List<int>>()
-            .expand((bytes) => bytes)
-            .take(2)
-            .toList()
-            .timeout(const Duration(seconds: 3));
-        socket.destroy();
-        final ok =
-            response.length == 2 && response[0] == 0x05 && response[1] == 0;
-        _logs.debug(
-          'SOCKS5 reachability test result port=${config.port} ok=$ok',
-        );
-        return ok;
-      }
-      socket.destroy();
-      _logs.debug('TCP reachability test result port=${config.port} ok=true');
-      return true;
-    } catch (error, stack) {
-      _logs.debug(
-        'Proxy reachability test failed protocol=${config.protocol.name} port=${config.port}',
-        error: error,
-        stack: stack,
-      );
-      return false;
-    }
-  }
+  Future<bool> _testProxyConnection(RemoteProxyConfig config) =>
+      probeProxyConnection(config);
 
   Future<void> _showPermissionDialog({
     required String title,
@@ -1987,7 +1933,19 @@ class _LocalistShellState extends State<LocalistShell>
     if (!mounted) return;
     final owner = _activities.owner;
     setState(() {});
-    if (owner != null) _setPage(owner.index);
+    final capture = CaptureHubService.instance.sender;
+    if (owner != null && owner != _feature) {
+      _selectFeature(
+        owner,
+        receiving: switch (owner) {
+          LocalistFeature.capture => !capture.broadcasting && !capture.busy,
+          LocalistFeature.quickSend => true,
+          LocalistFeature.vpnSharing => _receivingActive,
+          LocalistFeature.remoteControl => _remoteService.hosting,
+          _ => false,
+        },
+      );
+    }
   }
 
   void _handleUpdateChanged() {
@@ -2008,7 +1966,6 @@ class _LocalistShellState extends State<LocalistShell>
     final l10n = context.l10n;
     final themeSettings = context.watch<ThemeSettingsModel>();
     final simpleVisuals = widget.useSimpleTheme;
-    final navItems = _navItems(l10n);
     final quickSendVpnActive = Platform.isWindows
         ? _snapshot.receivingRunning && _snapshot.deviceVpnActive
         : _snapshot.deviceVpnActive;
@@ -2027,74 +1984,86 @@ class _LocalistShellState extends State<LocalistShell>
       systemStatusBarContrastEnforced: !simpleVisuals,
       systemNavigationBarContrastEnforced: !simpleVisuals,
     );
-    final pages = [
-      KeepAlivePage(
-        child: QuickSendPage(
-          key: _quickSendPageKey,
-          deviceVpnActive: quickSendVpnActive,
-          active: _index == _quickSendPageIndex,
-          onOpenProfileSettings: () =>
-              unawaited(_openSettings(SettingsSection.quickSend)),
-        ),
+    Widget page(LocalistFeature feature) => switch (feature) {
+      LocalistFeature.quickSend => QuickSendPage(
+        key: _quickSendPageKey,
+        deviceVpnActive: quickSendVpnActive,
+        active: _feature == feature,
+        receiving: _receiving,
+        showIdentity: false,
+        onOpenProfileSettings: () =>
+            unawaited(_openSettings(SettingsSection.quickSend)),
       ),
-      if (Platform.isAndroid || Platform.isWindows)
-        KeepAlivePage(
-          child: RemoteDebugPage(
-            service: _remoteService,
-            devices: _remoteDevices,
-          ),
-        ),
-      KeepAlivePage(
-        child: VpnSharingPage(
-          sharingActive: _sharingActive,
-          receivingActive: _receivingActive,
+      LocalistFeature.remoteControl => RemoteDebugPage(
+        service: _remoteService,
+        devices: _remoteDevices,
+        receiving: _receiving,
+      ),
+      LocalistFeature.vpnSharing => VpnSharingPage(
+        receivingSelected: _receiving,
+        sharingActive: _sharingActive,
+        receivingActive: _receivingActive,
+        busy: _busy,
+        sharing: SharingPage(
+          settings: widget.settings,
+          visible: _feature == feature && !_receiving,
+          snapshot: _snapshot,
+          connectedPeers: _connectedPeers,
           busy: _busy,
-          sharing: SharingPage(
-            settings: widget.settings,
-            snapshot: _snapshot,
-            connectedPeers: _connectedPeers,
-            busy: _busy,
-            controlsLocked: _receivingActive,
-            lockMessage: l10n.receivingActiveLock,
-            onStartSharing: _startSharing,
-            onStopSharing: _stopSharing,
-            onOpenHotspotSettings: _openHotspotSettings,
-            onRefresh: _refreshState,
-          ),
-          receiving: ReceivingPage(
-            snapshot: _snapshot,
-            discoveredDevices: _discoveredDevices,
-            discoveryScanning: _discoveryScanning,
-            busy: _busy,
-            controlsLocked: _sharingActive,
-            lockMessage: l10n.sharingActiveLock,
-            onStartReceiving: _startReceiving,
-            onStartSystemProxy: _startSystemProxy,
-            onStartLocalProxy: _startLocalProxy,
-            onStopReceiving: _stopReceiving,
-            onRefreshDiscovery: _refreshDiscovery,
-          ),
+          controlsLocked: _receivingActive,
+          lockMessage: l10n.receivingActiveLock,
+          onStartSharing: _startSharing,
+          onStopSharing: _stopSharing,
+          onOpenHotspotSettings: _openHotspotSettings,
+          onRefresh: _refreshState,
+        ),
+        receiving: ReceivingPage(
+          snapshot: _snapshot,
+          discoveredDevices: _discoveredDevices,
+          discoveryScanning: _discoveryScanning,
+          busy: _busy,
+          controlsLocked: _sharingActive,
+          lockMessage: l10n.sharingActiveLock,
+          onStartReceiving: _startReceiving,
+          onStartSystemProxy: _startSystemProxy,
+          onStartLocalProxy: _startLocalProxy,
+          onStopReceiving: _stopReceiving,
+          onRefreshDiscovery: _refreshDiscovery,
         ),
       ),
-      const KeepAlivePage(child: LiveCapturePage()),
-      KeepAlivePage(child: StreamPage(service: MediaStreamService.instance)),
-    ];
+      LocalistFeature.capture => LiveCapturePage(
+        receiving: _receiving,
+        visible: _feature == feature,
+      ),
+      LocalistFeature.stream => StreamPage(
+        service: MediaStreamService.instance,
+        receiving: _receiving,
+      ),
+    };
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: GlassBackground(
         simple: simpleVisuals,
         child: Scaffold(
-          extendBody: true,
           backgroundColor: simpleVisuals
               ? Theme.of(context).colorScheme.surface
               : Colors.transparent,
           appBar: GlassAppBar(
+            leading: _feature != null && _activities.owner == null
+                ? BackButton(onPressed: () => setState(() => _feature = null))
+                : null,
             title: Row(
               mainAxisSize: MainAxisSize.min,
               children: [const Text('Localist')],
             ),
             actions: [
+              if (_statsAvailable)
+                IconButton(
+                  tooltip: l10n.stats,
+                  onPressed: _showStatsSheet,
+                  icon: const Icon(Icons.query_stats),
+                ),
               LocalistUpdateAction(
                 updates: _updates,
                 onPressed: () {
@@ -2155,10 +2124,15 @@ class _LocalistShellState extends State<LocalistShell>
               ),
             ],
           ),
-          body: _buildMainContent(context, pages, navItems),
-          bottomNavigationBar: Platform.isWindows || _navigationLocked
-              ? null
-              : _buildBottomNavigation(context, navItems),
+          body: PopScope(
+            canPop: _feature == null,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop && _feature != null && _activities.owner == null) {
+                setState(() => _feature = null);
+              }
+            },
+            child: SafeArea(child: _buildMainContent(context, page)),
+          ),
         ),
       ),
     );
@@ -2166,77 +2140,159 @@ class _LocalistShellState extends State<LocalistShell>
 
   Widget _buildMainContent(
     BuildContext context,
-    List<Widget> pages,
-    List<_NavItem> navItems,
+    Widget Function(LocalistFeature) page,
   ) {
-    final pageView = PageView(
-      controller: _pageController,
-      physics: _navigationLocked
-          ? const NeverScrollableScrollPhysics()
-          : const PageScrollPhysics(),
-      onPageChanged: _handlePageChanged,
-      children: pages,
-    );
-    if (!Platform.isWindows) {
-      return SafeArea(bottom: false, child: pageView);
-    }
+    final l10n = context.l10n;
+    final owner = _activities.owner;
+    final feature = _feature;
+    final features = [
+      LocalistFeature.quickSend,
+      if (Platform.isWindows || Platform.isAndroid)
+        LocalistFeature.remoteControl,
+      LocalistFeature.vpnSharing,
+      LocalistFeature.capture,
+      LocalistFeature.stream,
+    ];
+    // A stop button must stay accessible while its service owns the screen.
+    final sender = CaptureHubService.instance.sender;
+    final canSwitchDirection =
+        owner == null ||
+        owner == LocalistFeature.quickSend ||
+        (owner == LocalistFeature.capture &&
+            !sender.broadcasting &&
+            !sender.busy);
 
-    return SafeArea(
-      bottom: false,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Padding(
-            padding: EdgeInsetsDirectional.only(
-              start: _navigationLocked
-                  ? 0
-                  : LocalistWindowsNavigation.collapsedWidth,
-            ),
-            child: pageView,
-          ),
-          if (!_navigationLocked)
-            PositionedDirectional(
-              start: 0,
-              top: 0,
-              bottom: 0,
-              child: LocalistWindowsNavigation(
-                currentIndex: _index,
-                onDestinationSelected: _goToPage,
-                items: [
-                  for (final item in navItems)
-                    LocalistBottomNavigationItem(
-                      label: item.label,
-                      icon: item.icon,
-                      selectedIcon: item.selectedIcon,
-                    ),
-                ],
-                showActionButton: _statsAvailable,
-                actionIcon: Icons.query_stats,
-                actionTooltip: context.l10n.stats,
-                onActionPressed: _showStatsSheet,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (feature == null)
+          PageSurface(
+            useColumns: false,
+            maxContentWidth: 640,
+            children: [
+              const SizedBox(height: 18),
+              Text(
+                l10n.isPersian
+                    ? 'چه کاری می‌خواهید انجام دهید؟'
+                    : 'What would you like to do?',
+                style: Theme.of(context).textTheme.headlineMedium,
               ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomNavigation(BuildContext context, List<_NavItem> navItems) {
-    return LocalistBottomNavigationBar(
-      currentIndex: _index,
-      onDestinationSelected: _goToPage,
-      items: [
-        for (final item in navItems)
-          LocalistBottomNavigationItem(
-            label: item.label,
-            icon: item.icon,
-            selectedIcon: item.selectedIcon,
+              FilledButton.icon(
+                onPressed: () =>
+                    _selectFeature(LocalistFeature.quickSend, receiving: false),
+                icon: const Icon(Icons.arrow_upward_rounded),
+                label: Text(l10n.isPersian ? 'ارسال' : 'Send'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(58),
+                ),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: () =>
+                    _selectFeature(LocalistFeature.quickSend, receiving: true),
+                icon: const Icon(Icons.arrow_downward_rounded),
+                label: Text(l10n.isPersian ? 'دریافت' : 'Receive'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(58),
+                ),
+              ),
+            ],
           ),
+        Offstage(
+          offstage: feature == null,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                child: SegmentedButton<bool>(
+                  segments: [
+                    ButtonSegment(
+                      value: false,
+                      icon: const Icon(Icons.upload_outlined),
+                      label: Text(l10n.sharing),
+                    ),
+                    ButtonSegment(
+                      value: true,
+                      icon: const Icon(Icons.download_outlined),
+                      label: Text(l10n.receiving),
+                    ),
+                  ],
+                  selected: {_receiving},
+                  onSelectionChanged: feature == null || !canSwitchDirection
+                      ? null
+                      : (selection) => _selectFeature(
+                          feature,
+                          receiving: selection.single,
+                        ),
+                ),
+              ),
+              if (owner == null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 6,
+                    children: [
+                      for (final item in features)
+                        ChoiceChip(
+                          label: Text(switch (item) {
+                            LocalistFeature.quickSend => l10n.quickSend,
+                            LocalistFeature.remoteControl => l10n.remoteControl,
+                            LocalistFeature.vpnSharing => l10n.vpnSharing,
+                            LocalistFeature.capture => l10n.cameraAndMic,
+                            LocalistFeature.stream => l10n.streaming,
+                          }),
+                          selected: feature == item,
+                          onSelected: (_) => _selectFeature(item),
+                        ),
+                    ],
+                  ),
+                ),
+              if (feature == LocalistFeature.quickSend)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: AnimatedBuilder(
+                      animation: _quickSend,
+                      builder: (context, _) {
+                        final settings = _quickSend.settings;
+                        return settings == null
+                            ? const SizedBox.shrink()
+                            : QuickSendReadinessCard(
+                                settings: settings,
+                                ready: _quickSend.serverRunning,
+                                onOpenProfileSettings: () => unawaited(
+                                  _openSettings(SettingsSection.quickSend),
+                                ),
+                              );
+                      },
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    for (final item in features)
+                      if (_visitedFeatures.contains(item))
+                        Offstage(
+                          key: ValueKey(item),
+                          offstage: feature != item,
+                          child: TickerMode(
+                            enabled: feature == item,
+                            child: ExcludeFocus(
+                              excluding: feature != item,
+                              child: page(item),
+                            ),
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
-      showActionButton: _statsAvailable,
-      actionIcon: Icons.query_stats,
-      actionTooltip: context.l10n.stats,
-      onActionPressed: _showStatsSheet,
     );
   }
 
@@ -2253,45 +2309,13 @@ class _LocalistShellState extends State<LocalistShell>
     return _sharingActive || _receivingActive || _snapshot.vpnConnected;
   }
 
-  void _goToPage(int value) {
-    _logs.debug('Navigation destination selected index=$value');
-    _setPage(value);
-  }
-
-  void _handlePageChanged(int value) {
-    _logs.debug('Page changed index=$value');
-    final owner = _activities.owner;
-    if (owner != null && value != owner.index) {
-      _pageController.jumpToPage(owner.index);
-      return;
-    }
-    setState(() => _index = value);
-    unawaited(_syncDiscoveryLifecycle());
-  }
-
-  void _setPage(int value, {bool force = false}) {
-    if (!mounted) {
-      return;
-    }
-    final owner = _activities.owner;
-    if (owner != null && value != owner.index) return;
-    if (_index == value && !force) {
-      _logs.debug('Page change skipped index=$value force=$force');
-      return;
-    }
-    if (_index != value) {
-      setState(() => _index = value);
-    }
-    if (!_pageController.hasClients) {
-      return;
-    }
-    _pageController.animateToPage(
-      value,
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 460),
-      curve: Curves.easeInOutCubicEmphasized,
-    );
+  void _selectFeature(LocalistFeature feature, {bool? receiving}) {
+    if (!mounted || !_activities.allows(feature)) return;
+    setState(() {
+      _feature = feature;
+      _receiving = receiving ?? _receiving;
+      _visitedFeatures.add(feature);
+    });
   }
 
   void _showServiceConflictMessage(String activeService, String targetService) {
@@ -2304,26 +2328,6 @@ class _LocalistShellState extends State<LocalistShell>
       tone: InAppNoticeTone.warning,
       icon: Icons.sync_problem_outlined,
     );
-  }
-
-  List<_NavItem> _navItems(AppLocalizations l10n) {
-    final items = <_NavItem>[
-      _NavItem(l10n.quickSend, Icons.send_outlined, Icons.send),
-      if (Platform.isAndroid || Platform.isWindows)
-        _NavItem(
-          l10n.remoteControl,
-          Icons.desktop_windows_outlined,
-          Icons.desktop_windows,
-        ),
-      _NavItem(l10n.vpnSharing, Icons.share_outlined, Icons.share),
-      _NavItem(
-        l10n.cameraAndMic,
-        Icons.video_camera_back_outlined,
-        Icons.video_camera_back,
-      ),
-      _NavItem(l10n.streaming, Icons.cast_outlined, Icons.cast),
-    ];
-    return items;
   }
 
   Future<void> _openSettings([SettingsSection? section]) async {
@@ -2398,14 +2402,6 @@ class _LocalistShellState extends State<LocalistShell>
       themeSettings.isDarkMode ? ThemeMode.light : ThemeMode.dark,
     );
   }
-}
-
-class _NavItem {
-  const _NavItem(this.label, this.icon, this.selectedIcon);
-
-  final String label;
-  final IconData icon;
-  final IconData selectedIcon;
 }
 
 class _QuickSendIncomingRequestDialog extends StatelessWidget {
@@ -2563,25 +2559,4 @@ class _WindowsCloseDecision {
 
   final WindowsCloseBehavior behavior;
   final bool remember;
-}
-
-class KeepAlivePage extends StatefulWidget {
-  const KeepAlivePage({super.key, required this.child});
-
-  final Widget child;
-
-  @override
-  State<KeepAlivePage> createState() => _KeepAlivePageState();
-}
-
-class _KeepAlivePageState extends State<KeepAlivePage>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
-  }
 }

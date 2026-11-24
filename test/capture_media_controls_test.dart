@@ -190,7 +190,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   testWidgets(
-    'Server settings keep their positions and accept local and Player changes while live',
+    'Server hides settings during capture and restores saved choices between launches',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       tester.view.physicalSize = const Size(420, 2400);
@@ -226,31 +226,51 @@ void main() {
         );
         await tester.pumpAndSettle();
       }
-      final microphoneBefore = tester.getRect(find.text('Microphone input'));
-      final gainBefore = tester.getTopLeft(find.text('Automatic gain'));
+      expect(find.text('Microphone input'), findsOneWidget);
+      expect(find.text('Outgoing video orientation'), findsNothing);
       await tester.tap(find.text('Start live capture'));
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 40)),
-      );
       await tester.pumpAndSettle();
       expect(capture.started, true);
-      expect(tester.getRect(find.text('Microphone input')), microphoneBefore);
-      expect(tester.getTopLeft(find.text('Automatic gain')), gainBefore);
-      await tester.drag(find.byType(Slider).first, const Offset(-500, 0));
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      expect(find.text('Microphone input'), findsNothing);
+      expect(find.text('Automatic gain'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('capture-session-card')),
+        findsOneWidget,
       );
-      await tester.pumpAndSettle();
-      expect(capture.options.audioSettings.gainDb, -30);
-      expect(capture.commands, isNotEmpty);
-      // The server receives the same applied state that a Player update broadcasts.
+
+      // Applied settings from a connected Player persist with the sender choices.
       capture.options = capture.options.copyWith(
         audioSettings: const CaptureAudioSettings(gainDb: 40, bitrateKbps: 256),
       );
       capture.notifyListeners();
       await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Mute microphone'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      final reopened = _Capture();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LiveCapturePage(service: reopened, renderer: _Preview()),
+          ),
+        ),
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilterChip>(find.widgetWithText(FilterChip, 'Camera'))
+            .selected,
+        isFalse,
+      );
       expect(find.text('Manual gain: 40 dB'), findsOneWidget);
-      expect(tester.getRect(find.text('Microphone input')), microphoneBefore);
+      await tester.tap(find.text('Start live capture'));
+      await tester.pumpAndSettle();
+      expect(reopened.options.startMuted, isTrue);
+      expect(reopened.options.audioSettings.bitrateKbps, 256);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
       debugDefaultTargetPlatformOverride = null;
@@ -277,11 +297,17 @@ void main() {
           ),
         ),
       );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('capture-receive-card')), findsNothing);
       expect(find.text('USB, OBS & virtual device guide'), findsNothing);
       capture.started = false;
       capture.notifyListeners();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Receiver'));
       await tester.tap(find.text('Receiver'));
@@ -325,6 +351,9 @@ void main() {
           ),
         );
         await tester.tap(find.text('Phone'));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
         await tester.pumpAndSettle();
         expect(
           find.byTooltip('Toggle video'),
@@ -360,6 +389,9 @@ void main() {
             body: LiveCapturePage(service: capture, renderer: _Preview()),
           ),
         ),
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilterChip, 'Camera'));

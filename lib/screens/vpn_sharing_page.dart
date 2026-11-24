@@ -10,9 +10,11 @@ class VpnSharingPage extends StatefulWidget {
     required this.sharingActive,
     required this.receivingActive,
     this.busy = false,
+    this.receivingSelected,
   });
   final Widget sharing, receiving;
   final bool sharingActive, receivingActive, busy;
+  final bool? receivingSelected;
   @override
   State<VpnSharingPage> createState() => _VpnSharingPageState();
 }
@@ -22,10 +24,13 @@ class _VpnSharingPageState extends State<VpnSharingPage> {
   @override
   Widget build(BuildContext context) {
     final receiving =
-        widget.receivingActive || (!widget.sharingActive && _receive);
+        widget.receivingActive ||
+        (!widget.sharingActive && (widget.receivingSelected ?? _receive));
     return Column(
       children: [
-        if (!widget.sharingActive && !widget.receivingActive)
+        if (widget.receivingSelected == null &&
+            !widget.sharingActive &&
+            !widget.receivingActive)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: SegmentedButton<bool>(
@@ -52,7 +57,15 @@ class _VpnSharingPageState extends State<VpnSharingPage> {
                     },
             ),
           ),
-        Expanded(child: receiving ? widget.receiving : widget.sharing),
+        Expanded(
+          child: widget.receivingSelected == null
+              ? (receiving ? widget.receiving : widget.sharing)
+              : IndexedStack(
+                  sizing: StackFit.expand,
+                  index: receiving ? 1 : 0,
+                  children: [widget.sharing, widget.receiving],
+                ),
+        ),
       ],
     );
   }

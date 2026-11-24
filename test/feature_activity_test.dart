@@ -1,12 +1,65 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/l10n/app_localizations.dart';
+import 'package:localist/models/app_settings.dart';
+import 'package:localist/models/service_state.dart';
+import 'package:localist/screens/sharing_page.dart';
 import 'package:localist/screens/vpn_sharing_page.dart';
 import 'package:localist/services/feature_activity_service.dart';
 import 'package:localist/services/lan_network_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  testWidgets('Windows proxy port autosaves only valid input and gates Start', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = await AppSettings.load();
+    addTearDown(settings.dispose);
+    var starts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: const [AppLocalizations.delegate],
+        home: Scaffold(
+          body: SharingPage(
+            settings: settings,
+            snapshot: ServiceSnapshot.initial(
+              protocol: ProxyProtocol.socks5,
+              port: 1080,
+            ),
+            connectedPeers: const [],
+            busy: false,
+            controlsLocked: false,
+            lockMessage: '',
+            onStartSharing: () => starts++,
+            onStopSharing: () {},
+            onOpenHotspotSettings: () {},
+            onRefresh: () {},
+          ),
+        ),
+      ),
+    );
+    final field = find.widgetWithText(TextField, 'Internal VPN proxy');
+    final button = find.byType(FilledButton);
+    for (final value in ['invalid', '99999', '3781']) {
+      await tester.ensureVisible(field);
+      await tester.enterText(field, value);
+      await tester.pump();
+      expect(tester.widget<FilledButton>(button).onPressed, isNull);
+      expect(settings.windowsVpnProxyPort, 10808);
+    }
+    await tester.enterText(field, '18080');
+    await tester.pumpAndSettle();
+    expect((await AppSettings.load()).windowsVpnProxyPort, 18080);
+    expect(find.text('Save VPN proxy'), findsNothing);
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    expect(starts, 1);
+  }, skip: !Platform.isWindows);
+
   test(
     'active operations exclude other features and last operation unlocks',
     () {

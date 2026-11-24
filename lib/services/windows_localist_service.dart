@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_settings.dart';
 import '../models/service_state.dart';
+import 'proxy_endpoint_resolver.dart';
 import 'log_service.dart';
 import 'localist_discovery_protocol.dart';
 import 'windows_vpn_worker.dart';
@@ -615,34 +616,24 @@ class WindowsLocalistService {
     _logs.debug(
       'Windows upstream proxy validation started protocol=${upstreamProxy.protocol.name} port=${upstreamProxy.port}',
     );
-    if (upstreamProxy.port < 1024 || upstreamProxy.port > 65535) {
-      _logs.warning(
-        'Internal VPN proxy was ignored: port ${upstreamProxy.port} is outside 1024-65535.',
-      );
-      return null;
-    }
     final activeListenPorts = {
       for (final protocol in protocols) ports[protocol] ?? protocol.defaultPort,
+      3781,
     };
     final upstreamIsLoopback =
         upstreamProxy.host == InternetAddress.loopbackIPv4.address ||
         upstreamProxy.host == InternetAddress.loopbackIPv6.address ||
         upstreamProxy.host.toLowerCase() == 'localhost';
-    if (upstreamIsLoopback && activeListenPorts.contains(upstreamProxy.port)) {
-      _logs.warning(
-        'Internal VPN proxy was ignored: port ${upstreamProxy.port} conflicts with a sharing port.',
-      );
-      return null;
+    if (upstreamProxy.port < 1024 ||
+        upstreamProxy.port > 65535 ||
+        (upstreamIsLoopback &&
+            activeListenPorts.contains(upstreamProxy.port)) ||
+        !await probeProxyConnection(
+          upstreamProxy,
+          timeout: const Duration(seconds: 2),
+        )) {
+      throw const SocketException('internal_vpn_proxy_unavailable');
     }
-    if (!await _isTcpConnectable(upstreamProxy.host, upstreamProxy.port)) {
-      _logs.warning(
-        'Internal VPN proxy is not reachable on port ${upstreamProxy.port}; Sharing will continue without VPN upstream.',
-      );
-      return null;
-    }
-    _logs.debug(
-      'Windows upstream proxy is reachable protocol=${upstreamProxy.protocol.name} port=${upstreamProxy.port}',
-    );
     return upstreamProxy;
   }
 
@@ -661,29 +652,6 @@ class WindowsLocalistService {
       return false;
     } finally {
       await socket?.close();
-    }
-  }
-
-  Future<bool> _isTcpConnectable(String host, int port) async {
-    Socket? socket;
-    try {
-      _logs.debug('Windows TCP probe started $host:$port');
-      socket = await Socket.connect(
-        host,
-        port,
-        timeout: const Duration(seconds: 2),
-      );
-      _logs.debug('Windows TCP probe succeeded $host:$port');
-      return true;
-    } catch (error, stack) {
-      _logs.debug(
-        'Windows TCP probe failed $host:$port',
-        error: error,
-        stack: stack,
-      );
-      return false;
-    } finally {
-      socket?.destroy();
     }
   }
 

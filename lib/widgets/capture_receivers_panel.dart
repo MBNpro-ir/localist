@@ -261,38 +261,6 @@ class CaptureReceiversPanel extends StatelessWidget {
                           : null,
                     ),
                   DropdownButtonFormField<String>(
-                    key: ValueKey(
-                      'receiver-orientation-${state['orientation']}',
-                    ),
-                    isExpanded: true,
-                    initialValue:
-                        [
-                          'auto',
-                          'portrait',
-                          'landscape',
-                        ].contains(state['orientation'])
-                        ? state['orientation'] as String
-                        : 'landscape',
-                    decoration: InputDecoration(
-                      labelText: t(
-                        context,
-                        'جهت ویدیوی ارسالی',
-                        'Outgoing video orientation',
-                      ),
-                    ),
-                    items: [
-                      for (final e in {
-                        'auto': t(context, 'خودکار', 'Automatic'),
-                        'landscape': t(context, 'قفل افقی', 'Lock landscape'),
-                        'portrait': t(context, 'قفل عمودی', 'Lock portrait'),
-                      }.entries)
-                        DropdownMenuItem(value: e.key, child: Text(e.value)),
-                    ],
-                    onChanged: available
-                        ? (value) => change({'orientation': value})
-                        : null,
-                  ),
-                  DropdownButtonFormField<String>(
                     key: ValueKey('receiver-mode-${selectedMode?.key}'),
                     isExpanded: true,
                     initialValue: selectedMode?.key,

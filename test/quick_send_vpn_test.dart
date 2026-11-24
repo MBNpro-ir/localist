@@ -95,7 +95,20 @@ void main() {
       '${Directory.current.path}/.runlogs/quick-send-vpn-qa',
     ).absolute.path;
     expect(directory.absolute.parent.path, expectedParent);
-    await directory.delete(recursive: true);
+    for (var attempt = 0; ; attempt++) {
+      try {
+        if (await directory.exists()) await directory.delete(recursive: true);
+        break;
+      } on FileSystemException catch (error) {
+        // Antimalware and sync can briefly retain a Windows file handle after IO.
+        if (!Platform.isWindows ||
+            error.osError?.errorCode != 32 ||
+            attempt == 7) {
+          rethrow;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+    }
   });
 
   Widget app(bool vpn, {bool persian = false, bool settingsOnly = false}) =>

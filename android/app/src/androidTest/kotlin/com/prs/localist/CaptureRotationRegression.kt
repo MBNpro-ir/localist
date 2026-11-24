@@ -44,45 +44,28 @@ object CaptureRotationRegression {
                     } finally { data.release() }
                 } finally { if (output !== frame) output.release() }
             }
-            // Independent landmark expectations for actual capturer metadata.
-            // A front camera's raw SENSOR_ORIENTATION is deliberately not used.
+            // A landscape frame must keep its shape and handedness as the
+            // Android display changes pose, including with auto-rotate disabled.
             for (front in listOf(false, true)) {
                 val native = if (front) 270 else 90
-                val source = VideoFrame(buffer.also { it.retain() }, native, 456L)
-                try {
-                    val auto = CaptureOrientation.FrameRotation("auto", front, 0)
-                    val rotations = if (front) listOf(270,180,90,0) else listOf(90,180,270,0)
-                    for ((index, physical) in listOf(0,90,180,270).withIndex()) {
-                        auto.update(physical)
-                        val output = auto.onFrame(source)
-                        try { check(pixels(output) == expected.getValue(rotations[index])) { "Upright landmarks wrong: front=$front physical=$physical" } }
-                        finally { if (output !== source) output.release() }
+                var display = 0
+                val landscape = CaptureOrientation.FrameRotation(front, 0, { display })
+                for ((pose, expectedRotation) in listOf(0 to 0, 90 to 180, 180 to 180, 270 to 0)) {
+                    landscape.update(pose)
+                    for (screen in listOf(0, pose)) {
+                        display = screen
+                        val sourceRotation = (native + (if (front) -display else display) + 360) % 360
+                        val source = VideoFrame(buffer.also { it.retain() }, sourceRotation, 456L)
+                        val output = landscape.onFrame(source)
+                        try {
+                            check(output.rotation == 0 && output.buffer.width > output.buffer.height)
+                            check(pixels(output) == expected.getValue(expectedRotation)) {
+                                "Wrong landscape landmarks: front=$front pose=$pose display=$screen"
+                            }
+                        } finally { if (output !== source) output.release(); source.release() }
                     }
-                    for (mode in listOf("portrait", "landscape")) {
-                        var displayPhysical = 0
-                        val locked = CaptureOrientation.FrameRotation(mode, front, 0, { displayPhysical })
-                        locked.update(0)
-                        val reference = if (mode == "landscape") expected.getValue(0) else expected.getValue(native)
-                        for (physical in listOf(0,90,180,270)) {
-                            locked.update(physical)
-                            displayPhysical = physical
-                            val displayNative = (native + (if (front) -physical else physical) + 360) % 360
-                            val current = VideoFrame(buffer.also { it.retain() }, displayNative, 789L)
-                            val output = locked.onFrame(current)
-                            try {
-                                check(output.rotation == 0)
-                                check((output.buffer.width > output.buffer.height) == (mode == "landscape"))
-                                check(pixels(output) == reference) { "Locked image moved, flipped or acquired padding: $mode front=$front pose=$physical" }
-                            } finally { if (output !== current) output.release(); current.release() }
-                        }
-                    }
-                } finally { source.release() }
+                }
             }
-            // Metadata from a pre-transformed/vendor camera may be 90 even when
-            // Camera2 reports a 270 sensor. Preserve the actual capturer result.
-            val metadata = CaptureOrientation.FrameRotation("auto", true, 0).onFrame(frame)
-            try { check(pixels(metadata) == expected.getValue(90)) { "Metadata was replaced by sensor rotation (upside-down regression)" } }
-            finally { if (metadata !== frame) metadata.release() }
             check(buffer.dataY.get(0).toInt() == 1)
             var failures = 0
             val damaged = object : VideoFrame.Buffer {
@@ -94,7 +77,7 @@ object CaptureRotationRegression {
                 override fun release() {}
             }
             val unsafe = VideoFrame(damaged, 90, 0)
-            val guarded = CaptureOrientation.FrameRotation("auto", false, 0) { failures++ }
+            val guarded = CaptureOrientation.FrameRotation(false, 90) { failures++ }
             check(guarded.onFrame(unsafe) === unsafe)
             check(guarded.onFrame(unsafe) === unsafe && failures == 1) { "Frame errors must stop capture once, without crashing" }
             unsafe.release()

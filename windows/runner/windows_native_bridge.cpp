@@ -22,9 +22,11 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <atomic>
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -879,13 +881,36 @@ void HandleMethodCall(HWND window, const MethodCall<EncodableValue>& call,
     return;
   }
   if (method == "getCaptureDeviceCapabilities") {
-    const auto* args = std::get_if<EncodableMap>(call.arguments());
-    std::string id;
-    if (args) {
-      const auto found = args->find(EncodableValue("cameraId"));
-      if (found != args->end()) { const auto* text = std::get_if<std::string>(&found->second); if (text) id = *text; }
+    static std::atomic<bool> probing{false};
+    if (probing.exchange(true)) {
+      result->Error("CAMERA_BUSY", "A camera capability query is already running.");
+      return;
     }
-    result->Success(EncodableValue(GetWindowsCaptureCapabilities(id)));
+    auto reply = std::shared_ptr<MethodResult<EncodableValue>>(std::move(result));
+    const auto id = GetStringArgument(arguments, "cameraId");
+    try {
+      std::thread([id, reply]() {
+        const auto initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(initialized)) {
+          probing = false;
+          reply->Error("CAMERA_COM", "Could not initialize the camera worker.");
+          return;
+        }
+        try {
+          auto capabilities = GetWindowsCaptureCapabilities(id);
+          CoUninitialize();
+          probing = false;
+          reply->Success(EncodableValue(std::move(capabilities)));
+        } catch (...) {
+          CoUninitialize();
+          probing = false;
+          reply->Error("CAMERA_QUERY", "Could not read camera capabilities.");
+        }
+      }).detach();
+    } catch (...) {
+      probing = false;
+      reply->Error("CAMERA_WORKER", "Could not start the camera worker.");
+    }
     return;
   }
   if (method == "stopWindowsLocalNetwork") {

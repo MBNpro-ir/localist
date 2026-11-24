@@ -29,7 +29,6 @@ Future<void> main() async {
         height: 480,
         fps: 15,
         bitrateKbps: 1000,
-        orientation: 'landscape',
       ),
       port: 33333,
     );

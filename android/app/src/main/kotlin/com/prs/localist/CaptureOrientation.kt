@@ -22,8 +22,7 @@ object CaptureOrientation {
     private var processor: LocalVideoTrack.ExternalVideoFrameProcessing? = null
     private var listener: OrientationEventListener? = null
 
-    @Synchronized fun set(context: Context, trackId: String?, mode: String, cameraId: String?, rear: Boolean) {
-        require(mode in listOf("auto", "portrait", "landscape"))
+    @Synchronized fun set(context: Context, trackId: String?, cameraId: String?, rear: Boolean) {
         clear()
         if (trackId == null) return
         val local = FlutterWebRTCPlugin.sharedSingleton?.getLocalTrack(trackId) as? LocalVideoTrack
@@ -43,7 +42,7 @@ object CaptureOrientation {
             @Suppress("DEPRECATION")
             (360 - context.getSystemService(WindowManager::class.java).defaultDisplay.rotation * 90) % 360
         }
-        val transform = FrameRotation(mode, front, initial, displayPhysical, diagnostics = { detail ->
+        val transform = FrameRotation(front, initial, displayPhysical, diagnostics = { detail ->
             Handler(Looper.getMainLooper()).post {
                 if (track === local) CaptureForegroundService.channel?.invokeMethod("captureDiagnostics",
                     "Camera orientation: id=$id sensor=$sensor front=$front $detail")
@@ -74,7 +73,6 @@ object CaptureOrientation {
     }
 
     internal class FrameRotation(
-        private val mode: String,
         private val front: Boolean,
         initial: Int,
         private val displayPhysical: () -> Int = { initial },
@@ -82,8 +80,7 @@ object CaptureOrientation {
         private val failure: ((String) -> Unit)? = null,
     ) : LocalVideoTrack.ExternalVideoFrameProcessing {
         @Volatile private var physical = initial
-        @Volatile private var lockedPhysical = if (mode == "landscape") 270 else 0
-        private var awaitingPose = true
+        @Volatile private var landscapeSide = if (initial % 180 != 0) initial else 270
         private var logged = false
         private var reported = false
 
@@ -91,11 +88,7 @@ object CaptureOrientation {
             // Hysteresis prevents jitter at the portrait/landscape boundary.
             val distance = abs(degrees - physical).let { minOf(it, 360 - it) }
             if (distance >= 60) physical = ((degrees + 45) / 90 * 90) % 360
-            if (awaitingPose) {
-                val landscape = mode == "landscape"
-                if ((physical % 180 != 0) == landscape) lockedPhysical = physical
-                awaitingPose = false
-            }
+            if (physical % 180 != 0) landscapeSide = physical
         }
 
         override fun onFrame(frame: VideoFrame): VideoFrame = try {
@@ -119,17 +112,15 @@ object CaptureOrientation {
             // The capturer's metadata is authoritative: Camera1, Camera2 and
             // vendor texture transforms need not share raw sensor coordinates.
             // Only compensate for the difference between screen and physical pose.
-            val target = if (mode == "auto") physical else lockedPhysical
+            val target = landscapeSide
             val delta = target - displayPhysical()
             var rotation = (frame.rotation + (if (front) -delta else delta) + 720) % 360
-            if (mode != "auto") {
-                val rotatedWide = if (rotation % 180 == 0)
-                    frame.buffer.width >= frame.buffer.height else frame.buffer.height >= frame.buffer.width
-                if (rotatedWide != (mode == "landscape")) rotation = (rotation + 90) % 360
-            }
+            val rotatedWide = if (rotation % 180 == 0)
+                frame.buffer.width >= frame.buffer.height else frame.buffer.height >= frame.buffer.width
+            if (!rotatedWide) rotation = (rotation + 90) % 360
             if (!logged) {
                 logged = true
-                diagnostics?.invoke("mode=$mode native=${frame.rotation} physical=$physical target=$target rotation=$rotation size=${frame.buffer.width}x${frame.buffer.height}")
+                diagnostics?.invoke("landscape native=${frame.rotation} physical=$physical target=$target rotation=$rotation size=${frame.buffer.width}x${frame.buffer.height}")
             }
             return rotatePixels(frame, rotation)
         }

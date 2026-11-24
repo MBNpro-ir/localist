@@ -11,6 +11,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:localist/screens/live_capture_page.dart';
 import 'package:localist/services/live_capture_service.dart';
 import 'package:localist/widgets/glass.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _Capture extends LiveCaptureService {
   bool started = false;
@@ -42,6 +43,7 @@ class _Preview extends RTCVideoRenderer {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('localist/audioDevices'),
@@ -257,6 +259,9 @@ void main() {
           brightness: sample.brightness,
         ),
       );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
       await tester.pumpAndSettle();
       for (final label in [
         'Rear camera',
@@ -325,7 +330,6 @@ void main() {
       await tester.pumpWidget(
         app(capture, persian: false, scale: 1, brightness: Brightness.dark),
       );
-      await tester.pumpAndSettle();
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 50)),
       );
@@ -363,6 +367,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('capture-receive-card')), findsNothing);
+      expect(find.text('Camera resolution'), findsNothing);
+      expect(find.text('Outgoing video orientation'), findsNothing);
+      await capture.stop();
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Receiver'));
       await tester.tap(find.text('Receiver'));
       await tester.pumpAndSettle();

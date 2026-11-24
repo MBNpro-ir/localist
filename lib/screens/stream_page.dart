@@ -14,8 +14,9 @@ import '../widgets/glass.dart';
 import '../widgets/feature_page_layout.dart';
 
 class StreamPage extends StatefulWidget {
-  const StreamPage({super.key, required this.service});
+  const StreamPage({super.key, required this.service, this.receiving = false});
   final MediaStreamService service;
+  final bool receiving;
   @override
   State<StreamPage> createState() => _StreamPageState();
 }
@@ -25,6 +26,8 @@ class _StreamPageState extends State<StreamPage> {
   DlnaRenderer? _playing;
   bool _busy = false;
   String _notice = '';
+  final _receiveAddress = TextEditingController();
+  bool _addressError = false;
   MediaStreamService get service => widget.service;
   String _t(String fa, String en) =>
       Localizations.localeOf(context).languageCode == 'fa' ? fa : en;
@@ -37,11 +40,13 @@ class _StreamPageState extends State<StreamPage> {
   };
   @override
   void dispose() {
+    _receiveAddress.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.receiving) return _buildReceiver();
     final fa = Localizations.localeOf(context).languageCode == 'fa';
     String t(String f, String e) => fa ? f : e;
     return GlassBackground(
@@ -314,6 +319,68 @@ class _StreamPageState extends State<StreamPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildReceiver() => PageSurface(
+    useColumns: false,
+    children: [
+      GlassPanel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              _t('دریافت استریم', 'Receive a stream'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _t(
+                'آدرس استریم را از دستگاه فرستنده وارد کنید یا QR آن را با دوربین گوشی اسکن کنید.',
+                'Enter the stream address from the sending device, or scan its QR code with your phone camera.',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _receiveAddress,
+              keyboardType: TextInputType.url,
+              textDirection: TextDirection.ltr,
+              decoration: InputDecoration(
+                labelText: _t('آدرس استریم', 'Stream address'),
+                errorText: _addressError
+                    ? _t(
+                        'آدرس استریم را بررسی کنید.',
+                        'Check the stream address.',
+                      )
+                    : null,
+              ),
+              onChanged: (_) {
+                if (_addressError) setState(() => _addressError = false);
+              },
+              onSubmitted: (_) => unawaited(_openReceivedStream()),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => unawaited(_openReceivedStream()),
+              icon: const Icon(Icons.open_in_browser),
+              label: Text(_t('باز کردن در مرورگر', 'Open in browser')),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  Future<void> _openReceivedStream() async {
+    final input = _receiveAddress.text.trim();
+    final uri = Uri.tryParse(input.contains('://') ? input : 'http://$input');
+    final valid =
+        uri != null &&
+        const {'http', 'https'}.contains(uri.scheme) &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty;
+    final opened =
+        valid && await NativeBridgeService.instance.openUri(uri.toString());
+    if (mounted) setState(() => _addressError = !opened);
   }
 
   Future<void> _pick(BuildContext context) async {

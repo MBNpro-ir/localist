@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:localist/screens/live_capture_page.dart';
 import 'package:localist/services/live_capture_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _Capture extends LiveCaptureService {
   bool started = false;
@@ -43,6 +44,7 @@ void main() {
   testWidgets(
     'Start reaches capture without muting a null preview or the local microphone',
     (tester) async {
+      SharedPreferences.setMockInitialValues({});
       const channel = MethodChannel('FlutterWebRTC.Method');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
@@ -114,6 +116,9 @@ void main() {
           ),
         ),
       );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 40)),
+      );
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Start live capture'));
       await tester.pumpAndSettle();
@@ -138,7 +143,7 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
       await tester.pumpAndSettle();
-      expect(preview.initialized, true);
+      expect(preview.initialized, isFalse); // No video track was supplied.
       expect(service.started, true);
       expect(tester.takeException(), isNull);
     },

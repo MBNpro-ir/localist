@@ -43,6 +43,8 @@ import java.util.UUID
 
 class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     private val thumbnailExecutor = Executors.newFixedThreadPool(2)
+    private val cameraProbeExecutor = Executors.newSingleThreadExecutor()
+    private var capturePreview: CapturePreview? = null
     private var pendingVpnResult: MethodChannel.Result? = null
     private var systemAudioResult: MethodChannel.Result? = null
     private var pendingLocalNetworkPermissionResult: MethodChannel.Result? = null
@@ -100,6 +102,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        capturePreview = CapturePreview(flutterEngine.renderer)
         CaptureAudioEngine.register(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         CaptureForegroundService.channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "localist/capture").apply {
             setMethodCallHandler { call, result ->
@@ -126,19 +129,26 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                         CaptureAudioEngine.bind(this@MainActivity,call.arguments as? Map<*, *> ?: emptyMap<Any,Any>())
                     }.onSuccess { result.success(it) }.onFailure { result.error("AUDIO_OUTPUT",it.message,null) }
                     "audioOutputPcm" -> result.success(CaptureAudioEngine.pcm(call.argument<Int>("slot") ?: 0,call.argument<ByteArray>("data") ?: byteArrayOf()))
-                    "orientation" -> runCatching {
+                    "landscapeCamera" -> runCatching {
                         CaptureOrientation.set(this@MainActivity, call.argument<String>("track"),
-                            call.argument<String>("mode") ?: "auto", call.argument<String>("cameraId"),
+                            call.argument<String>("cameraId"),
                             call.argument<Boolean>("rear") != false)
                     }.onSuccess { result.success(true) }.onFailure {
                         result.error("CAMERA_ORIENTATION", it.message, null)
                     }
-                    "cameraCapabilities" -> runCatching {
-                        CaptureDeviceControls.capabilities(this@MainActivity,
-                            call.argument<String>("cameraId"), call.argument<Boolean>("rear") != false,
+                    "previewTrack" -> runCatching {
+                        capturePreview?.bind(call.argument<String>("track"),
                             call.argument<Int>("width") ?: 1280, call.argument<Int>("height") ?: 720,
-                            call.argument<Int>("fps") ?: 30)
-                    }.onSuccess { result.success(it) }.onFailure { result.error("CAMERA_CONTROLS", it.message, null) }
+                        )
+                    }.onSuccess { result.success(it) }.onFailure { result.error("CAMERA_PREVIEW", it.message, null) }
+                    "cameraCapabilities" -> cameraProbeExecutor.execute {
+                        runCatching {
+                            CaptureDeviceControls.capabilities(applicationContext,
+                                call.argument<String>("cameraId"), call.argument<Boolean>("rear") != false,
+                                call.argument<Int>("width") ?: 1280, call.argument<Int>("height") ?: 720,
+                                call.argument<Int>("fps") ?: 30)
+                        }.onSuccess { result.success(it) }.onFailure { result.error("CAMERA_CONTROLS", it.message, null) }
+                    }
                     "background" -> result.success(CaptureDeviceControls.background(this@MainActivity))
                     "start" -> {
                         val camera = call.argument<Boolean>("camera") == true
@@ -266,6 +276,9 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         systemAudioResult?.error("SYSTEM_AUDIO_CANCELLED", "Audio capture activity closed", null)
         systemAudioResult = null
         thumbnailExecutor.shutdownNow()
+        cameraProbeExecutor.shutdownNow()
+        capturePreview?.close()
+        capturePreview = null
         lanDiscoveryRequested = false
         setQuickSendMulticastLock(false)
         stopLocalOnlyHotspot(notifyFlutter = false)

@@ -26,11 +26,13 @@ class QuickSendPage extends StatefulWidget {
     required this.deviceVpnActive,
     required this.onOpenProfileSettings,
     this.active = true,
+    this.receiving = false,
+    this.showIdentity = true,
   });
 
   final bool deviceVpnActive;
   final VoidCallback onOpenProfileSettings;
-  final bool active;
+  final bool active, receiving, showIdentity;
 
   @override
   State<QuickSendPage> createState() => QuickSendPageState();
@@ -178,91 +180,29 @@ class QuickSendPageState extends State<QuickSendPage> {
             ),
           );
         }
-        return _desktopDropTarget(
-          PageSurface(
-            key: const PageStorageKey<String>('quick-send-page'),
-            controller: _scrollController,
-            children: [
-              if (widget.deviceVpnActive) _vpnWarningPanel(),
-              _identityPanel(settings),
+        final content = PageSurface(
+          key: const PageStorageKey<String>('quick-send-page'),
+          controller: _scrollController,
+          children: [
+            if (widget.deviceVpnActive) _vpnWarningPanel(),
+            if (widget.showIdentity)
+              QuickSendReadinessCard(
+                settings: settings,
+                ready: _service.serverRunning,
+                onOpenProfileSettings: widget.onOpenProfileSettings,
+              ),
+            if (!widget.receiving) ...[
               _selectionPanel(),
               _nearbyPanel(settings),
-              _transferHistoryPanel(),
-              if (_service.transfers.isNotEmpty) _transfersPanel(),
-              if (Platform.isAndroid || Platform.isWindows)
-                _appleWebTransferPanel(),
             ],
-          ),
+            _transferHistoryPanel(),
+            if (_service.transfers.isNotEmpty) _transfersPanel(),
+            if (Platform.isAndroid || Platform.isWindows)
+              _appleWebTransferPanel(),
+          ],
         );
+        return widget.receiving ? content : _desktopDropTarget(content);
       },
-    );
-  }
-
-  Widget _identityPanel(QuickSendSettings settings) {
-    final scheme = Theme.of(context).colorScheme;
-    final ready = _service.serverRunning;
-    return GlassPanel(
-      child: Row(
-        children: [
-          Tooltip(
-            message: _t('ویرایش پروفایل', 'Edit profile'),
-            child: InkResponse(
-              onTap: widget.onOpenProfileSettings,
-              radius: 38,
-              child: QuickSendAvatar(
-                preset: settings.avatarPreset,
-                colorValue: settings.avatarColorValue,
-                imagePath: settings.profileImagePath,
-                size: 58,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  settings.alias,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  ready
-                      ? _t('آماده دریافت با Quick Send', 'Ready for Quick Send')
-                      : _t('حالت فقط ارسال', 'Send-only mode'),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: ready ? scheme.primary : scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          AnimatedContainer(
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 420),
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: ready ? scheme.primary : scheme.outline,
-              shape: BoxShape.circle,
-              boxShadow: ready
-                  ? [
-                      BoxShadow(
-                        color: scheme.primary.withValues(alpha: .35),
-                        blurRadius: 12,
-                      ),
-                    ]
-                  : null,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -328,7 +268,15 @@ class QuickSendPageState extends State<QuickSendPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _t('ارسال به iPhone یا Mac', 'Send to iPhone or Mac'),
+                      widget.receiving
+                          ? _t(
+                              'دریافت از iPhone یا Mac',
+                              'Receive from iPhone or Mac',
+                            )
+                          : _t(
+                              'ارسال به iPhone یا Mac',
+                              'Send to iPhone or Mac',
+                            ),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 4),
@@ -1820,9 +1768,9 @@ class QuickSendPageState extends State<QuickSendPage> {
     );
     try {
       final automaticHotspot = await _appleWebTransfer.start(
-        paths: List.of(_selectedPaths),
-        offeredNames: Map.of(_selectedFileNames),
-        selectedText: _selectedText,
+        paths: widget.receiving ? const [] : List.of(_selectedPaths),
+        offeredNames: widget.receiving ? const {} : Map.of(_selectedFileNames),
+        selectedText: widget.receiving ? '' : _selectedText,
         useHotspot: useHotspot,
       );
       LogService.instance.debug(
@@ -2832,4 +2780,86 @@ String _formatBytes(int bytes) {
     unit++;
   }
   return '${value.toStringAsFixed(value >= 100 ? 0 : 1)} ${units[unit]}';
+}
+
+class QuickSendReadinessCard extends StatelessWidget {
+  const QuickSendReadinessCard({
+    super.key,
+    required this.settings,
+    required this.ready,
+    required this.onOpenProfileSettings,
+  });
+
+  final QuickSendSettings settings;
+  final bool ready;
+  final VoidCallback onOpenProfileSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    String t(String fa, String en) => context.l10n.isPersian ? fa : en;
+    final scheme = Theme.of(context).colorScheme;
+    return GlassPanel(
+      child: Row(
+        children: [
+          Tooltip(
+            message: t('ویرایش پروفایل', 'Edit profile'),
+            child: InkResponse(
+              onTap: onOpenProfileSettings,
+              radius: 38,
+              child: QuickSendAvatar(
+                preset: settings.avatarPreset,
+                colorValue: settings.avatarColorValue,
+                imagePath: settings.profileImagePath,
+                size: 58,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  settings.alias,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  ready
+                      ? t('آماده دریافت با Quick Send', 'Ready for Quick Send')
+                      : t('حالت فقط ارسال', 'Send-only mode'),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: ready ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          AnimatedContainer(
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 420),
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: ready ? scheme.primary : scheme.outline,
+              shape: BoxShape.circle,
+              boxShadow: ready
+                  ? [
+                      BoxShadow(
+                        color: scheme.primary.withValues(alpha: .35),
+                        blurRadius: 12,
+                      ),
+                    ]
+                  : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

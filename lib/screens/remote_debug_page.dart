@@ -20,9 +20,11 @@ class RemoteDebugPage extends StatefulWidget {
     super.key,
     required this.service,
     required this.devices,
+    this.receiving,
   });
   final RustDeskDebugService service;
   final RemoteDeviceService devices;
+  final bool? receiving;
   @override
   State<RemoteDebugPage> createState() => _RemoteDebugPageState();
 }
@@ -159,215 +161,221 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
             ),
           ],
           sections: [
-            GlassPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t('این دستگاه', 'This device'),
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 10),
-                  RemoteReadyIndicator(
-                    ready: _service.ready,
-                    online: _service.online,
-                    hosting: _service.hosting,
-                    identityReady: _service.localId.isNotEmpty,
-                  ),
-                  const SizedBox(height: 10),
-                  if (_service.localId.isNotEmpty)
-                    LocalistConnectionCard(
-                      showDeviceHeader: false,
-                      id: _service.localId,
-                      password: _service.localPassword,
-                      onCopyId: () => _copy(
-                        _service.localId,
-                        t(
-                          'آیدی ${_service.localId} کپی شد.',
-                          'ID ${_service.localId} copied.',
-                        ),
-                      ),
-                      onCopyPassword: _service.localPassword.isEmpty
-                          ? null
-                          : () => _copy(
-                              _service.localPassword,
-                              t(
-                                'رمز یک‌بارمصرف کپی شد.',
-                                'One-time password copied.',
-                              ),
-                            ),
-                      onCopyConnection: () => _copy(
-                        RemoteConnectionInfo(
-                          id: _service.localId,
-                          password: _service.localPassword,
-                        ).toClipboardText(),
-                        t(
-                          'آیدی و رمز اتصال کپی شدند.',
-                          'Connection ID and password copied.',
-                        ),
-                      ),
-                    )
-                  else
+            if (widget.receiving != false)
+              GlassPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      t('شناسه در حال آماده‌سازی است…', 'Preparing your ID…'),
+                      t('این دستگاه', 'This device'),
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
-                  if (defaultTargetPlatform == TargetPlatform.android) ...[
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 10),
+                    RemoteReadyIndicator(
+                      ready: _service.ready,
+                      online: _service.online,
+                      hosting: _service.hosting,
+                      identityReady: _service.localId.isNotEmpty,
+                    ),
+                    const SizedBox(height: 10),
+                    if (_service.localId.isNotEmpty)
+                      LocalistConnectionCard(
+                        showDeviceHeader: false,
+                        id: _service.localId,
+                        password: _service.localPassword,
+                        onCopyId: () => _copy(
+                          _service.localId,
+                          t(
+                            'آیدی ${_service.localId} کپی شد.',
+                            'ID ${_service.localId} copied.',
+                          ),
+                        ),
+                        onCopyPassword: _service.localPassword.isEmpty
+                            ? null
+                            : () => _copy(
+                                _service.localPassword,
+                                t(
+                                  'رمز یک‌بارمصرف کپی شد.',
+                                  'One-time password copied.',
+                                ),
+                              ),
+                        onCopyConnection: () => _copy(
+                          RemoteConnectionInfo(
+                            id: _service.localId,
+                            password: _service.localPassword,
+                          ).toClipboardText(),
+                          t(
+                            'آیدی و رمز اتصال کپی شدند.',
+                            'Connection ID and password copied.',
+                          ),
+                        ),
+                      )
+                    else
+                      Text(
+                        t('شناسه در حال آماده‌سازی است…', 'Preparing your ID…'),
+                      ),
+                    if (defaultTargetPlatform == TargetPlatform.android) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        t(
+                          'درخواست اتصال روی همین گوشی نمایش داده می‌شود. می‌توانید آن را قبول کنید یا رمز یک‌بارمصرف را بفرستید. رمز ثابت اختیاری است و در تنظیمات امنیت قرار دارد.',
+                          'Incoming requests appear on this phone. Accept the request or share your one-time password. A permanent password is optional in Security settings.',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: _service.ready
+                            ? () => unawaited(_hosting())
+                            : null,
+                        icon: Icon(
+                          _service.hosting
+                              ? Icons.stop_screen_share_outlined
+                              : Icons.screen_share_outlined,
+                        ),
+                        label: Text(
+                          _service.hosting
+                              ? t('توقف میزبانی', 'Stop hosting')
+                              : t(
+                                  'شروع میزبانی و اشتراک صفحه',
+                                  'Start hosting and share screen',
+                                ),
+                        ),
+                      ),
+                      if (!_service.inputEnabled) ...[
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: () =>
+                              unawaited(_service.openInputPermission()),
+                          icon: const Icon(Icons.touch_app_outlined),
+                          label: Text(
+                            t(
+                              'فعال کردن مجوز کنترل',
+                              'Enable input permission',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            if (widget.receiving != true)
+              GlassPanel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      t(
-                        'درخواست اتصال روی همین گوشی نمایش داده می‌شود. می‌توانید آن را قبول کنید یا رمز یک‌بارمصرف را بفرستید. رمز ثابت اختیاری است و در تنظیمات امنیت قرار دارد.',
-                        'Incoming requests appear on this phone. Accept the request or share your one-time password. A permanent password is optional in Security settings.',
+                      t('اتصال', 'Connect'),
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _target,
+                      decoration: InputDecoration(
+                        labelText: t('شناسه یا IP مقصد', 'Remote ID or IP'),
+                        prefixIcon: const Icon(Icons.computer),
                       ),
                     ),
                     const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _service.ready
-                          ? () => unawaited(_hosting())
-                          : null,
-                      icon: Icon(
-                        _service.hosting
-                            ? Icons.stop_screen_share_outlined
-                            : Icons.screen_share_outlined,
-                      ),
-                      label: Text(
-                        _service.hosting
-                            ? t('توقف میزبانی', 'Stop hosting')
-                            : t(
-                                'شروع میزبانی و اشتراک صفحه',
-                                'Start hosting and share screen',
-                              ),
-                      ),
-                    ),
-                    if (!_service.inputEnabled) ...[
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: () =>
-                            unawaited(_service.openInputPermission()),
-                        icon: const Icon(Icons.touch_app_outlined),
-                        label: Text(
-                          t('فعال کردن مجوز کنترل', 'Enable input permission'),
+                    TextField(
+                      controller: _password,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: t(
+                          'رمز جلسه (ذخیره نمی‌شود)',
+                          'Session password (not saved)',
                         ),
                       ),
-                    ],
-                  ],
-                ],
-              ),
-            ),
-            GlassPanel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t('اتصال', 'Connect'),
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _target,
-                    decoration: InputDecoration(
-                      labelText: t('شناسه یا IP مقصد', 'Remote ID or IP'),
-                      prefixIcon: const Icon(Icons.computer),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _password,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: t(
-                        'رمز جلسه (ذخیره نمی‌شود)',
-                        'Session password (not saved)',
-                      ),
-                    ),
-                  ),
-                  DropdownButton<String>(
-                    isExpanded: true,
-                    value: _mode,
-                    items: [
-                      for (final mode in RustDeskDebugService.modes)
-                        if (Platform.isWindows ||
-                            (mode != 'port-forward' && mode != 'rdp'))
-                          DropdownMenuItem(
-                            value: mode,
-                            child: Text(switch (mode) {
-                              'connect' => t('کنترل صفحه', 'Remote desktop'),
-                              'file-transfer' => t(
-                                'انتقال فایل',
-                                'File transfer',
-                              ),
-                              'view-camera' => t('دوربین', 'Camera'),
-                              'terminal' => t('ترمینال', 'Terminal'),
-                              'port-forward' => t(
-                                'تونل شبکه',
-                                'Network tunnel',
-                              ),
-                              _ => 'RDP',
-                            }),
-                          ),
-                    ],
-                    onChanged: (mode) => setState(() => _mode = mode!),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(t('استفاده از سرور واسط', 'Use relay')),
-                    value: _relay,
-                    subtitle: _service.profile.server.usesRelay
-                        ? Text(
-                            t(
-                              'برای سرور شخصی به‌صورت خودکار فعال است.',
-                              'Enabled automatically for your private server.',
+                    DropdownButton<String>(
+                      isExpanded: true,
+                      value: _mode,
+                      items: [
+                        for (final mode in RustDeskDebugService.modes)
+                          if (Platform.isWindows ||
+                              (mode != 'port-forward' && mode != 'rdp'))
+                            DropdownMenuItem(
+                              value: mode,
+                              child: Text(switch (mode) {
+                                'connect' => t('کنترل صفحه', 'Remote desktop'),
+                                'file-transfer' => t(
+                                  'انتقال فایل',
+                                  'File transfer',
+                                ),
+                                'view-camera' => t('دوربین', 'Camera'),
+                                'terminal' => t('ترمینال', 'Terminal'),
+                                'port-forward' => t(
+                                  'تونل شبکه',
+                                  'Network tunnel',
+                                ),
+                                _ => 'RDP',
+                              }),
                             ),
-                          )
-                        : null,
-                    onChanged: _service.profile.server.usesRelay
-                        ? null
-                        : (v) => setState(() => _relay = v),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: _connecting || !_service.ready
-                            ? null
-                            : () => unawaited(_launch()),
-                        icon: const Icon(Icons.link),
-                        label: Text(t('اتصال', 'Connect')),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _connecting || !_service.ready
-                            ? null
-                            : () => unawaited(_pasteAndConnect()),
-                        icon: const Icon(Icons.content_paste_go_outlined),
-                        label: Text(t('چسباندن و اتصال', 'Paste & connect')),
-                      ),
-                    ],
-                  ),
-                  if (_notice.isNotEmpty || _service.error.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        _notice.isNotEmpty
-                            ? _notice
-                            : context.l10n.remoteConnectionFailed,
-                      ),
+                      ],
+                      onChanged: (mode) => setState(() => _mode = mode!),
                     ),
-                ],
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(t('استفاده از سرور واسط', 'Use relay')),
+                      value: _relay,
+                      subtitle: _service.profile.server.usesRelay
+                          ? Text(
+                              t(
+                                'برای سرور شخصی به‌صورت خودکار فعال است.',
+                                'Enabled automatically for your private server.',
+                              ),
+                            )
+                          : null,
+                      onChanged: _service.profile.server.usesRelay
+                          ? null
+                          : (v) => setState(() => _relay = v),
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          onPressed: _connecting || !_service.ready
+                              ? null
+                              : () => unawaited(_launch()),
+                          icon: const Icon(Icons.link),
+                          label: Text(t('اتصال', 'Connect')),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _connecting || !_service.ready
+                              ? null
+                              : () => unawaited(_pasteAndConnect()),
+                          icon: const Icon(Icons.content_paste_go_outlined),
+                          label: Text(t('چسباندن و اتصال', 'Paste & connect')),
+                        ),
+                      ],
+                    ),
+                    if (_notice.isNotEmpty || _service.error.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          _notice.isNotEmpty
+                              ? _notice
+                              : context.l10n.remoteConnectionFailed,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
           ],
           fullWidthSections: [
-            RemoteAddressBook(
-              service: _devices,
-              localId: _service.localId,
-              canConnect: _service.ready && !_connecting,
-              onForgetPassword: _service.forgetPeerPassword,
-              onConnect: (id) {
-                _target.text = id;
-                _password.clear();
-                unawaited(_launch());
-              },
-            ),
+            if (widget.receiving != true)
+              RemoteAddressBook(
+                service: _devices,
+                localId: _service.localId,
+                canConnect: _service.ready && !_connecting,
+                onForgetPassword: _service.forgetPeerPassword,
+                onConnect: (id) {
+                  _target.text = id;
+                  _password.clear();
+                  unawaited(_launch());
+                },
+              ),
           ],
         ),
       ),

@@ -17,6 +17,8 @@ class LiveCaptureOptions {
   const LiveCaptureOptions({
     this.background = true,
     this.camera = true,
+    this.startMuted = false,
+    this.startPaused = false,
     this.microphone = true,
     this.rearCamera = true,
     this.width = 1280,
@@ -29,16 +31,15 @@ class LiveCaptureOptions {
     this.cameraId,
     this.microphoneId,
     this.receiverControls = true,
-    this.orientation = 'landscape',
     this.audioSettings = const CaptureAudioSettings(),
     this.audioSource = 'microphone',
   });
-  final String orientation;
+  String get orientation => 'landscape';
   final CaptureAudioSettings audioSettings;
   final String audioSource;
   final String? cameraId, microphoneId;
   final bool receiverControls;
-  final bool background;
+  final bool background, startMuted, startPaused;
   final bool camera,
       microphone,
       rearCamera,
@@ -92,7 +93,6 @@ class LiveCaptureOptions {
     if ((!camera && !microphone) ||
         !['microphone', 'system'].contains(audioSource) ||
         (audioSource == 'system' && camera) ||
-        !['auto', 'portrait', 'landscape'].contains(orientation) ||
         width < 2 ||
         width > 8192 ||
         height < 2 ||
@@ -121,12 +121,13 @@ class LiveCaptureOptions {
     bool? echoCancellation,
     bool? noiseSuppression,
     bool? autoGain,
-    String? orientation,
     CaptureAudioSettings? audioSettings,
     String? audioSource,
   }) => LiveCaptureOptions(
     background: background ?? this.background,
     camera: camera,
+    startMuted: startMuted,
+    startPaused: startPaused,
     microphone: microphone,
     rearCamera: rearCamera,
     width: width ?? this.width,
@@ -139,7 +140,6 @@ class LiveCaptureOptions {
     receiverControls: receiverControls ?? this.receiverControls,
     cameraId: clearCameraId ? null : cameraId ?? this.cameraId,
     microphoneId: clearMicrophoneId ? null : microphoneId ?? this.microphoneId,
-    orientation: orientation ?? this.orientation,
     audioSettings: audioSettings ?? this.audioSettings,
     audioSource: audioSource ?? this.audioSource,
   );
@@ -492,7 +492,15 @@ class LiveCaptureService extends ChangeNotifier {
             'cameraCapabilities',
             args,
           );
-    return CaptureCapabilities.fromMap(data ?? {});
+    final capabilities = CaptureCapabilities.fromMap(data ?? {});
+    return CaptureCapabilities(
+      modes: capabilities.modes
+          .where((mode) => mode.width > mode.height)
+          .toList(),
+      minBitrate: capabilities.minBitrate,
+      maxBitrate: capabilities.maxBitrate,
+      codecs: capabilities.codecs,
+    );
   }
 
   MediaStream? localStream, remoteStream;
@@ -854,7 +862,11 @@ class LiveCaptureService extends ChangeNotifier {
       activeCameraId =
           localStream?.getVideoTracks().firstOrNull?.getSettings()['deviceId']
               as String?;
-      if (value.camera) await setOrientation(value.orientation);
+      if (value.camera) {
+        await _applyLandscape();
+        if (value.startPaused) pauseCamera(true);
+      }
+      if (value.microphone && value.startMuted) muteMicrophone(true);
       if (_disposed) {
         await stop();
         return;
@@ -1375,21 +1387,13 @@ class LiveCaptureService extends ChangeNotifier {
     _changed();
   }
 
-  Future<void> setOrientation(String value) async {
-    LogService.instance.debug('Capture sender: orientation requested=$value');
-    if (!['auto', 'portrait', 'landscape'].contains(value)) {
-      throw const FormatException('Invalid camera orientation.');
-    }
-    if (Platform.isAndroid) {
-      await _captureChannel.invokeMethod('orientation', {
-        'track': localStream?.getVideoTracks().firstOrNull?.id,
-        'cameraId': activeCameraId ?? options.cameraId,
-        'rear': options.rearCamera,
-        'mode': value,
-      });
-    }
-    options = options.copyWith(orientation: value);
-    _changed();
+  Future<void> _applyLandscape() async {
+    if (!Platform.isAndroid) return;
+    await _captureChannel.invokeMethod<void>('landscapeCamera', {
+      'track': localStream?.getVideoTracks().firstOrNull?.id,
+      'cameraId': activeCameraId ?? options.cameraId,
+      'rear': options.rearCamera,
+    });
   }
 
   Future<void> requestCaptureControl(Map<String, dynamic> command) async {
@@ -1479,7 +1483,6 @@ class LiveCaptureService extends ChangeNotifier {
         microphoneId: microphone >= 0
             ? _controlMicrophones[microphone].deviceId
             : null,
-        orientation: command['orientation'] as String?,
       );
       next.validate();
       if (mode != null && (next.fps < mode.minFps || next.fps > mode.maxFps)) {
@@ -1557,7 +1560,10 @@ class LiveCaptureService extends ChangeNotifier {
           throw StateError('Capture stopped during configuration.');
         }
         localStream = stream;
-        if (applied.camera) await setOrientation(applied.orientation);
+        activeCameraId =
+            stream.getVideoTracks().firstOrNull?.getSettings()['deviceId']
+                as String?;
+        if (applied.camera) await _applyLandscape();
         for (final peer in _peers.values.toList()) {
           for (final sender in await peer.getSenders()) {
             final replacement = stream
@@ -1570,9 +1576,6 @@ class LiveCaptureService extends ChangeNotifier {
         options = applied.copyWith(receiverControls: true);
         muteMicrophone(microphoneMuted);
         pauseCamera(cameraPaused);
-        activeCameraId =
-            stream.getVideoTracks().firstOrNull?.getSettings()['deviceId']
-                as String?;
         if (applied.camera) await refreshCameraControls();
         if (applied == previous) {
           throw StateError(
@@ -1586,9 +1589,6 @@ class LiveCaptureService extends ChangeNotifier {
         options = next.copyWith(receiverControls: true);
       }
       capabilities = limits;
-      if (command.containsKey('orientation') && options.camera) {
-        await setOrientation(options.orientation);
-      }
       await _configureAudioCapture();
       if (previous.audioSettings.bitrateKbps !=
               options.audioSettings.bitrateKbps ||
@@ -1788,7 +1788,7 @@ class LiveCaptureService extends ChangeNotifier {
         activeCameraId = next;
         LogService.instance.debug('Capture sender: camera switch completed');
         options = options.copyWith(cameraId: next);
-        await setOrientation(options.orientation);
+        await _applyLandscape();
         await refreshCameraControls();
       }
     } finally {
@@ -1846,7 +1846,7 @@ class LiveCaptureService extends ChangeNotifier {
     final local = localStream;
     if (Platform.isAndroid && local != null) {
       await _captureChannel
-          .invokeMethod('orientation', {'mode': 'auto'})
+          .invokeMethod('landscapeCamera')
           .catchError((Object _) {});
     }
     localStream = null;

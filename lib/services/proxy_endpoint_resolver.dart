@@ -6,6 +6,29 @@ import '../models/app_settings.dart';
 import '../models/service_state.dart';
 import 'log_service.dart';
 
+Future<bool> probeProxyConnection(
+  RemoteProxyConfig config, {
+  Duration timeout = const Duration(seconds: 4),
+}) async {
+  Socket? socket;
+  try {
+    socket = await Socket.connect(config.host, config.port, timeout: timeout);
+    if (config.protocol != ProxyProtocol.socks5) return true;
+    socket.add([0x05, 0x01, 0x00]);
+    await socket.flush().timeout(timeout);
+    final response = await socket
+        .expand((bytes) => bytes)
+        .take(2)
+        .toList()
+        .timeout(timeout);
+    return response.length == 2 && response[0] == 0x05 && response[1] == 0;
+  } on Exception {
+    return false;
+  } finally {
+    socket?.destroy();
+  }
+}
+
 /// Resolves a Localist proxy identity to an endpoint that is reachable from
 /// the receiver's current network. Discovery source addresses are preferred
 /// because they describe the route that actually delivered the packet.
