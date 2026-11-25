@@ -247,6 +247,7 @@ class _RemoteControlSettingsSectionState
     if (!windows &&
         (setting.tab == RemoteSettingsTab.printer ||
             const {
+              'allow-insecure-tls-fallback',
               'allow-d3d-render',
               'use-texture-render',
               'enable-directx-capture',

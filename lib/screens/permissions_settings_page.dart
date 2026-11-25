@@ -49,8 +49,8 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
   void _remoteChanged() {
     if (!mounted) return;
     setState(() {
-      _granted[FeatureAccess.screenCapture] = _remote.hosting;
       _granted[FeatureAccess.remoteInput] = _remote.inputEnabled;
+      _granted[FeatureAccess.screenCapture] = _remote.hosting;
     });
   }
 
@@ -231,13 +231,6 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
                     _engineOption('enable-camera', value, FeatureAccess.camera),
                 Icons.videocam_outlined,
               ),
-              const SizedBox(height: 8),
-              Text(
-                t(
-                  'اگر اندروید دسترس‌پذیری را محدود کرده است: اطلاعات برنامه ← منوی سه‌نقطه ← اجازه تنظیمات محدودشده؛ سپس سرویس لوکالیست را در تنظیمات دسترس‌پذیری فعال کنید.',
-                  'If Android restricts Accessibility: App info → three-dot menu → Allow restricted settings, then enable Localist in Accessibility.',
-                ),
-              ),
             ],
           ),
         ),
@@ -257,9 +250,9 @@ class _PermissionsSettingsPageState extends State<PermissionsSettingsPage>
                   ),
                 ),
                 for (final item in FeatureAccess.values.where(
-                  (a) =>
-                      a != FeatureAccess.remoteInput &&
-                      a != FeatureAccess.screenCapture,
+                  (access) =>
+                      access != FeatureAccess.remoteInput &&
+                      access != FeatureAccess.screenCapture,
                 ))
                   row(
                     _access.label(item, fa),

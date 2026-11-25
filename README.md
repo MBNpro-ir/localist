@@ -50,7 +50,7 @@ Localist lets devices on the same local network share VPN/proxy access and trans
 
 Each browser tab joins with its own device name. Select the host, another browser or a discovered Localist app as the upload destination. Two iPhones can exchange files through one Localist host on the same network; the receiving browser downloads its private inbox. Completion is confirmed only after exact byte counts and a browser receipt. The browser must still save/open the downloaded file through its own UI.
 
-In **Stream**, select media and open the player QR/URL on another device, or discover a DLNA MediaRenderer and use Play/Pause/Stop. Audio, video and images use HTTP byte ranges without transcoding. The screen-mirroring action opens Windows Win+K or Android Cast settings. AirPlay and Chromecast protocols are not implemented. A compatible receiver, codec and local network are required.
+In **Stream**, Sharing shows one local address on port 53547 and a QR code. Receiving discovers streams or opens an address you type. On Android you can also scan the QR code. Audio, video and images use HTTP byte ranges without transcoding. Playback requires a compatible browser and codec.
 
 Windows offers **Create fallback local network** using the hosted WLAN API. A Wi-Fi adapter/driver capable of acting as an access point is required; software cannot create a wireless network on absent or unsupported hardware. Normal startup requires no UAC; Windows VPN requests elevation on demand.
 
@@ -76,13 +76,13 @@ On the receiving device:
 1. Open **Receiving**.
 2. Select the sharing device under Nearby Devices, scan its QR code, or paste its smart configuration.
 3. Localist tests the allowed routes and selects a reachable IP automatically.
-4. Start the available VPN, system proxy, or local proxy mode.
+4. Start local proxy mode on Android. On Windows, choose VPN, system proxy, or local proxy.
 
 Raw `http://` and `socks5://` configurations are still accepted. A raw configuration can only use the exact host entered by the user; Localist never substitutes an unrelated nearby device merely because it uses the same port.
 
 ### Transfer files with Quick Send
 
-Turn off the device VPN before starting Quick Send. A red warning appears and all Quick Send network services remain suspended while any Android or Localist VPN transport is active.
+Quick Send warns when a VPN is active. The transfer can continue if the VPN allows access to the local network.
 
 1. Open **Quick Send** on both devices; it is the default page when Localist starts.
 2. Choose **File**, **Media**, **Paste**, **Text**, or **Folder**.
@@ -91,7 +91,7 @@ Turn off the device VPN before starting Quick Send. A red warning appears and al
 
 On Android, choose **Localist** in another app's Share menu to open Quick Send with the shared files already selected. On Windows, files or folders can be dropped anywhere on the Localist window; Quick Send opens automatically and keeps the dropped items selected. **Transfer history** provides a photo/video gallery, date grouping, category and status filters, search and size/name/date/device sorting, plus per-file **Share** and **Open** actions. A single **Open received folder** action opens the complete destination, and clearing history removes only its records—not downloaded files. The live **Transfers** list also has a **Clear** action.
 
-For a manual Quick Send connection, open Quick Send on the destination and copy one of the IP chips under **Manual connection address for this device**. On the sender, tap **+** beside **Nearby devices**, then enter that IP with the destination's displayed port and HTTP/HTTPS mode. Both devices must use the same Wi-Fi or hotspot and their VPN must be off.
+For a manual Quick Send connection, open Quick Send on the destination and copy one of the IP chips under **Manual connection address for this device**. On the sender, tap **+** beside **Nearby devices**, then enter that IP with the destination's displayed port and HTTP/HTTPS mode. Both devices need a reachable local network route.
 
 For an iPhone, iPad, or Mac, use the **Send to iPhone or Mac** card at the bottom of Quick Send.
 
@@ -116,7 +116,7 @@ Use Refresh to repeat multicast, directed-broadcast, and active subnet discovery
 Quick Send settings include:
 
 - Device profile, receive port, and multicast group. Localist prefills the Android model but lets the user choose a validated name of up to 32 user-perceived characters, including emoji, plus an avatar or photo.
-- Destination folder and duplicate-file overwrite behavior. On Android, the default is `/storage/emulated/0/Download/Localist/<category>/<file-name>/`, with `Images`, `Videos`, `Audio`, `Documents`, `Archives`, `Apps`, and `Other` categories. Choosing a custom destination disables this automatic grouping.
+- On Android, Quick Send stores received files in Localist's scoped app storage. Open or share them from transfer history. Windows lets you choose the destination folder.
 - HTTPS encryption with certificate fingerprint verification.
 - Optional receiver PIN.
 - Favorite devices and Quick Save for all devices or favorites only.
@@ -130,21 +130,25 @@ Manual incoming requests use an Accept/Decline popup over the active app instead
 
 | Platform | Sharing | Receiving | Quick Send |
 | --- | --- | --- | --- |
-| Android | HTTP/SOCKS5 proxy, hotspot/manual network flow, optional root routing | Android VPN or local proxy | Send and receive files/messages; local Safari bridge for Apple devices |
+| Android | HTTP/SOCKS5 proxy, hotspot/manual network flow | Local proxy | Send and receive files/messages; local Safari bridge for Apple devices |
 | Windows | HTTP/SOCKS5 proxy, optional local v2rayN upstream | Windows VPN with Wintun, system proxy, or local proxy | Send and receive files/messages; drag-and-drop and local Safari bridge for Apple devices |
 
 Windows VPN mode requires administrator access plus `tun2socks.exe` and `wintun.dll`. If those tools are absent, development packages can still use system/local proxy modes.
 
 ### Permissions and local data
 
-- Android asks for notifications and battery-optimization access so long-running VPN/proxy transfers can continue in the background. Quick Send uses a low-importance connected-device foreground service while receiving is enabled.
+- Android requests notification access so users can see and control background transfers. Quick Send uses a low-importance connected-device foreground service while receiving is enabled.
 - Android 17 asks for local-network access before discovery and receiving; older supported Android releases do not expose that runtime permission.
-- Camera access is requested only when the QR scanner is opened.
-- Android VPN permission is requested only when VPN Receiving is started.
+- Camera and microphone access are requested for the corresponding features. Android Remote Control hosting shares the screen with system consent.
 - Android requests Nearby Wi-Fi access when creating the private Apple/Mac transfer hotspot (location access is used instead on Android 12 and older).
-- Android requests file-management access only when the public `Download/Localist` receive folder is used.
 - Files sent through Quick Send stay on the local network. HTTPS mode verifies the destination certificate fingerprint.
 - Preferences, profile identity, favorites, certificate identity, transfer settings, and received-file history are stored in the platform app-data directory. A selected profile photo is normalized to a small local thumbnail.
+
+- See the [Localist privacy policy](PRIVACY.md) for local storage, network services and media capture.
+
+### Android microphone input
+
+Choose a microphone input and a recording mode in Camera & Mic. Android exposes audio routes for built-in, USB and Bluetooth inputs. Some phones group several built-in microphones under one route and select the internal capsules according to the recording mode. Raw input is shown only when the device advertises support, and Voice performance requires Android 10 or later. Player reflects the sender's supported modes.
 
 ### Logs and troubleshooting
 
@@ -163,7 +167,7 @@ Windows VPN mode requires administrator access plus `tun2socks.exe` and `wintun.
 
 ```text
 lib/                       Flutter UI, smart VPN discovery, Quick Send, settings and services
-android/                   Android VPN/proxy bridge, updater, widgets and Gradle project
+android/                   Android proxy, capture, widgets and Gradle project
 windows/                   Windows runner, Win32 bridge, Wintun packaging and resources
 test/                      Flutter regression and protocol-focused checks
 .github/workflows/         Android/Windows release and GitHub publishing workflow

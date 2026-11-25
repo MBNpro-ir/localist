@@ -179,39 +179,11 @@ class NativeBridgeService {
     return _invoke<String>('getUpdateDirectory');
   }
 
-  Future<bool> canInstallAndroidPackages() async {
-    if (!Platform.isAndroid) {
-      return false;
-    }
-    return await _invoke<bool>('canInstallPackages') ?? false;
-  }
-
-  Future<bool> openAndroidInstallPermissionSettings() async {
-    if (!Platform.isAndroid) {
-      return false;
-    }
-    return await _invoke<bool>('openInstallPermissionSettings') ?? false;
-  }
-
-  Future<bool> installAndroidApk(String path) async {
-    if (!Platform.isAndroid) {
-      return false;
-    }
-    return await _invoke<bool>('installApk', {'path': path}) ?? false;
-  }
-
   Future<bool> isIgnoringBatteryOptimizations() async {
     if (!Platform.isAndroid) {
       return true;
     }
     return await _invoke<bool>('isIgnoringBatteryOptimizations') ?? false;
-  }
-
-  Future<bool> requestIgnoreBatteryOptimizations() async {
-    if (!Platform.isAndroid) {
-      return true;
-    }
-    return await _invoke<bool>('requestIgnoreBatteryOptimizations') ?? false;
   }
 
   Future<bool> startProxyService({
@@ -329,13 +301,6 @@ class NativeBridgeService {
       return WindowsLocalistService.instance.stopProxyService();
     }
     return await _invoke<bool>('stopProxyService') ?? false;
-  }
-
-  Future<bool> shareApk() async {
-    if (Platform.isWindows) {
-      return false;
-    }
-    return await _invoke<bool>('shareApk') ?? false;
   }
 
   Future<bool> shareText({required String text, required String title}) async {

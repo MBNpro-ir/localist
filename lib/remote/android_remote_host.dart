@@ -158,8 +158,6 @@ class _AndroidRemoteHostState extends State<AndroidRemoteHost>
           !client.isTerminal &&
           !client.isViewCamera) {
         await engine.gFFI.invokeMethod('start_capture');
-        // Viewing remains possible when the user declines optional input.
-        // If control is needed, guide through restricted Android settings.
         await FeaturePermissionService.instance.ensure([
           FeatureAccess.remoteInput,
         ]);

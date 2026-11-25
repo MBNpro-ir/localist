@@ -25,7 +25,6 @@ open class LocalistWidgetProvider : AppWidgetProvider() {
             ACTION_TOGGLE_RECEIVING -> toggleReceiving(context)
             LocalistVpnService.ACTION_STOP,
             LocalistVpnService.ACTION_START,
-            LocalistVpnService.ACTION_START_RECEIVING,
             LocalistVpnService.ACTION_START_LOCAL_PROXY -> Unit
             else -> return
         }

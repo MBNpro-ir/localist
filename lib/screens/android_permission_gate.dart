@@ -36,18 +36,12 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   bool _loading = true;
   bool _complete = !Platform.isAndroid && !Platform.isWindows;
   bool _notificationGranted = false;
-  bool _batteryGranted = false;
   bool _localNetworkRequired = false;
   bool _localNetworkGranted = true;
   bool _busy = false;
   int _sdk = 0;
-  bool _storageGranted = false;
-  bool _installerGranted = false;
-  bool _rootGranted = false;
   final Map<Permission, bool> _runtime = {};
   Map<String, bool> _features = {};
-  Permission get _storage =>
-      _sdk >= 30 ? Permission.manageExternalStorage : Permission.storage;
   Permission get _wifi =>
       _sdk >= 33 ? Permission.nearbyWifiDevices : Permission.locationWhenInUse;
   String _t(String fa, String en) => context.l10n.isPersian ? fa : en;
@@ -55,8 +49,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
   bool get _allGranted {
     if (Platform.isWindows) return true;
     return _notificationGranted &&
-        _storageGranted &&
-        _batteryGranted &&
         (!_localNetworkRequired || _localNetworkGranted);
   }
 
@@ -117,10 +109,8 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
       return;
     }
     final notification = await Permission.notification.status;
-    final battery = await _bridge.isIgnoringBatteryOptimizations();
     final sdk = await _bridge.getAndroidSdkInt() ?? 0;
     _sdk = sdk;
-    final storage = await _storage.status;
     final runtime = <Permission, bool>{};
     for (final permission in [
       Permission.camera,
@@ -130,7 +120,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
     ]) {
       runtime[permission] = (await permission.status).isGranted;
     }
-    final installer = await _bridge.canInstallAndroidPackages();
     final features = await _bridge.getFeatureAccessStatus();
     final localNetworkRequired = sdk >= 37;
     final localNetwork =
@@ -140,12 +129,9 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
     }
     setState(() {
       _notificationGranted = notification.isGranted;
-      _batteryGranted = battery;
       _localNetworkRequired = localNetworkRequired;
       _localNetworkGranted = localNetwork;
-      _storageGranted = storage.isGranted;
       _runtime.addAll(runtime);
-      _installerGranted = installer;
       _features = features;
     });
   }
@@ -197,10 +183,7 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
             onPressed: _busy ? null : _requestRuntimePermissions,
             icon: const Icon(Icons.checklist),
             label: Text(
-              _t(
-                'فعال کردن سه دسترسی اصلی',
-                'Enable the three main permissions',
-              ),
+              _t('فعال کردن دسترسی‌های اصلی', 'Enable essential permissions'),
             ),
           ),
           const SizedBox(height: 12),
@@ -226,24 +209,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
             ),
           ],
           const SizedBox(height: 10),
-          _PermissionTile(
-            granted: _batteryGranted,
-            icon: Icons.battery_saver_outlined,
-            title: l10n.backgroundTransfer,
-            subtitle: l10n.backgroundTransferSubtitle,
-            onPressed: _busy ? null : _requestBattery,
-          ),
-          const SizedBox(height: 10),
-          _PermissionTile(
-            granted: _storageGranted,
-            icon: Icons.folder_open,
-            title: _t('فایل‌ها و پوشهٔ دانلودها', 'Files and Downloads folder'),
-            subtitle: _t(
-              'برای ارسال فایل و ذخیرهٔ فایل‌های دریافتی در پوشهٔ دانلودهای لوکالیست.',
-              'For sending files and saving received files in Download/Localist.',
-            ),
-            onPressed: _busy ? null : () => _requestPermission(_storage),
-          ),
           const SizedBox(height: 20),
           Text(
             _t('دسترسی قابلیت‌های اختیاری', 'Optional feature access'),
@@ -298,34 +263,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
             const SizedBox(height: 10),
           ],
           _PermissionTile(
-            granted: _installerGranted,
-            icon: Icons.system_update_alt,
-            title: _t('نصب آپدیت', 'Install app updates'),
-            subtitle: _t(
-              'اجازهٔ نصب نسخه‌های جدید دانلودشده توسط Localist.',
-              'Allow installation of new versions downloaded by Localist.',
-            ),
-            onPressed: _busy
-                ? null
-                : () => _featureRequest(
-                    _bridge.openAndroidInstallPermissionSettings,
-                  ),
-          ),
-          const SizedBox(height: 10),
-          _PermissionTile(
-            granted: _features['vpn'] == true,
-            icon: Icons.vpn_key_outlined,
-            title: _t('اتصال VPN', 'VPN connection'),
-            subtitle: _t(
-              'برای دریافت اینترنت یا اتصال از پروکسی؛ اندروید ممکن است هنگام تغییر VPN دوباره تأیید بخواهد.',
-              'For internet receiving and proxy routing; Android may ask again after changing VPN apps.',
-            ),
-            onPressed: _busy
-                ? null
-                : () => _featureRequest(_bridge.ensureVpnPermission),
-          ),
-          const SizedBox(height: 10),
-          _PermissionTile(
             granted: _features['input'] == true,
             icon: Icons.touch_app_outlined,
             title: _t(
@@ -333,8 +270,8 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
               'Remote input and Accessibility',
             ),
             subtitle: _t(
-              'سرویس لوکالیست را در تنظیمات دسترس‌پذیری فعال کنید. اگر دسترسی محدود است: اطلاعات برنامه ← منوی سه‌نقطه ← اجازه تنظیمات محدودشده.',
-              'Enable Localist in Accessibility. If restricted: App info → three-dot menu → Allow restricted settings.',
+              'طرف مقابل پس از تأیید اتصال می‌تواند لمس و صفحه‌کلید گوشی را کنترل کند.',
+              'Allow an approved remote peer to control touch and keyboard on this phone.',
             ),
             onPressed: _busy
                 ? null
@@ -371,22 +308,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
                   }),
           ),
           const SizedBox(height: 10),
-          _PermissionTile(
-            granted: _rootGranted,
-            icon: Icons.admin_panel_settings_outlined,
-            title: _t('Root روی دستگاه روت‌شده', 'Root on rooted devices'),
-            subtitle: _t(
-              'اختیاری؛ فقط برای اشتراک کامل مسیرهای شبکه روی دستگاه‌های روت‌شده. مدیر دسترسی ریشهٔ دستگاه تأیید می‌خواهد.',
-              'Optional, for full network routing on rooted devices. Your root manager asks for confirmation.',
-            ),
-            onPressed: _busy
-                ? null
-                : () => _featureRequest(() async {
-                    final granted = await _bridge.checkRootAccess();
-                    if (mounted) setState(() => _rootGranted = granted);
-                    return granted;
-                  }),
-          ),
         ],
         const SizedBox(height: 16),
         SizedBox(
@@ -460,9 +381,7 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
         LogService.instance.debug(
           'Permission gate request permission=${permission.toString()}',
         );
-        final access = permission == _storage
-            ? FeatureAccess.storage
-            : permission == _wifi
+        final access = permission == _wifi
             ? FeatureAccess.nearbyDevices
             : permission == Permission.camera
             ? FeatureAccess.camera
@@ -476,19 +395,6 @@ class _AndroidPermissionGateState extends State<AndroidPermissionGate>
     LogService.instance.debug('Permission gate welcome permissions requested');
     return FeaturePermissionService.instance.requestWelcome();
   });
-
-  Future<void> _requestBattery() async {
-    LogService.instance.debug(
-      'Permission gate battery optimization request tapped',
-    );
-    final l10n = context.l10n;
-    await _runRequest(
-      title: l10n.backgroundTransferRequired,
-      body: l10n.backgroundTransferRequiredBody,
-      request: () => _bridge.requestIgnoreBatteryOptimizations(),
-      refresh: _refreshStatuses,
-    );
-  }
 
   Future<void> _requestLocalNetwork() async {
     LogService.instance.debug('Permission gate local network request tapped');

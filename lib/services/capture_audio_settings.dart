@@ -31,7 +31,7 @@ class CaptureAudioSettings {
     'medium' => 40,
     'high' => 100,
     'custom' => minBufferMs,
-    _ => 0,
+    _ => 20,
   };
   int get effectiveMaxBufferMs => switch (bufferMode) {
     'medium' => 200,

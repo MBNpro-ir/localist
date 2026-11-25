@@ -32,6 +32,7 @@ import 'screens/stats_sheet.dart';
 import 'screens/startup_gate.dart';
 import 'screens/stream_page.dart';
 import 'screens/live_capture_page.dart';
+import 'screens/about_localist_page.dart';
 import 'services/capture_hub_service.dart';
 import 'screens/vpn_sharing_page.dart';
 import 'services/feature_activity_service.dart';
@@ -1084,7 +1085,7 @@ class _LocalistShellState extends State<LocalistShell>
   Future<void> _checkForStartupUpdate({bool repeat = false}) async {
     if ((!repeat && _startupUpdateChecked) ||
         _updates.busy ||
-        (!Platform.isAndroid && !Platform.isWindows)) {
+        !Platform.isWindows) {
       return;
     }
     _startupUpdateChecked = true;
@@ -1481,44 +1482,8 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(_syncDiscoveryLifecycle());
     try {
       _logs.debug(
-        'Sharing start flow root=${widget.settings.rootRoutingEnabled} protocols=${widget.settings.enabledProtocols.map((value) => value.name).join(',')} ports=${widget.settings.protocolPorts} shareAll=${widget.settings.shareAllRoutes} selectedIpCount=${widget.settings.selectedLocalIps.length}',
+        'Sharing start flow protocols=${widget.settings.enabledProtocols.map((value) => value.name).join(',')} ports=${widget.settings.protocolPorts} shareAll=${widget.settings.shareAllRoutes} selectedIpCount=${widget.settings.selectedLocalIps.length}',
       );
-      if (!Platform.isWindows && widget.settings.rootRoutingEnabled) {
-        if (!widget.settings.shareAllRoutes &&
-            widget.settings.selectedLocalIps.isEmpty) {
-          _logs.warning('No local IP was selected for root sharing');
-          if (mounted) {
-            showLocalistNotice(
-              context,
-              message: l10n.selectAtLeastOneLocalIp,
-              tone: InAppNoticeTone.warning,
-            );
-          }
-          return;
-        }
-        final root = await _bridge.startRootSharing(
-          shareAllRoutes: widget.settings.shareAllRoutes,
-          selectedLocalIps: widget.settings.selectedLocalIps,
-        );
-        if (root.active) {
-          _logs.info(
-            'Root VPN sharing started on ${root.vpnInterface} for ${root.clientSubnets.join(', ')}',
-          );
-        } else {
-          if (root.lastError.isNotEmpty) {
-            _logs.debug(
-              'Root VPN sharing failed with native message length=${root.lastError.length}',
-            );
-          }
-          _logs.error('Root VPN sharing did not start.');
-          _showInAppNotice(
-            l10n.rootVpnDidNotStart,
-            tone: InAppNoticeTone.error,
-          );
-        }
-        await _refreshState();
-        return;
-      }
       if (!Platform.isWindows) {
         await _requestRuntimePermissions();
       }
@@ -1645,6 +1610,7 @@ class _LocalistShellState extends State<LocalistShell>
   }
 
   Future<void> _startReceiving(RemoteProxyConfig config) async {
+    if (!Platform.isWindows) return;
     if (!_activities.allows(LocalistFeature.vpnSharing)) return;
     _logs.debug(
       'Start receiving VPN button pressed protocol=${config.protocol.name} port=${config.port} busy=$_busy',
@@ -1889,27 +1855,6 @@ class _LocalistShellState extends State<LocalistShell>
     }
   }
 
-  Future<void> _shareApk() async {
-    final l10n = context.l10n;
-    _logs.debug('Share APK button pressed');
-    try {
-      final shared = await _bridge.shareApk();
-      _logs.debug('Share APK result shared=$shared');
-      if (shared) {
-        _logs.info('APK share sheet opened');
-      } else {
-        _logs.warning('APK share is unavailable on this platform.');
-        _showInAppNotice(
-          l10n.apkSharingUnavailable,
-          tone: InAppNoticeTone.warning,
-        );
-      }
-    } catch (error) {
-      _logs.error('Failed to share APK: ${_describeError(error)}');
-      _showInAppNotice(l10n.apkSharingFailed, tone: InAppNoticeTone.error);
-    }
-  }
-
   Future<void> _showLogsSheet() {
     _logs.debug('Logs sheet button pressed');
     return showModalBottomSheet<void>(
@@ -2069,7 +2014,9 @@ class _LocalistShellState extends State<LocalistShell>
           busy: _busy,
           controlsLocked: _sharingActive,
           lockMessage: l10n.sharingActiveLock,
-          onStartReceiving: _startReceiving,
+          onStartReceiving: Platform.isWindows
+              ? _startReceiving
+              : _startLocalProxy,
           onStartSystemProxy: _startSystemProxy,
           onStartLocalProxy: _startLocalProxy,
           onStopReceiving: _stopReceiving,
@@ -2100,7 +2047,18 @@ class _LocalistShellState extends State<LocalistShell>
                 : null,
             title: Row(
               mainAxisSize: MainAxisSize.min,
-              children: [const Text('Localist')],
+              children: [
+                const Flexible(
+                  child: Text('Localist', overflow: TextOverflow.ellipsis),
+                ),
+                IconButton(
+                  tooltip: l10n.isPersian
+                      ? 'دربارهٔ لوکالیست'
+                      : 'About Localist',
+                  icon: const Icon(Icons.info_outline_rounded),
+                  onPressed: () => unawaited(_openAbout()),
+                ),
+              ],
             ),
             actions: [
               if (_statsAvailable)
@@ -2124,13 +2082,6 @@ class _LocalistShellState extends State<LocalistShell>
                   tooltip: l10n.logs,
                   onPressed: _showLogsSheet,
                   icon: const Icon(Icons.subject_outlined),
-                ),
-              if (!Platform.isWindows &&
-                  MediaQuery.sizeOf(context).width >= 400)
-                IconButton(
-                  tooltip: l10n.shareApk,
-                  onPressed: _shareApk,
-                  icon: const Icon(Icons.ios_share),
                 ),
               IconButton(
                 tooltip: themeSettings.isDarkMode
@@ -2393,6 +2344,21 @@ class _LocalistShellState extends State<LocalistShell>
                 : _snapshot.deviceVpnActive,
             section: section,
           ),
+        ),
+      );
+    } finally {
+      _settingsRoutes--;
+      unawaited(_syncDiscoveryLifecycle());
+    }
+  }
+
+  Future<void> _openAbout() async {
+    _settingsRoutes++;
+    unawaited(_syncDiscoveryLifecycle());
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => AboutLocalistPage(simple: widget.useSimpleTheme),
         ),
       );
     } finally {

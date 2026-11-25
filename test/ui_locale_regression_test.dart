@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/l10n/app_localizations.dart';
 import 'package:localist/models/quick_send_settings.dart';
+import 'package:localist/screens/about_localist_page.dart';
 import 'package:localist/screens/quick_send_page.dart';
 import 'package:localist/screens/stream_page.dart';
 import 'package:localist/screens/transfer_history_page.dart';
@@ -25,6 +26,27 @@ Widget localizedApp(Locale locale, Widget child) => MaterialApp(
 );
 
 void main() {
+  testWidgets('project page fits a bilingual mobile and desktop layout', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    for (final (size, locale) in [
+      (const Size(320, 640), const Locale('fa')),
+      (const Size(1200, 780), const Locale('en')),
+    ]) {
+      tester.view.physicalSize = size;
+      await tester.pumpWidget(
+        localizedApp(locale, const AboutLocalistPage(simple: false)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('GitHub'), findsOneWidget);
+      expect(find.text('MBN Pro'), findsOneWidget);
+      expect(find.text('PRS Hub'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
   testWidgets('remote ready indicator uses only the chosen language', (
     tester,
   ) async {

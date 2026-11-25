@@ -78,6 +78,17 @@ int main() {
     assert(render.Pull(queue_output.data(),1)==1);
     assert(queue_output[0]==(gain<0?3:10000));
   }
+  render.Configure(20,100,0);
+  render.Push(quiet.data(),600);
+  assert(render.Pull(queue_output.data(),480)==0);
+  render.Push(quiet.data(),480);
+  assert(render.Pull(queue_output.data(),480)==480);
+  assert(render.Pull(queue_output.data(),480)==480);
+  assert(render.Pull(queue_output.data(),480)==120);
+  assert(queue_output[0]==1000 && queue_output[119]==0 && queue_output[120]==0);
+  render.Push(quiet.data(),960);
+  assert(render.Pull(queue_output.data(),480)==480);
+  assert(queue_output[0]==0 && queue_output[96]==1000);
   LocalistNetworkPcmHeader header;
   std::vector<uint8_t> valid(sizeof(header)+960*sizeof(int16_t));header.frames=960;
   std::memcpy(valid.data(),&header,sizeof(header));

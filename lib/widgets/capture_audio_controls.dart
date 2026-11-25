@@ -94,6 +94,27 @@ class _CaptureAudioControlsState extends State<CaptureAudioControls> {
           ],
         ],
         if (widget.onEffects != null) ...[
+          if (widget.echo ||
+              widget.noise ||
+              widget.autoGain ||
+              settings.gainDb != 0)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: OutlinedButton.icon(
+                onPressed: widget.enabled
+                    ? () => widget.onEffects!({
+                        'echo': false,
+                        'noise': false,
+                        'gain': false,
+                        'audioGainDb': 0.0,
+                      })
+                    : null,
+                icon: const Icon(Icons.graphic_eq_rounded),
+                label: Text(
+                  t('صدای اصلی میکروفون', 'Original microphone sound'),
+                ),
+              ),
+            ),
           for (final entry in <String, ({String title, bool value})>{
             'echo': (
               title: t('حذف اکو', 'Echo cancellation'),

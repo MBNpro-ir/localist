@@ -210,14 +210,20 @@ class LocalistRemoteRuntime {
       remote.kBootArgs = [];
       engine.localistOwnsAndroidHosting = true;
       engine.localistPermissionRequest = (type) {
+        if (const {
+          'android.permission.READ_EXTERNAL_STORAGE',
+          'android.permission.WRITE_EXTERNAL_STORAGE',
+          'android.permission.MANAGE_EXTERNAL_STORAGE',
+        }.contains(type)) {
+          // The embedded engine uses its own scoped storage and document picker.
+          return Future.value(true);
+        }
         final access = switch (type) {
           'android.permission.RECORD_AUDIO' => FeatureAccess.microphone,
           'android.permission.CAMERA' => FeatureAccess.camera,
           'android.permission.POST_NOTIFICATIONS' =>
             FeatureAccess.notifications,
           'android.permission.SYSTEM_ALERT_WINDOW' => FeatureAccess.overlay,
-          'android.permission.WRITE_EXTERNAL_STORAGE' => FeatureAccess.storage,
-          'android.permission.MANAGE_EXTERNAL_STORAGE' => FeatureAccess.storage,
           _ => null,
         };
         return access == null
@@ -486,7 +492,11 @@ Future<void> _applyProfile() async {
           profile.values['temporary-password-length'] ||
       existing['allow-numeric-one-time-password'] !=
           profile.values['allow-numeric-one-time-password'];
-  final serverOptions = {...profile.serverOptions, 'allow-auto-update': 'N'};
+  final serverOptions = {
+    ...profile.serverOptions,
+    'allow-auto-update': 'N',
+    if (Platform.isAndroid) 'allow-insecure-tls-fallback': 'N',
+  };
   if (Platform.isAndroid) {
     // Android's bulk setter only replaces Config. The individual setter also
     // updates active-session permissions and restarts network/audio services.

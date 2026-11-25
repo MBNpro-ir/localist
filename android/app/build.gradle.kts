@@ -30,7 +30,7 @@ android {
 
     packaging {
         jniLibs {
-            // Compress native prstun/hevtunnel libraries in APKs. Android extracts them
+            // Compress native libraries in APKs. Android extracts them
             // at install time, trading a little install time for a much smaller APK.
             useLegacyPackaging = true
         }
@@ -45,31 +45,9 @@ android {
         }
     }
 
-    signingConfigs {
-        create("localistRelease") {
-            val releaseStoreFile =
-                providers.environmentVariable("LOCALIST_UPLOAD_STORE_FILE").orNull
-                    ?: "localist-upload.jks"
-            storeFile = file(releaseStoreFile)
-            storePassword =
-                providers.environmentVariable("LOCALIST_KEYSTORE_PASSWORD").orNull
-                    ?: "localist-update"
-            keyAlias =
-                providers.environmentVariable("LOCALIST_KEY_ALIAS").orNull
-                    ?: "localist"
-            keyPassword =
-                providers.environmentVariable("LOCALIST_KEY_PASSWORD").orNull
-                    ?: "localist-update"
-            enableV1Signing = false
-            enableV2Signing = true
-            enableV3Signing = true
-            enableV4Signing = false
-        }
-    }
-
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("localistRelease")
+            // Release Actions applies the APK signing lineage after assembly.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -117,7 +95,4 @@ dependencies {
     // this compile dependency aligned with flutter_webrtc's native SDK.
     implementation("io.github.webrtc-sdk:android:150.7871.04")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    implementation("com.zaneschepke:hevtunnel:1.0.1") {
-        isTransitive = false
-    }
 }

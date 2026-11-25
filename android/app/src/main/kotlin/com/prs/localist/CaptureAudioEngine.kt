@@ -38,13 +38,19 @@ object CaptureAudioEngine {
         override fun process(numBands: Int, numFrames: Int, buffer: ByteBuffer) {
             val rate = numFrames * 100
             if (rate !in 8000..48000) return
+            val capturePcm = sourcePcm
+            val gain = sourceGain
+            if (!capturePcm) {
+                sourceCount = 0
+                if (gain == 1.0) return
+            }
             val floats = buffer.duplicate().order(ByteOrder.nativeOrder()).asFloatBuffer()
             val count = minOf(numFrames, floats.capacity())
             for (i in 0 until count) {
-                val input = floats.get(i).toDouble() * sourceGain
+                val input = floats.get(i).toDouble() * gain
                 val sample = if (input.isFinite()) input.coerceIn(-32768.0, 32767.0) else 0.0
-                floats.put(i, sample.toFloat())
-                if (!sourcePcm) continue
+                if (gain != 1.0) floats.put(i, sample.toFloat())
+                if (!capturePcm) continue
                 sourceSamples[sourceCount++] = sample.toInt().toShort()
                 if (sourceCount >= rate / 50) {
                     val packet = ByteBuffer.allocate(20 + sourceCount * 2).order(ByteOrder.LITTLE_ENDIAN)
@@ -172,6 +178,7 @@ object CaptureAudioEngine {
             worker = Thread({
                 Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
                 val chunk = ShortArray(480)
+                var fadeIn = false
                 try {
                     while (running) {
                         synchronized(lock) {
@@ -181,7 +188,19 @@ object CaptureAudioEngine {
                                 val available = minOf(count,chunk.size)
                                 for(i in 0 until available) chunk[i] = queue[(read+i)%maximum]
                                 read = (read+available)%maximum; count -= available
-                                if(available < chunk.size) { underruns++; waiting = minimum > 0 }
+                                val ramp = minOf(available, 96)
+                                if (fadeIn) {
+                                    for (i in 0 until ramp) chunk[i] = (chunk[i] * i / ramp).toShort()
+                                }
+                                fadeIn = available < chunk.size
+                                if (fadeIn) {
+                                    for (i in 0 until ramp) {
+                                        val index = available - 1 - i
+                                        chunk[index] = (chunk[index] * i / ramp).toShort()
+                                    }
+                                    underruns++
+                                    waiting = minimum > 0
+                                }
                             }
                         }
                         val written = if(openSl)if(OpenSlAudioOutput.write(nativeOutput,chunk))chunk.size else -1 else player.write(chunk,0,chunk.size,PlatformAudioTrack.WRITE_BLOCKING)
@@ -193,7 +212,11 @@ object CaptureAudioEngine {
         }
         private fun push(data: ShortArray, rate: Int, channels: Int, samples: Int) = synchronized(lock) {
             if (!running || rate !in 8000..48000 || channels !in 1..8 || samples > rate/5) return@synchronized
-            if(oldRate != rate) { oldRate = rate; phase = 0; previous = 0.0 }
+            if(oldRate != rate) {
+                oldRate = rate
+                phase = 0
+                previous = (0 until channels).sumOf { data[it].toInt() }.toDouble() / channels
+            }
             for(i in 0 until samples) {
                 var sum = 0.0
                 for(c in 0 until channels) sum += data[i*channels+c]

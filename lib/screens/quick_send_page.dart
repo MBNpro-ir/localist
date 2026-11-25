@@ -71,11 +71,6 @@ class QuickSendPageState extends State<QuickSendPage> {
       'Quick Send page: initializing discovery and receiving',
     );
     await _service.initialize();
-    if (Platform.isAndroid &&
-        _service.settings?.receiveEnabled == true &&
-        !_service.storageAccessGranted) {
-      await _service.ensureReceiveStorageAccess();
-    }
     await _loadExternallySharedFiles();
     LogService.instance.debug(
       'Quick Send page: initialization complete devices=${_service.devices.length}',
@@ -2033,29 +2028,6 @@ class QuickSendStatusPanel extends StatelessWidget {
               icon: Icons.warning_amber_outlined,
             ),
           ],
-          if (Platform.isAndroid && !service.storageAccessGranted) ...[
-            const SizedBox(height: 10),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Icon(Icons.folder_off_outlined),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _t(
-                      context,
-                      'برای ذخیره فایل‌ها در پوشه Download/Localist دسترسی فایل لازم است.',
-                      'File access is required to save received files in Download/Localist.',
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => _requestStorageAccess(context),
-                  child: Text(_t(context, 'اعطا', 'Grant')),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
@@ -2072,25 +2044,6 @@ class QuickSendStatusPanel extends StatelessWidget {
         message: _t(context, 'IP کپی شد.', 'IP address copied.'),
       );
     }
-  }
-
-  static Future<void> _requestStorageAccess(BuildContext context) async {
-    final granted = await QuickSendService.instance
-        .ensureReceiveStorageAccess();
-    if (!context.mounted) {
-      return;
-    }
-    showLocalistNotice(
-      context,
-      message: granted
-          ? _t(context, 'دسترسی فایل فعال شد.', 'File access was enabled.')
-          : _t(
-              context,
-              'دسترسی فایل داده نشد؛ مسیر پیش‌فرض Download/Localist قابل نوشتن نیست.',
-              'File access was not granted; the default Download/Localist path is not writable.',
-            ),
-      tone: granted ? InAppNoticeTone.success : InAppNoticeTone.warning,
-    );
   }
 
   static String _t(BuildContext context, String fa, String en) {
@@ -2386,18 +2339,25 @@ class QuickSendSettingsSectionState extends State<QuickSendSettingsSection> {
                   errorText: _showValidation
                       ? _destinationValidationError
                       : null,
-                  suffixIcon: IconButton(
-                    tooltip: _t('انتخاب پوشه', 'Choose folder'),
-                    onPressed: _chooseDestination,
-                    icon: const Icon(Icons.folder_open_outlined),
-                  ),
+                  suffixIcon: Platform.isAndroid
+                      ? null
+                      : IconButton(
+                          tooltip: _t('انتخاب پوشه', 'Choose folder'),
+                          onPressed: _chooseDestination,
+                          icon: const Icon(Icons.folder_open_outlined),
+                        ),
                 ),
               ),
               const SizedBox(height: 8),
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
-                  _destinationCustomized
+                  Platform.isAndroid
+                      ? _t(
+                          'فایل‌ها در فضای لوکالیست ذخیره می‌شوند. از تاریخچه می‌توانید آن‌ها را باز یا هم‌رسانی کنید.',
+                          'Files are kept in Localist storage. Open or share them from transfer history.',
+                        )
+                      : _destinationCustomized
                       ? _t(
                           'فایل‌ها مستقیم در مسیر انتخابی ذخیره می‌شوند.',
                           'Files are saved directly in the selected folder.',

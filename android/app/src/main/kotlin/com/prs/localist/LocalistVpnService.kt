@@ -8,24 +8,20 @@ import androidx.core.app.NotificationCompat
 import com.carriez.flutter_hbb.LocalistNotifications
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
-import android.os.ParcelFileDescriptor
 import android.os.PowerManager
-import java.io.FileInputStream
 import java.util.Locale
 
-class LocalistVpnService : VpnService() {
-    private var vpnInterface: ParcelFileDescriptor? = null
+class LocalistVpnService : Service() {
+    override fun onBind(intent: Intent?): IBinder? = null
+
     private var proxyServer: LocalistProxyServer? = null
     private var localProxyForwarder: LocalProxyForwarder? = null
-    private var tunProxyForwarder: LocalProxyForwarder? = null
     private var discoveryResponder: LocalistDiscoveryResponder? = null
-    private var prsTunEngine: PrsTunEngine? = null
-    private var packetThread: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private val notificationHandler = Handler(Looper.getMainLooper())
@@ -47,15 +43,12 @@ class LocalistVpnService : VpnService() {
         debugLog("onStartCommand action=${intent?.action} startId=$startId")
         when (intent?.action) {
             ACTION_START -> startLocalist(intent)
-            ACTION_START_RECEIVING -> startReceiving(intent)
             ACTION_START_LOCAL_PROXY -> startLocalProxy(intent)
             ACTION_STOP -> stopLocalist()
             ACTION_RESTART -> {
                 stopLocalist(removeForeground = false)
                 val restartIntent = intentWithCurrentConfig()
-                if (restartIntent.action == ACTION_START_RECEIVING) {
-                    startReceiving(restartIntent)
-                } else if (restartIntent.action == ACTION_START_LOCAL_PROXY) {
+                if (restartIntent.action == ACTION_START_LOCAL_PROXY) {
                     startLocalProxy(restartIntent)
                 } else {
                     startLocalist(restartIntent)
@@ -110,66 +103,25 @@ class LocalistVpnService : VpnService() {
 
         startNotification()
         acquireRuntimeLocks()
-        runCatching { vpnInterface?.close() }
-        vpnInterface = null
         localProxyForwarder?.stop()
         localProxyForwarder = null
-        tunProxyForwarder?.stop()
-        tunProxyForwarder = null
+        val localAddresses = NetworkAddressInspector.lanInterfaces()
+            .mapNotNull { it["address"] as? String }
+        val addresses = if (shareAllRoutes) localAddresses else selectedLocalIps.filter(localAddresses::contains)
+        if (addresses.isEmpty()) {
+            stopLocalist()
+            return
+        }
         startProxy(
             protocols = protocols,
             protocolPorts = protocolPorts,
-            bindAddresses = if (shareAllRoutes) emptyList() else selectedLocalIps,
+            bindAddresses = addresses,
         )
         startDiscoveryResponder()
         notificationHandler.removeCallbacks(notificationUpdater)
         notificationHandler.post(notificationUpdater)
         LocalistWidgetProvider.updateAll(this)
         debugLog("sharing started ip=${State.ipAddress} proxyRunning=${State.proxyRunning}")
-    }
-
-    private fun startReceiving(intent: Intent) {
-        val protocol = intent.getStringExtra(EXTRA_REMOTE_PROTOCOL) ?: "socks5"
-        val host = intent.getStringExtra(EXTRA_REMOTE_HOST) ?: ""
-        val port = intent.getIntExtra(EXTRA_REMOTE_PORT, defaultPort(protocol))
-        debugLog("start receiving protocol=$protocol host=$host port=$port")
-        State.mode = MODE_RECEIVING
-        State.protocols = normalizedProtocols(listOf(protocol))
-        State.remoteProtocol = State.protocols.first()
-        State.remoteHost = host
-        State.remotePort = port
-        State.port = port
-        State.protocolPorts = State.protocolPorts + (State.remoteProtocol to port)
-        State.ipAddress = HotspotController.localIpAddress()
-        State.proxyRunning = false
-        State.receivingRunning = true
-        State.localProxyRunning = true
-        State.localProxyPort = LocalProxyForwarder.DEFAULT_LOCAL_PORT
-        State.sessionRxBytes = 0
-        State.sessionTxBytes = 0
-        stopDiscoveryResponder()
-        proxyServer?.stop()
-        proxyServer = null
-        localProxyForwarder?.stop()
-        localProxyForwarder = null
-        tunProxyForwarder?.stop()
-        tunProxyForwarder = null
-
-        startNotification()
-        acquireRuntimeLocks()
-        startAppLocalForwarder(
-            protocol = State.remoteProtocol,
-            host = host,
-            port = port,
-            localPort = LocalProxyForwarder.DEFAULT_LOCAL_PORT,
-        )
-        startVpnInterface(protocol = State.remoteProtocol, host = host, port = port)
-        notificationHandler.removeCallbacks(notificationUpdater)
-        notificationHandler.post(notificationUpdater)
-        LocalistWidgetProvider.updateAll(this)
-        debugLog(
-            "receiving started vpnConnected=${State.vpnConnected} localProxyPort=${State.localProxyPort}",
-        )
     }
 
     private fun startLocalProxy(intent: Intent) {
@@ -199,10 +151,6 @@ class LocalistVpnService : VpnService() {
         stopDiscoveryResponder()
         proxyServer?.stop()
         proxyServer = null
-        tunProxyForwarder?.stop()
-        tunProxyForwarder = null
-        runCatching { vpnInterface?.close() }
-        vpnInterface = null
         startAppLocalForwarder(
             protocol = State.remoteProtocol,
             host = host,
@@ -216,65 +164,6 @@ class LocalistVpnService : VpnService() {
         notificationHandler.post(notificationUpdater)
         LocalistWidgetProvider.updateAll(this)
         debugLog("local proxy started localPort=$localPort")
-    }
-
-    private fun startVpnInterface(protocol: String, host: String, port: Int) {
-        debugLog("start VPN interface protocol=$protocol host=$host port=$port")
-        runCatching { vpnInterface?.close() }
-        val tunProxyPort = PRSTUN_PROXY_PORT
-        startTunForwarder(
-            protocol = protocol,
-            host = host,
-            port = port,
-            localPort = tunProxyPort,
-        )
-        val builder = Builder()
-            .setSession("localist")
-            .addAddress("10.0.0.2", 24)
-            .addRoute("0.0.0.0", 0)
-            .addDnsServer(PrsTunEngine.MAPPED_DNS_ADDRESS)
-            .setMtu(1500)
-        runCatching {
-            // Localist's discovery and transfer sockets must stay on the
-            // underlying LAN instead of being routed back into its own TUN.
-            builder.addDisallowedApplication(packageName)
-        }.onFailure { error ->
-            debugLog("unable to exclude Localist from its own VPN: ${error.message}")
-        }
-        vpnInterface = builder.establish()
-        State.vpnConnected = vpnInterface != null
-        debugLog("VPN interface established=${State.vpnConnected}")
-        vpnInterface?.let { descriptor ->
-            prsTunEngine = PrsTunEngine(this).also {
-                it.start(
-                    tunFd = descriptor.fd,
-                    socksHost = LocalProxyForwarder.LOCAL_HOST,
-                    socksPort = tunProxyPort,
-                )
-            }
-        }
-    }
-
-    private fun startPacketAccounting() {
-        packetThread?.interrupt()
-        val descriptor = vpnInterface ?: return
-        packetThread = Thread {
-            val buffer = ByteArray(32767)
-            runCatching {
-                FileInputStream(descriptor.fileDescriptor).use { input ->
-                    while (!Thread.currentThread().isInterrupted && State.vpnConnected) {
-                        val read = input.read(buffer)
-                        if (read > 0) {
-                            recordTraffic(uploadedBytes = read.toLong(), downloadedBytes = 0)
-                        }
-                    }
-                }
-            }
-        }.apply {
-            name = "localistPacketAccounting"
-            isDaemon = true
-            start()
-        }
     }
 
     private fun startProxy(
@@ -368,22 +257,6 @@ class LocalistVpnService : VpnService() {
         ).also { it.start() }
     }
 
-    private fun startTunForwarder(
-        protocol: String,
-        host: String,
-        port: Int,
-        localPort: Int,
-    ) {
-        debugLog("start TUN forwarder protocol=$protocol host=$host port=$port localPort=$localPort")
-        tunProxyForwarder?.stop()
-        tunProxyForwarder = buildForwarder(
-            protocol = protocol,
-            host = host,
-            port = port,
-            localPort = localPort,
-        ).also { it.start() }
-    }
-
     private fun buildForwarder(
         protocol: String,
         host: String,
@@ -404,7 +277,6 @@ class LocalistVpnService : VpnService() {
                     debugLog("forwarder: $message")
                 }
             },
-            socketProtector = { socket -> protect(socket) },
         )
     }
 
@@ -451,18 +323,10 @@ class LocalistVpnService : VpnService() {
     private fun stopLocalist(removeForeground: Boolean = true) {
         debugLog("stop localist removeForeground=$removeForeground")
         notificationHandler.removeCallbacks(notificationUpdater)
-        prsTunEngine?.stop()
-        prsTunEngine = null
         proxyServer?.stop()
         proxyServer = null
         localProxyForwarder?.stop()
         localProxyForwarder = null
-        tunProxyForwarder?.stop()
-        tunProxyForwarder = null
-        packetThread?.interrupt()
-        packetThread = null
-        runCatching { vpnInterface?.close() }
-        vpnInterface = null
         State.vpnConnected = false
         State.proxyRunning = false
         State.receivingRunning = false
@@ -483,12 +347,7 @@ class LocalistVpnService : VpnService() {
 
     private fun intentWithCurrentConfig(): Intent {
         return Intent(this, LocalistVpnService::class.java).apply {
-            if (State.mode == MODE_RECEIVING && State.remoteHost.isNotBlank()) {
-                action = ACTION_START_RECEIVING
-                putExtra(EXTRA_REMOTE_PROTOCOL, State.remoteProtocol)
-                putExtra(EXTRA_REMOTE_HOST, State.remoteHost)
-                putExtra(EXTRA_REMOTE_PORT, State.remotePort)
-            } else if (State.mode == MODE_LOCAL_PROXY && State.remoteHost.isNotBlank()) {
+            if (State.mode == MODE_LOCAL_PROXY && State.remoteHost.isNotBlank()) {
                 action = ACTION_START_LOCAL_PROXY
                 putExtra(EXTRA_REMOTE_PROTOCOL, State.remoteProtocol)
                 putExtra(EXTRA_REMOTE_HOST, State.remoteHost)
@@ -524,16 +383,15 @@ class LocalistVpnService : VpnService() {
         )
         LocalistNotifications.start(this, notificationLabel(), notificationDetail(), listOf(
             NotificationCompat.Action(android.R.drawable.ic_media_pause,
-                LocalistText.choose(this, "توقف VPN", "Stop VPN"), stopIntent),
+                LocalistText.choose(this, "توقف پراکسی", "Stop proxy"), stopIntent),
             NotificationCompat.Action(android.R.drawable.ic_popup_sync,
-                LocalistText.choose(this, "شروع مجدد VPN", "Restart VPN"), restartIntent),
+                LocalistText.choose(this, "شروع مجدد پراکسی", "Restart proxy"), restartIntent),
         ))
     }
 
     private fun notificationLabel(): String = when (State.mode) {
-        MODE_RECEIVING -> LocalistText.choose(this, "دریافت VPN", "VPN receiving")
         MODE_LOCAL_PROXY -> LocalistText.choose(this, "پروکسی محلی", "Local proxy")
-        else -> LocalistText.choose(this, "اشتراک VPN", "VPN sharing")
+        else -> LocalistText.choose(this, "اشتراک پراکسی", "Proxy sharing")
     }
 
     private fun notificationDetail() = LocalistText.choose(this, "فعال", "Active") +
@@ -559,7 +417,6 @@ class LocalistVpnService : VpnService() {
 
     companion object {
         const val ACTION_START = "com.prs.localist.START"
-        const val ACTION_START_RECEIVING = "com.prs.localist.START_RECEIVING"
         const val ACTION_START_LOCAL_PROXY = "com.prs.localist.START_LOCAL_PROXY"
         const val ACTION_STOP = "com.prs.localist.STOP"
         const val ACTION_RESTART = "com.prs.localist.RESTART"
@@ -579,12 +436,10 @@ class LocalistVpnService : VpnService() {
         val SUPPORTED_PROTOCOLS = setOf("http", "socks5")
 
         private const val NOTIFICATION_REFRESH_MS = 5_000L
-        private const val PRSTUN_PROXY_PORT = 3782
         private const val PREFS_STATS = "localist_stats"
         private const val KEY_TOTAL_RX = "total_rx"
         private const val KEY_TOTAL_TX = "total_tx"
         private const val MODE_SHARING = "sharing"
-        private const val MODE_RECEIVING = "receiving"
         private const val MODE_LOCAL_PROXY = "local_proxy"
 
         fun stats(context: Context): Map<String, Long> {
@@ -617,7 +472,6 @@ class LocalistVpnService : VpnService() {
                     "localProxyIps" to NetworkAddressInspector.localProxyIps(),
                     "selectiveSharing" to !State.shareAllRoutes,
                     "usage" to stats(context),
-                    "root" to RootRoutingController.snapshot(context),
                     "remoteProxy" to if (State.remoteHost.isBlank()) {
                         emptyMap<String, Any>()
                     } else {

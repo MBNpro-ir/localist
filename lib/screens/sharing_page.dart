@@ -50,7 +50,7 @@ class SharingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final rootMode = settings.rootRoutingEnabled;
+    const rootMode = false;
     final rootSharingMode = !Platform.isWindows && rootMode;
     final running =
         snapshot.proxyRunning || (!Platform.isWindows && snapshot.root.active);

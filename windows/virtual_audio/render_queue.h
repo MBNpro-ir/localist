@@ -12,9 +12,10 @@ class LocalistRenderQueue {
     samples_.assign(size,0); read_=count_=0;
     minimum_=static_cast<size_t>(std::clamp(minimum_ms,0,maximum_ms))*48;
     waiting_=minimum_>0; gain_=std::pow(10.0,std::clamp(gain_db,-30.0,40.0)/20.0);
+    fade_in_=false;
     dropped_=underruns_=clipped_=0;
   }
-  void Clear() { read_=count_=0; waiting_=minimum_>0; }
+  void Clear() { read_=count_=0; waiting_=minimum_>0; fade_in_=false; }
   void Push(const int16_t* data,size_t count) {
     if (!data||!count||samples_.empty())return;
     if(count>samples_.size()){dropped_+=count-samples_.size();data+=count-samples_.size();count=samples_.size();}
@@ -33,9 +34,25 @@ class LocalistRenderQueue {
     waiting_=false;
     const auto size=std::min(frames,count_);
     for(size_t i=0;i<size;++i)out[i]=samples_[(read_+i)%samples_.size()];
+    // A short ramp removes the click where a jitter gap meets the signal.
+    const auto ramp=std::min<size_t>(size,96);  // 2 ms at 48 kHz.
+    if (fade_in_) {
+      for (size_t i=0;i<ramp;++i) {
+        out[i]=static_cast<int16_t>(out[i]*static_cast<int>(i)/static_cast<int>(ramp));
+      }
+    }
+    if (size<frames) {
+      for (size_t i=0;i<ramp;++i) {
+        const size_t index=size-1-i;
+        out[index]=static_cast<int16_t>(out[index]*static_cast<int>(i)/static_cast<int>(ramp));
+      }
+      ++underruns_;
+      waiting_=minimum_>0;
+    }
+    fade_in_=size<frames;
     std::fill(out+size,out+frames,static_cast<int16_t>(0));
-    if(!samples_.empty())read_=(read_+size)%samples_.size();count_-=size;
-    if(size<frames){++underruns_;waiting_=minimum_>0;}
+    if(!samples_.empty())read_=(read_+size)%samples_.size();
+    count_-=size;
     return size;
   }
   uint64_t Dropped()const{return dropped_;}
@@ -46,6 +63,7 @@ class LocalistRenderQueue {
   std::vector<int16_t> samples_;
   size_t read_=0,count_=0,minimum_=0;
   bool waiting_=false;
+  bool fade_in_=false;
   double gain_=1;
   uint64_t dropped_=0,underruns_=0,clipped_=0;
 };

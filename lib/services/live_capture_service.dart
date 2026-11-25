@@ -13,6 +13,16 @@ import 'capture_capabilities.dart';
 import 'log_service.dart';
 import 'capture_audio_settings.dart';
 
+const captureMicrophoneModes = {
+  'default',
+  'mic',
+  'raw',
+  'communication',
+  'performance',
+  'recognition',
+  'camcorder',
+};
+
 class LiveCaptureOptions {
   const LiveCaptureOptions({
     this.background = true,
@@ -25,18 +35,20 @@ class LiveCaptureOptions {
     this.height = 720,
     this.fps = 30,
     this.bitrateKbps = 2500,
-    this.echoCancellation = true,
-    this.noiseSuppression = true,
-    this.autoGain = true,
+    this.echoCancellation = false,
+    this.noiseSuppression = false,
+    this.autoGain = false,
     this.cameraId,
     this.microphoneId,
     this.receiverControls = true,
     this.audioSettings = const CaptureAudioSettings(),
     this.audioSource = 'microphone',
+    this.microphoneMode = 'default',
   });
   String get orientation => 'auto';
   final CaptureAudioSettings audioSettings;
   final String audioSource;
+  final String microphoneMode;
   final String? cameraId, microphoneId;
   final bool receiverControls;
   final bool background, startMuted, startPaused;
@@ -75,12 +87,8 @@ class LiveCaptureOptions {
             'optional': [
               if (microphoneId != null) {'sourceId': microphoneId},
               {'googEchoCancellation': echoCancellation},
-              {'googEchoCancellation2': echoCancellation},
-              {'googDAEchoCancellation': echoCancellation},
               {'googNoiseSuppression': noiseSuppression},
-              {'googNoiseSuppression2': noiseSuppression},
               {'googAutoGainControl': autoGain},
-              {'googAutoGainControl2': autoGain},
               {'echoCancellation': echoCancellation},
               {'noiseSuppression': noiseSuppression},
               {'autoGainControl': autoGain},
@@ -92,6 +100,7 @@ class LiveCaptureOptions {
     audioSettings.validate();
     if ((!camera && !microphone) ||
         !['microphone', 'system'].contains(audioSource) ||
+        !captureMicrophoneModes.contains(microphoneMode) ||
         (audioSource == 'system' && camera) ||
         width < 2 ||
         width > 8192 ||
@@ -123,6 +132,7 @@ class LiveCaptureOptions {
     bool? autoGain,
     CaptureAudioSettings? audioSettings,
     String? audioSource,
+    String? microphoneMode,
   }) => LiveCaptureOptions(
     background: background ?? this.background,
     camera: camera,
@@ -142,6 +152,7 @@ class LiveCaptureOptions {
     microphoneId: clearMicrophoneId ? null : microphoneId ?? this.microphoneId,
     audioSettings: audioSettings ?? this.audioSettings,
     audioSource: audioSource ?? this.audioSource,
+    microphoneMode: microphoneMode ?? this.microphoneMode,
   );
 }
 
@@ -394,7 +405,12 @@ class LiveCaptureService extends ChangeNotifier {
       _audioFrames ??= const EventChannel('localist/audioFrames')
           .receiveBroadcastStream()
           .listen((event) {
-            if (event is! Uint8List || !validCapturePcm(event)) return;
+            if (microphoneMuted ||
+                !options.audioSettings.uncompressed ||
+                event is! Uint8List ||
+                !validCapturePcm(event)) {
+              return;
+            }
             for (final channel in _pcmChannels.values.toList()) {
               if (channel.state != RTCDataChannelState.RTCDataChannelOpen) {
                 continue;
@@ -432,11 +448,30 @@ class LiveCaptureService extends ChangeNotifier {
   }
 
   static Future<void>? _mediaInitialization;
+  static Future<List<String>> androidMicrophoneModes() async =>
+      Platform.isAndroid
+      ? (await _captureChannel.invokeListMethod<String>('microphoneModes') ??
+            const [])
+      : const [];
+
+  Future<void> _configureMicrophone(LiveCaptureOptions value) async {
+    if (Platform.isAndroid) {
+      await _captureChannel.invokeMethod('microphoneMode', {
+        'mode': value.microphoneMode,
+        'deviceId': value.microphoneId,
+        'muted': broadcasting ? microphoneMuted : value.startMuted,
+      });
+    } else if (value.microphoneId case final id?) {
+      await Helper.selectAudioInput(id);
+    }
+  }
+
   static Future<void> initializeMedia() => _mediaInitialization ??=
       WebRTC.initialize(
         options: {
           if (Platform.isAndroid) ...{
             'androidUseHardwareAudioProcessing': false,
+            'audioSampleRate': 48000,
             'androidAudioConfiguration': AndroidAudioConfiguration.media.toMap()
               ..['manageAudioFocus'] = false,
           },
@@ -457,6 +492,23 @@ class LiveCaptureService extends ChangeNotifier {
           (device) => !device.label.toLowerCase().contains('localist camera'),
         )
         .toList();
+    if (Platform.isAndroid) {
+      final microphoneInputs = await _captureChannel.invokeListMethod<Map>(
+        'microphoneInputs',
+      );
+      if (microphoneInputs?.isNotEmpty == true) {
+        devices.removeWhere((device) => device.kind == 'audioinput');
+        devices.addAll(
+          microphoneInputs!.map(
+            (input) => MediaDeviceInfo(
+              deviceId: input['deviceId'] as String,
+              label: input['label'] as String,
+              kind: 'audioinput',
+            ),
+          ),
+        );
+      }
+    }
     final unique = {
       for (final device in devices) '${device.kind}:${device.deviceId}': device,
     }.values.toList();
@@ -572,6 +624,10 @@ class LiveCaptureService extends ChangeNotifier {
           'gain': options.autoGain,
           ...options.audioSettings.toMap(),
           'audioSource': options.audioSource,
+          if (_microphoneModes.isNotEmpty) ...{
+            'microphoneMode': options.microphoneMode,
+            'microphoneModes': _microphoneModes,
+          },
           'orientation': options.orientation,
           'selectedMicrophone': _controlMicrophones.indexWhere(
             (d) => d.deviceId == options.microphoneId,
@@ -588,6 +644,7 @@ class LiveCaptureService extends ChangeNotifier {
             'camera$i': _controlCameras[i].label,
         };
   bool get broadcasting => _server != null;
+  List<String> _microphoneModes = const [];
   bool get receiving => _receiver != null;
   bool get active => broadcasting || receiving;
   Future<List<Map<String, dynamic>>> connectionDiagnostics() async => [
@@ -802,10 +859,9 @@ class LiveCaptureService extends ChangeNotifier {
           {'sourceId': inputs.first.deviceId},
         ];
       }
-      if (value.microphoneId != null &&
-          value.microphone &&
-          value.audioSource == 'microphone') {
-        await selectMicrophone(value.microphoneId!);
+      if (value.microphone && value.audioSource == 'microphone') {
+        _microphoneModes = await androidMicrophoneModes();
+        await _configureMicrophone(value);
       }
       if (value.audioSource == 'system' && value.microphone) {
         if (!Platform.isWindows && !Platform.isAndroid) {
@@ -1325,6 +1381,17 @@ class LiveCaptureService extends ChangeNotifier {
   void muteMicrophone(bool mute) {
     LogService.instance.debug('Capture sender: microphone muted=$mute');
     microphoneMuted = mute;
+    if (Platform.isAndroid && options.audioSource == 'microphone') {
+      unawaited(
+        _captureChannel
+            .invokeMethod<void>('microphoneMute', {'muted': mute})
+            .catchError((Object error) {
+              LogService.instance.warning(
+                'Android microphone mute update failed: ${error.runtimeType}',
+              );
+            }),
+      );
+    }
     for (final track in localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
       track.enabled = !mute;
     }
@@ -1352,8 +1419,9 @@ class LiveCaptureService extends ChangeNotifier {
         'ورودی میکروفون در دسترس نیست. / Microphone input is no longer available.',
       );
     }
-    await Helper.selectAudioInput(id);
-    options = options.copyWith(microphoneId: id);
+    final next = options.copyWith(microphoneId: id);
+    await _configureMicrophone(next);
+    options = next;
     LogService.instance.debug('Capture sender: microphone input changed');
     _changed();
   }
@@ -1447,7 +1515,13 @@ class LiveCaptureService extends ChangeNotifier {
       throw StateError('Receiver controls are not enabled by the sender.');
     }
     if (options.audioSource == 'system' &&
-        ['microphone', 'noise', 'echo', 'gain'].any(command.containsKey)) {
+        [
+          'microphone',
+          'microphoneMode',
+          'noise',
+          'echo',
+          'gain',
+        ].any(command.containsKey)) {
       throw StateError('Microphone controls do not apply to system audio.');
     }
     busy = true;
@@ -1486,11 +1560,16 @@ class LiveCaptureService extends ChangeNotifier {
         noiseSuppression: command['noise'] as bool?,
         echoCancellation: command['echo'] as bool?,
         autoGain: command['gain'] as bool?,
+        microphoneMode: command['microphoneMode'] as String?,
         microphoneId: microphone >= 0
             ? _controlMicrophones[microphone].deviceId
             : null,
       );
       next.validate();
+      if (command.containsKey('microphoneMode') &&
+          !_microphoneModes.contains(next.microphoneMode)) {
+        throw StateError('The selected microphone mode is unavailable.');
+      }
       if (mode != null && (next.fps < mode.minFps || next.fps > mode.maxFps)) {
         throw StateError(
           'نرخ فریم توسط این حالت پشتیبانی نمی‌شود. / Unsupported frame rate for this mode.',
@@ -1544,9 +1623,8 @@ class LiveCaptureService extends ChangeNotifier {
         localStream = null;
         _videoPortrait = null;
         Future<MediaStream> acquire(LiveCaptureOptions value) async {
-          final selected = value.microphoneId;
-          if (selected != null && value.microphone) {
-            await Helper.selectAudioInput(selected);
+          if (value.microphone && value.audioSource == 'microphone') {
+            await _configureMicrophone(value);
           }
           return navigator.mediaDevices.getUserMedia(value.constraints);
         }
@@ -1590,8 +1668,8 @@ class LiveCaptureService extends ChangeNotifier {
           );
         }
       } else {
-        if (microphone >= 0) {
-          await selectMicrophone(_controlMicrophones[microphone].deviceId);
+        if (microphone >= 0 || next.microphoneMode != options.microphoneMode) {
+          await _configureMicrophone(next);
         }
         options = next.copyWith(receiverControls: true);
       }
@@ -1815,10 +1893,15 @@ class LiveCaptureService extends ChangeNotifier {
     for (final history in latencyHistory.values) {
       history.clear();
     }
-    if (ownedSource && Platform.isAndroid && options.audioSource == 'system') {
+    if (ownedSource && Platform.isAndroid) {
       await _captureChannel
-          .invokeMethod('systemAudioStop')
+          .invokeMethod(
+            options.audioSource == 'system'
+                ? 'systemAudioStop'
+                : 'microphoneStop',
+          )
           .catchError((Object _) => null);
+      _microphoneModes = const [];
     }
     await _audioFrames?.cancel();
     _audioFrames = null;
@@ -1977,6 +2060,7 @@ void validateCaptureControl(Map<String, dynamic> command) {
     'gain',
     'torch',
     'microphone',
+    'microphoneMode',
     'camera',
     'orientation',
     'audioBitrate',
@@ -2007,6 +2091,10 @@ void validateCaptureControl(Map<String, dynamic> command) {
   if (command.containsKey('orientation') &&
       !['auto', 'portrait', 'landscape'].contains(command['orientation'])) {
     throw const FormatException('Invalid camera orientation');
+  }
+  if (command.containsKey('microphoneMode') &&
+      !captureMicrophoneModes.contains(command['microphoneMode'])) {
+    throw const FormatException('Invalid microphone mode.');
   }
   for (final key in [
     'width',

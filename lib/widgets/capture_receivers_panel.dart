@@ -4,6 +4,7 @@ import '../services/capture_hub_service.dart';
 import '../services/capture_capabilities.dart';
 import 'glass.dart';
 import 'capture_audio_controls.dart';
+import 'capture_microphone_mode.dart';
 import '../services/capture_audio_settings.dart';
 import '../l10n/capture_error_text.dart';
 
@@ -430,6 +431,16 @@ class _CapturePeerSettingsState extends State<_CapturePeerSettings> {
         selected: 'selectedMicrophone',
         label: _text(context, 'انتخاب میکروفون', 'Microphone input'),
         available: available,
+      ),
+    if (state['audioSource'] != 'system' && state['microphoneModes'] is List)
+      CaptureMicrophoneMode(
+        available: (state['microphoneModes'] as List)
+            .whereType<String>()
+            .toList(),
+        selected: state['microphoneMode'] as String? ?? 'default',
+        onChanged: available
+            ? (mode) => change({'microphoneMode': mode})
+            : null,
       ),
     CaptureAudioControls(
       settings: CaptureAudioSettings.fromMap(state),

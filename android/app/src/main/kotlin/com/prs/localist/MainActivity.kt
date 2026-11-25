@@ -10,7 +10,6 @@ import android.content.ClipData
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.media.MediaPlayer
 import android.media.MediaMetadataRetriever
@@ -45,7 +44,6 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
     private val thumbnailExecutor = Executors.newFixedThreadPool(2)
     private val cameraProbeExecutor = Executors.newSingleThreadExecutor()
     private var capturePreview: CapturePreview? = null
-    private var pendingVpnResult: MethodChannel.Result? = null
     private var systemAudioResult: MethodChannel.Result? = null
     private var pendingLocalNetworkPermissionResult: MethodChannel.Result? = null
     private var pendingSaveFileResult: MethodChannel.Result? = null
@@ -108,6 +106,15 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             setMethodCallHandler { call, result ->
                 broadcastNativeLog(applicationContext, "CaptureBridge", "capture method=${call.method} received")
                 when (call.method) {
+                    "microphoneModes" -> result.success(CaptureMicrophone.modes(applicationContext))
+                    "microphoneInputs" -> result.success(CaptureMicrophone.inputs(applicationContext))
+                    "microphoneMode" -> runCatching {
+                        CaptureMicrophone.configure(applicationContext,
+                            call.argument<String>("mode") ?: "default", call.argument<String>("deviceId"),
+                            call.argument<Boolean>("muted") == true)
+                    }.onSuccess { result.success(true) }.onFailure { result.error("MICROPHONE_MODE", it.message, null) }
+                    "microphoneStop" -> { CaptureMicrophone.stop(); result.success(true) }
+                    "microphoneMute" -> { CaptureMicrophone.setMuted(call.argument<Boolean>("muted") == true); result.success(true) }
                     "hasBluetoothMicrophone" -> result.success(getSystemService(android.media.AudioManager::class.java)
                         .getDevices(android.media.AudioManager.GET_DEVICES_INPUTS).any {
                             it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
@@ -168,10 +175,8 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                     broadcastNativeLog(applicationContext, "MainActivity", "native debug logging enabled=$debugLoggingEnabled")
                     result.success(true)
                 }
-                "ensureVpnPermission" -> ensureVpnPermission(result)
                 "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "getFeatureAccessStatus" -> result.success(mapOf(
-                    "vpn" to getSharedPreferences("localist-vpn-consent", MODE_PRIVATE).getBoolean("granted", false),
                     "overlay" to (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)),
                     "input" to com.carriez.flutter_hbb.InputService.isOpen,
                     "capture" to com.carriez.flutter_hbb.MainService.isReady,
@@ -179,28 +184,16 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
                 "hasLocalNetworkPermission" -> result.success(hasLocalNetworkPermission())
                 "requestLocalNetworkPermission" -> requestLocalNetworkPermission(result)
                 "getAndroidSupportedAbis" -> result.success(Build.SUPPORTED_ABIS.toList())
-                "getUpdateDirectory" -> result.success(updateDirectory().absolutePath)
-                "canInstallPackages" -> result.success(canInstallPackages())
-                "openInstallPermissionSettings" -> openInstallPermissionSettings(result)
-                "installApk" -> installApk(call, result)
                 "isIgnoringBatteryOptimizations" -> result.success(isIgnoringBatteryOptimizations())
-                "requestIgnoreBatteryOptimizations" -> requestIgnoreBatteryOptimizations(result)
                 "startProxyService" -> startProxyService(call, result)
-                "startReceivingVpn" -> startReceivingVpn(call, result)
                 "startLocalProxy" -> startLocalProxy(call, result)
-                "checkRootAccess" -> result.success(RootRoutingController.checkRootAccess(this))
-                "setRootRoutingEnabled" -> setRootRoutingEnabled(call, result)
-                "startRootSharing" -> startRootSharing(call, result)
-                "stopRootSharing" -> result.success(RootRoutingController.stop(this))
                 "stopProxyService" -> {
                     sendServiceAction(LocalistVpnService.ACTION_STOP)
-                    RootRoutingController.stop(this)
                     result.success(true)
                 }
                 "getStats" -> result.success(LocalistVpnService.stats(this))
                 "getServiceState" -> result.success(LocalistVpnService.snapshot(this))
                 "getLanInterfaces" -> result.success(NetworkAddressInspector.lanInterfaces())
-                "shareApk" -> shareApk(result)
                 "shareText" -> shareText(call, result)
                 "shareFileExternally" -> shareFileExternally(call, result)
                 "openUri" -> openUri(call, result)
@@ -382,12 +375,6 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             }
             return
         }
-        if (requestCode == VPN_REQUEST_CODE) {
-            getSharedPreferences("localist-vpn-consent", MODE_PRIVATE).edit().putBoolean("granted", resultCode == Activity.RESULT_OK).apply()
-            pendingVpnResult?.success(resultCode == Activity.RESULT_OK)
-            pendingVpnResult = null
-            return
-        }
         if (requestCode == SAVE_FILE_REQUEST_CODE) {
             val saveResult = pendingSaveFileResult
             val text = pendingSaveFileText
@@ -426,112 +413,12 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         }
     }
 
-    private fun ensureVpnPermission(result: MethodChannel.Result) {
-        val intent = VpnService.prepare(this)
-        if (intent == null) {
-            getSharedPreferences("localist-vpn-consent", MODE_PRIVATE).edit().putBoolean("granted", true).apply()
-            result.success(true)
-            return
-        }
-        if (pendingVpnResult != null) {
-            result.error("vpn_permission_pending", "VPN permission is already pending.", null)
-            return
-        }
-        pendingVpnResult = result
-        startActivityForResult(intent, VPN_REQUEST_CODE)
-    }
-
     private fun isIgnoringBatteryOptimizations(): Boolean {
         val powerManager = getSystemService(PowerManager::class.java)
         return powerManager?.isIgnoringBatteryOptimizations(packageName) == true
     }
 
-    private fun requestIgnoreBatteryOptimizations(result: MethodChannel.Result) {
-        if (isIgnoringBatteryOptimizations()) {
-            result.success(true)
-            return
-        }
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:$packageName")
-        }
-        runCatching {
-            startActivity(intent)
-        }.onSuccess {
-            result.success(true)
-        }.onFailure {
-            runCatching {
-                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-            }.onSuccess {
-                result.success(false)
-            }.onFailure { error ->
-                result.error("battery_settings_unavailable", error.message, null)
-            }
-        }
-    }
-
-    private fun canInstallPackages(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-            packageManager.canRequestPackageInstalls()
-    }
-
-    private fun openInstallPermissionSettings(result: MethodChannel.Result) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            result.success(true)
-            return
-        }
-        val intent = Intent(
-            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:$packageName"),
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching {
-            startActivity(intent)
-        }.onSuccess {
-            result.success(true)
-        }.onFailure { error ->
-            result.error("install_settings_unavailable", error.message, null)
-        }
-    }
-
-    private fun installApk(call: MethodCall, result: MethodChannel.Result) {
-        val path = call.argument<String>("path") ?: ""
-        if (path.isBlank()) {
-            result.error("missing_apk_path", "APK path is required.", null)
-            return
-        }
-        if (!canInstallPackages()) {
-            openInstallPermissionSettings(result)
-            return
-        }
-        val apk = File(path)
-        if (!apk.exists() || !apk.isFile) {
-            result.error("apk_not_found", "Downloaded APK was not found.", null)
-            return
-        }
-        runCatching {
-            val uri = FileProvider.getUriForFile(
-                this,
-                "$packageName.fileprovider",
-                apk,
-            )
-            val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                clipData = ClipData.newRawUri("Localist update", uri)
-                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-                putExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME, packageName)
-                putExtra(Intent.EXTRA_RETURN_RESULT, false)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(installIntent)
-        }.onSuccess {
-            result.success(true)
-        }.onFailure { error ->
-            result.error("install_apk_failed", error.message, null)
-        }
-    }
-
     private fun startProxyService(call: MethodCall, result: MethodChannel.Result) {
-        RootRoutingController.stop(this)
         val protocols = call.argument<List<String>>("protocols")
             ?.filter { it in LocalistVpnService.SUPPORTED_PROTOCOLS }
             ?.takeIf { it.isNotEmpty() }
@@ -546,10 +433,11 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             ?.filter { it.isNotBlank() }
             ?: emptyList()
         val discoveryDeviceId = call.argument<String>("discoveryDeviceId").orEmpty()
-        val bindAddresses = if (shareAllRoutes) {
-            emptyList()
-        } else {
-            selectedLocalIps
+        val localAddresses = NetworkAddressInspector.lanInterfaces().mapNotNull { it["address"] as? String }
+        val bindAddresses = if (shareAllRoutes) localAddresses else selectedLocalIps.filter(localAddresses::contains)
+        if (bindAddresses.isEmpty()) {
+            result.error("missing_proxy_interface", "Connect to a local network before sharing the proxy.", null)
+            return
         }
         val validationError = LocalistProxyServer.validateBindings(protocolPorts, bindAddresses)
         if (validationError != null) {
@@ -580,58 +468,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         startLocalistService(intent, result, "proxy_service_start_failed", "proxy service")
     }
 
-    private fun startRootSharing(call: MethodCall, result: MethodChannel.Result) {
-        sendServiceAction(LocalistVpnService.ACTION_STOP)
-        val shareAllRoutes = call.argument<Boolean>("shareAllRoutes") ?: true
-        val selectedLocalIps = call.argument<List<String>>("selectedLocalIps")
-            ?.filter { it.isNotBlank() }
-            ?: emptyList()
-        result.success(
-            RootRoutingController.start(
-                context = this,
-                shareAllRoutes = shareAllRoutes,
-                selectedLocalIps = selectedLocalIps,
-            ),
-        )
-    }
-
-    private fun startReceivingVpn(call: MethodCall, result: MethodChannel.Result) {
-        RootRoutingController.stop(this)
-        val protocol = call.argument<String>("protocol") ?: "socks5"
-        val host = call.argument<String>("host") ?: ""
-        val port = call.argument<Int>("port") ?: LocalistVpnService.defaultPort(protocol)
-        if (host.isBlank()) {
-            result.error("missing_proxy_host", "Proxy host is required.", null)
-            return
-        }
-        if (!isLocalPortAvailable(LocalProxyForwarder.DEFAULT_LOCAL_PORT)) {
-            result.error(
-                "local_proxy_port_unavailable",
-                "Local port ${LocalProxyForwarder.DEFAULT_LOCAL_PORT} is busy.",
-                null,
-            )
-            return
-        }
-        val prepareIntent = VpnService.prepare(this)
-        if (prepareIntent != null) {
-            result.error(
-                "vpn_permission_required",
-                "Call ensureVpnPermission before starting the receiving VPN.",
-                null,
-            )
-            return
-        }
-        val intent = Intent(this, LocalistVpnService::class.java).apply {
-            action = LocalistVpnService.ACTION_START_RECEIVING
-            putExtra(LocalistVpnService.EXTRA_REMOTE_PROTOCOL, protocol)
-            putExtra(LocalistVpnService.EXTRA_REMOTE_HOST, host)
-            putExtra(LocalistVpnService.EXTRA_REMOTE_PORT, port)
-        }
-        startLocalistService(intent, result, "receiving_service_start_failed", "receiving VPN")
-    }
-
     private fun startLocalProxy(call: MethodCall, result: MethodChannel.Result) {
-        RootRoutingController.stop(this)
         val protocol = call.argument<String>("protocol") ?: "socks5"
         val host = call.argument<String>("host") ?: ""
         val port = call.argument<Int>("port") ?: LocalistVpnService.defaultPort(protocol)
@@ -652,14 +489,6 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             putExtra(LocalistVpnService.EXTRA_LOCAL_PROXY_PORT, localPort)
         }
         startLocalistService(intent, result, "local_proxy_start_failed", "local proxy")
-    }
-
-    private fun setRootRoutingEnabled(call: MethodCall, result: MethodChannel.Result) {
-        val enabled = call.argument<Boolean>("enabled") ?: false
-        if (enabled) {
-            sendServiceAction(LocalistVpnService.ACTION_STOP)
-        }
-        result.success(RootRoutingController.setEnabled(this, enabled))
     }
 
     private fun sendServiceAction(actionName: String) {
@@ -691,36 +520,6 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
             result.success(true)
         }.onFailure { error ->
             result.error(errorCode, "Could not start $serviceName: ${error.message}", null)
-        }
-    }
-
-    private fun shareApk(result: MethodChannel.Result) {
-        runCatching {
-            val sourceApk = File(applicationInfo.sourceDir)
-            val shareDir = File(cacheDir, "shared").apply { mkdirs() }
-            val sharedApk = File(shareDir, "localist.apk")
-            sourceApk.inputStream().use { input ->
-                sharedApk.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            val uri = FileProvider.getUriForFile(
-                this,
-                "$packageName.fileprovider",
-                sharedApk,
-            )
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/vnd.android.package-archive"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "localist APK")
-                putExtra(Intent.EXTRA_TEXT, "localist APK")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(shareIntent, "Share localist APK"))
-        }.onSuccess {
-            result.success(true)
-        }.onFailure { error ->
-            result.error("share_apk_failed", error.message, null)
         }
     }
 
@@ -815,7 +614,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
 
     private fun openLocalistFolder(result: MethodChannel.Result) {
         @Suppress("DEPRECATION")
-        val folder = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Localist")
+        val folder = File(getExternalFilesDir(null) ?: filesDir, "Localist")
         if (!folder.isDirectory && !folder.mkdirs()) {
             result.success(false)
             return
@@ -1427,9 +1226,7 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         )
     }
 
-    private fun updateDirectory(): File {
-        return File(cacheDir, "updates").apply { mkdirs() }
-    }
+
 
     private fun isLocalPortAvailable(port: Int): Boolean {
         return runCatching {
@@ -1451,7 +1248,6 @@ class MainActivity : com.carriez.flutter_hbb.MainActivity() {
         private const val ACTION_NATIVE_LOG = "com.prs.localist.NATIVE_LOG"
         private const val EXTRA_NATIVE_LOG_MESSAGE = "message"
         private const val EXTRA_NATIVE_LOG_SOURCE = "source"
-        private const val VPN_REQUEST_CODE = 41088
         private const val SAVE_FILE_REQUEST_CODE = 41089
         private const val QUICK_SEND_NOTIFICATION_REQUEST_CODE = 41090
         private const val LOCAL_NETWORK_PERMISSION_REQUEST_CODE = 41092

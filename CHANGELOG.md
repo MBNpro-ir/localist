@@ -2,6 +2,17 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [7.4.2] - 2026-11-25
+
+- Removed broad Android storage access, the in-app APK installer, and direct
+  battery exemptions. Android file reception now uses scoped storage.
+- Android hosts screen viewing with system consent and retains local proxy
+  support. Remote touch control uses explicit Accessibility consent. Removed
+  boot-started remote hosting, root routing, and device-wide VPN receiving on Android.
+- Added Android microphone recording modes, original-sound controls, and
+  receiver buffering and recovery improvements.
+- Added an adaptive About page and published the privacy policy.
+
 ## [7.4.1] - 2026-11-25
 
 - Simplified Quick Send Receiving and moved Remote Control hosting and connection

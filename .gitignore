@@ -63,5 +63,8 @@ app.*.map.json
 /android/.kotlin/
 /android/build/
 /android/local.properties
+/android/**/*.jks
+/android/**/*.keystore
+/android/**/*.p12
 /windows/runner/resources/tun2socks.exe
 /windows/runner/resources/wintun.dll

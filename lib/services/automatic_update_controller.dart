@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app_update_service.dart';
 import 'native_bridge_service.dart';
-import 'feature_permission_service.dart';
 import 'log_service.dart';
 import '../remote/embedded_remote_app.dart';
 
@@ -32,23 +31,17 @@ class AutomaticUpdateController extends ChangeNotifier {
   }) : _service = service ?? AppUpdateService(),
        _bridge = bridge ?? NativeBridgeService.instance,
        windows = windows ?? Platform.isWindows,
-       _canInstallPackages =
-           canInstallPackages ??
-           (bridge ?? NativeBridgeService.instance).canInstallAndroidPackages,
-       _installAndroidPackage =
-           installAndroidPackage ??
-           (bridge ?? NativeBridgeService.instance).installAndroidApk,
+       _canInstallPackages = canInstallPackages ?? (() async => false),
+       _installAndroidPackage = installAndroidPackage ?? ((_) async => false),
        _requestInstallPermission =
-           requestInstallPermission ??
-           (() async =>
-               Platform.isAndroid &&
-               await FeaturePermissionService.instance.ensure([
-                 FeatureAccess.installUpdates,
-               ]));
+           requestInstallPermission ?? (() async => false),
+       _updatesSupported =
+           (windows ?? Platform.isWindows) || installAndroidPackage != null;
   static final instance = AutomaticUpdateController();
   final AppUpdateService _service;
   final NativeBridgeService _bridge;
   final bool windows;
+  final bool _updatesSupported;
   final Future<bool> Function() _canInstallPackages;
   final Future<bool> Function(String) _installAndroidPackage;
   final Future<bool> Function() _requestInstallPermission;
@@ -120,6 +113,7 @@ class AutomaticUpdateController extends ChangeNotifier {
   Future<void> checkAndPrepare() =>
       _running ??= _prepare().whenComplete(() => _running = null);
   Future<void> _prepare() async {
+    if (!_updatesSupported) return;
     if (state == AutomaticUpdateState.installing) {
       LogService.instance.debug(
         'Auto update: preparation skipped, installer active',

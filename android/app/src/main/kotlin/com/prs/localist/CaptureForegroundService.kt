@@ -56,6 +56,7 @@ class CaptureForegroundService : Service() {
     }
     override fun onDestroy() {
         CaptureOrientation.clear()
+        CaptureMicrophone.stop()
         for (id in pending.keys.toList()) completeStart(id, IllegalStateException("Capture stopped before becoming ready"))
         LocalistNotifications.stop(this)
         if (wake?.isHeld == true) wake?.release()

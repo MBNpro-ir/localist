@@ -384,7 +384,6 @@ class _SettingsPageState extends State<SettingsPage> {
   final LogService _logs = LogService.instance;
   late final TextEditingController _httpPortController;
   late final TextEditingController _socks5PortController;
-  bool _rootBusy = false;
   bool _hasPortEdits = false;
   bool _portsSaving = false;
   bool _syncingPortControllers = false;
@@ -522,29 +521,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       l10n.proxy,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    if (!isWindows) ...[
-                      const SizedBox(height: 12),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        secondary: _rootBusy
-                            ? const SizedBox.square(
-                                dimension: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.admin_panel_settings_outlined),
-                        title: Text(l10n.rootVpnSharing),
-                        subtitle: Text(
-                          widget.settings.rootRoutingEnabled
-                              ? l10n.proxyModeDisabled
-                              : l10n.useProxyModeWithoutRoot,
-                        ),
-                        value: widget.settings.rootRoutingEnabled,
-                        onChanged: _rootBusy ? null : _setRootRoutingEnabled,
-                      ),
-                    ],
-                    if (isWindows || !widget.settings.rootRoutingEnabled) ...[
+                    ...[
                       const SizedBox(height: 12),
                       for (final protocol in ProxyProtocol.values)
                         _ProtocolToggle(
@@ -1044,70 +1021,6 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     }
   }
-
-  Future<void> _setRootRoutingEnabled(bool enabled) async {
-    if (Platform.isWindows && !enabled) {
-      return;
-    }
-    setState(() => _rootBusy = true);
-    try {
-      final root = await _bridge.setRootRoutingEnabled(enabled);
-      if (Platform.isWindows) {
-        if (root.enabled || root.available) {
-          await widget.settings.setRootRoutingEnabled(true);
-          _logs.info('Windows administrator access enabled');
-        } else {
-          _logs.warning(
-            root.lastError.isEmpty
-                ? 'Windows administrator approval was not completed'
-                : root.lastError,
-          );
-          if (mounted) {
-            showLocalistNotice(
-              context,
-              message: root.lastError.isEmpty
-                  ? context.l10n.approveWindowsAdminPrompt
-                  : root.lastError,
-              tone: InAppNoticeTone.warning,
-            );
-          }
-        }
-        return;
-      }
-      if (enabled && !root.available) {
-        _logs.warning(
-          root.lastError.isEmpty
-              ? 'Root access was not granted'
-              : root.lastError,
-        );
-        if (mounted) {
-          showLocalistNotice(
-            context,
-            message: context.l10n.rootAccessWasNotGranted,
-            tone: InAppNoticeTone.warning,
-          );
-        }
-        await widget.settings.setRootRoutingEnabled(false);
-        return;
-      }
-      await widget.settings.setRootRoutingEnabled(enabled);
-      _logs.info(enabled ? 'Root routing enabled' : 'Root routing disabled');
-    } catch (error) {
-      _logs.error('Unable to change root routing: $error');
-      await widget.settings.setRootRoutingEnabled(false);
-      if (mounted) {
-        showLocalistNotice(
-          context,
-          message: context.l10n.unableToChangeRootRouting,
-          tone: InAppNoticeTone.error,
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _rootBusy = false);
-      }
-    }
-  }
 }
 
 class _WindowsCloseBehaviorSelector extends StatelessWidget {
@@ -1163,9 +1076,7 @@ class _UpdatePanelState extends State<_UpdatePanel>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if ((Platform.isAndroid || Platform.isWindows) &&
-        !_updates.busy &&
-        _updates.check == null) {
+    if (Platform.isWindows && !_updates.busy && _updates.check == null) {
       unawaited(_updates.checkAndPrepare());
     }
   }
@@ -1205,6 +1116,16 @@ class _UpdatePanelState extends State<_UpdatePanel>
     animation: _updates,
     builder: (context, _) {
       final l10n = context.l10n;
+      if (Platform.isAndroid) {
+        return GlassPanel(
+          child: Text(
+            _t(
+              'به‌روزرسانی اندروید را از همان منبعی دریافت کنید که برنامه را از آن نصب کرده‌اید.',
+              'Get Android updates from the same source where you installed Localist.',
+            ),
+          ),
+        );
+      }
       final status = switch (_updates.state) {
         AutomaticUpdateState.idle => l10n.updateSubtitle,
         AutomaticUpdateState.checking => l10n.checkingForUpdates,
@@ -1327,12 +1248,6 @@ class _UpdatePanelState extends State<_UpdatePanel>
                             )
                           : l10n.installUpdate,
                     ),
-                  ),
-                if (Platform.isAndroid && _updates.installPermissionNeeded)
-                  OutlinedButton.icon(
-                    onPressed: _bridge.openAndroidInstallPermissionSettings,
-                    icon: const Icon(Icons.security),
-                    label: Text(l10n.allowInstallPermission),
                   ),
                 if ((!Platform.isAndroid && !Platform.isWindows) ||
                     (_updates.packageUnavailable && Platform.isWindows))

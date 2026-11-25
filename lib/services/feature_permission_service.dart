@@ -10,8 +10,6 @@ import 'log_service.dart';
 
 enum FeatureAccess {
   notifications,
-  battery,
-  storage,
   camera,
   microphone,
   bluetoothAudio,
@@ -20,8 +18,6 @@ enum FeatureAccess {
   overlay,
   remoteInput,
   screenCapture,
-  vpn,
-  installUpdates,
 }
 
 /// Permissions are requested for the pending operation, independently of
@@ -54,9 +50,8 @@ class FeaturePermissionService with WidgetsBindingObserver {
   bool _observing = false;
 
   static const welcomeAccess = [
+    FeatureAccess.localNetwork,
     FeatureAccess.notifications,
-    FeatureAccess.battery,
-    FeatureAccess.storage,
   ];
 
   Future<bool> requestWelcome() => _serial(_requestWelcome);
@@ -84,9 +79,6 @@ class FeaturePermissionService with WidgetsBindingObserver {
       Localizations.localeOf(context).languageCode == 'fa';
   String label(FeatureAccess access, bool fa) => switch (access) {
     FeatureAccess.notifications => fa ? 'اعلان‌ها' : 'Notifications',
-    FeatureAccess.battery => fa ? 'فعالیت در پس‌زمینه' : 'Background activity',
-    FeatureAccess.storage =>
-      fa ? 'فایل‌ها و Download/Localist' : 'Files and Download/Localist',
     FeatureAccess.camera => fa ? 'دوربین' : 'Camera',
     FeatureAccess.microphone => fa ? 'میکروفن' : 'Microphone',
     FeatureAccess.bluetoothAudio =>
@@ -97,11 +89,9 @@ class FeaturePermissionService with WidgetsBindingObserver {
     FeatureAccess.overlay =>
       fa ? 'نمایش روی برنامه‌ها' : 'Display over other apps',
     FeatureAccess.remoteInput =>
-      fa ? 'کنترل لمس و Accessibility' : 'Touch control and Accessibility',
+      fa ? 'کنترل لمس و صفحه‌کلید' : 'Remote touch and keyboard',
     FeatureAccess.screenCapture =>
       fa ? 'اشتراک صفحه (برای همین جلسه)' : 'Screen sharing (this session)',
-    FeatureAccess.vpn => 'VPN',
-    FeatureAccess.installUpdates => fa ? 'نصب آپدیت' : 'Install updates',
   };
 
   Future<Permission?> _permission(FeatureAccess access) async {
@@ -110,8 +100,6 @@ class FeaturePermissionService with WidgetsBindingObserver {
         0;
     return switch (access) {
       FeatureAccess.notifications => Permission.notification,
-      FeatureAccess.storage =>
-        sdk >= 30 ? Permission.manageExternalStorage : Permission.storage,
       FeatureAccess.camera => Permission.camera,
       FeatureAccess.microphone => Permission.microphone,
       FeatureAccess.bluetoothAudio =>
@@ -128,28 +116,19 @@ class FeaturePermissionService with WidgetsBindingObserver {
     if (!_android) return true;
     final permission = await _permission(access);
     if (permission != null) return (await permission.status).isGranted;
-    if ([
-      FeatureAccess.remoteInput,
-      FeatureAccess.screenCapture,
-      FeatureAccess.vpn,
-    ].contains(access)) {
-      final features =
-          await const MethodChannel(
-            'localist/remote',
-          ).invokeMapMethod<String, dynamic>('features') ??
-          {};
-      final name = access == FeatureAccess.remoteInput
-          ? 'input'
-          : access == FeatureAccess.screenCapture
-          ? 'capture'
-          : 'vpn';
-      return features[name] == true;
+    if (access == FeatureAccess.screenCapture ||
+        access == FeatureAccess.remoteInput) {
+      final features = await const MethodChannel(
+        'localist/remote',
+      ).invokeMapMethod<String, dynamic>('features');
+      return features?[access == FeatureAccess.remoteInput
+              ? 'input'
+              : 'capture'] ==
+          true;
     }
     return switch (access) {
       FeatureAccess.bluetoothAudio => true,
-      FeatureAccess.battery => _bridge.isIgnoringBatteryOptimizations(),
       FeatureAccess.localNetwork => _bridge.hasLocalNetworkPermission(),
-      FeatureAccess.installUpdates => _bridge.canInstallAndroidPackages(),
       _ => false,
     };
   }
@@ -255,17 +234,12 @@ class FeaturePermissionService with WidgetsBindingObserver {
         return false;
       }
       await _withResume(() async {
-        if (item == FeatureAccess.remoteInput) {
-          await openAppSettings();
-        } else if (item == FeatureAccess.screenCapture) {
+        if (item == FeatureAccess.screenCapture) {
           await const MethodChannel('mChannel').invokeMethod('init_service');
         } else {
           await openAppSettings();
         }
       });
-      if (item == FeatureAccess.remoteInput && !await granted(item)) {
-        await _request(item);
-      }
       if (!await granted(item)) {
         LogService.instance.debug(
           'Permissions: still denied after settings permission=${item.name}',
@@ -302,20 +276,14 @@ class FeaturePermissionService with WidgetsBindingObserver {
     }
     await _withResume(() async {
       switch (access) {
-        case FeatureAccess.battery:
-          await _bridge.requestIgnoreBatteryOptimizations();
         case FeatureAccess.localNetwork:
           await _bridge.requestLocalNetworkPermission();
-        case FeatureAccess.installUpdates:
-          await _bridge.openAndroidInstallPermissionSettings();
         case FeatureAccess.remoteInput:
           await const MethodChannel(
             'localist/remote',
           ).invokeMethod('inputSettings');
         case FeatureAccess.screenCapture:
           await const MethodChannel('mChannel').invokeMethod('init_service');
-        case FeatureAccess.vpn:
-          await _bridge.ensureVpnPermission();
         default:
           break;
       }
@@ -403,8 +371,8 @@ class FeaturePermissionService with WidgetsBindingObserver {
                 const SizedBox(height: 12),
                 Text(
                   fa
-                      ? 'سرویس Localist را در Accessibility فعال کنید. اگر APK را از GitHub نصب کرده‌اید و این گزینه قفل است: App info ← منوی سه‌نقطه ← Allow restricted settings؛ سپس به Accessibility برگردید. این مجوز به طرف مقابل امکان کنترل لمس و صفحه‌کلید می‌دهد.'
-                      : 'Enable Localist in Accessibility. For a GitHub APK, if Android blocks it: App info → three-dot menu → Allow restricted settings, then return to Accessibility. This allows the remote user to control touch and keyboard.',
+                      ? 'لوکالیست از سرویس دسترس‌پذیری برای اجرای لمس، پیمایش و ورود متن ارسالی دستگاه مقابل در جلسه‌ای که اجازه داده‌اید استفاده می‌کند. طرف مقابل می‌تواند با برنامه‌های باز روی این گوشی تعامل کند. ادامه اختیاری است و از تنظیمات دسترس‌پذیری می‌توانید آن را لغو کنید.'
+                      : 'Localist uses Accessibility to apply touch, scrolling, and text input from the other device during a remote session you authorize. The remote user can interact with open apps on this phone. This is optional and can be turned off in Accessibility settings.',
                 ),
               ],
               if (access.contains(FeatureAccess.screenCapture)) ...[

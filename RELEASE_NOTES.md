@@ -1,5 +1,22 @@
 # Release Notes
 
+## [7.4.2] — Android permissions, microphone modes, and About Localist
+
+- Android file transfers use scoped app storage. Use Transfer history to open
+  or share received files. Android updates come from the installation source.
+- Android 9 and later use a new release signing key with Android's upgrade
+  lineage. Android 8 still uses the legacy certificate for update compatibility.
+- Android Remote Control can host screen viewing after consent and connect to
+  remote devices. Android touch control requires Accessibility consent.
+  Android keeps local HTTP/SOCKS5 proxy support. System-wide VPN receiving and
+  root routing were removed from the Android build.
+- Choose an Android microphone input and a supported recording mode. The Player
+  displays the connected sender's choices. The Original microphone sound button
+  turns off Localist's echo cancellation, noise suppression, and automatic gain.
+- Added a short low-latency audio buffer and smoothed playback after missing
+  frames to reduce clicks at interruptions.
+- Open About Localist beside the app name for project links and privacy details.
+
 ## [7.4.1] — Clear Sharing and Receiving flows
 
 - Quick Send Receiving shows device readiness and transfer history. Nearby

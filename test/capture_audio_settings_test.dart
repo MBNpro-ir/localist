@@ -4,6 +4,28 @@ import 'package:localist/services/capture_audio_settings.dart';
 import 'package:localist/services/live_capture_service.dart';
 
 void main() {
+  test(
+    'microphone presets are validated and remain part of capture options',
+    () {
+      expect(const LiveCaptureOptions().autoGain, isFalse);
+      for (final mode in captureMicrophoneModes) {
+        final options = const LiveCaptureOptions().copyWith(
+          microphoneMode: mode,
+        );
+        expect(options.microphoneMode, mode);
+        expect(options.validate, returnsNormally);
+        expect(
+          () => validateCaptureControl({'microphoneMode': mode}),
+          returnsNormally,
+        );
+      }
+      expect(
+        () => validateCaptureControl({'microphoneMode': 'unavailable'}),
+        throwsFormatException,
+      );
+      expect(const CaptureAudioSettings().effectiveMinBufferMs, 20);
+    },
+  );
   test('system audio never silently starts a camera capture', () {
     expect(
       () => const LiveCaptureOptions(audioSource: 'system').validate(),

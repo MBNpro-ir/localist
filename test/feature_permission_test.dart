@@ -4,29 +4,25 @@ import 'package:localist/services/feature_permission_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'Welcome requests all three main permissions even after a denial',
-    () async {
-      final requested = <FeatureAccess>[];
-      final granted = <FeatureAccess>{};
-      final service = FeaturePermissionService.forTesting(
-        (access) async => granted.contains(access),
-        (access) async {
-          requested.add(access);
-          if (access != FeatureAccess.notifications) granted.add(access);
-        },
-        (_, _) async => true,
-      );
-      expect(await service.requestWelcome(), isFalse);
-      expect(requested, [
-        FeatureAccess.notifications,
-        FeatureAccess.battery,
-        FeatureAccess.storage,
-      ]);
-      expect(requested, isNot(contains(FeatureAccess.microphone)));
-      expect(requested, isNot(contains(FeatureAccess.camera)));
-    },
-  );
+  test('Welcome requests only notification and local-network access', () async {
+    final requested = <FeatureAccess>[];
+    final granted = <FeatureAccess>{};
+    final service = FeaturePermissionService.forTesting(
+      (access) async => granted.contains(access),
+      (access) async {
+        requested.add(access);
+        if (access != FeatureAccess.notifications) granted.add(access);
+      },
+      (_, _) async => true,
+    );
+    expect(await service.requestWelcome(), isFalse);
+    expect(requested, [
+      FeatureAccess.localNetwork,
+      FeatureAccess.notifications,
+    ]);
+    expect(requested, isNot(contains(FeatureAccess.microphone)));
+    expect(requested, isNot(contains(FeatureAccess.camera)));
+  });
 
   test(
     'declining the feature popup does not request or grant access',

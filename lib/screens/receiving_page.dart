@@ -277,36 +277,36 @@ class _ReceivingPageState extends State<ReceivingPage> {
                       ),
               ),
               const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: widget.busy || oppositeServiceActive
-                      ? null
-                      : vpnRunning
-                      ? widget.onStopReceiving
-                      : systemProxyRunning ||
-                            localProxyRunning ||
-                            config == null
-                      ? null
-                      : () => widget.onStartReceiving(config),
-                  icon: Icon(
-                    vpnRunning
-                        ? Icons.stop_circle_outlined
-                        : Icons.vpn_key_outlined,
-                  ),
-                  label: Text(
-                    vpnRunning
-                        ? Platform.isWindows
-                              ? l10n.stopWindowsVpn
-                              : l10n.stopVpn
-                        : Platform.isWindows
-                        ? l10n.startWindowsVpnProxy
-                        : l10n.startVpnProxy,
+              if (Platform.isWindows) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: widget.busy || oppositeServiceActive
+                        ? null
+                        : vpnRunning
+                        ? widget.onStopReceiving
+                        : systemProxyRunning ||
+                              localProxyRunning ||
+                              config == null
+                        ? null
+                        : () => widget.onStartReceiving(config),
+                    icon: Icon(
+                      vpnRunning
+                          ? Icons.stop_circle_outlined
+                          : Icons.vpn_key_outlined,
+                    ),
+                    label: Text(
+                      vpnRunning
+                          ? Platform.isWindows
+                                ? l10n.stopWindowsVpn
+                                : l10n.stopVpn
+                          : Platform.isWindows
+                          ? l10n.startWindowsVpnProxy
+                          : l10n.startVpnProxy,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              if (Platform.isWindows) ...[
+                const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.tonalIcon(

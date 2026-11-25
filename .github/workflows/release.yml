@@ -75,15 +75,48 @@ jobs:
             --build-name="$APP_VERSION" \
             --build-number="$BUILD_NUMBER"
 
+      - name: Sign Android packages with the release lineage
+        shell: bash
+        env:
+          LEGACY_KEYSTORE: ${{ secrets.LOCALIST_ANDROID_LEGACY_STORE }}
+          LEGACY_PASSWORD: ${{ secrets.LOCALIST_ANDROID_LEGACY_PASSWORD }}
+          RELEASE_KEYSTORE: ${{ secrets.LOCALIST_ANDROID_SIGNING_STORE }}
+          RELEASE_PASSWORD: ${{ secrets.LOCALIST_ANDROID_SIGNING_PASSWORD }}
+          RELEASE_LINEAGE: ${{ secrets.LOCALIST_ANDROID_SIGNING_LINEAGE }}
+        run: |
+          set -euo pipefail
+          : "${LEGACY_KEYSTORE:?Missing legacy signing store}" "${LEGACY_PASSWORD:?Missing legacy password}"
+          : "${RELEASE_KEYSTORE:?Missing release signing store}" "${RELEASE_PASSWORD:?Missing release password}"
+          : "${RELEASE_LINEAGE:?Missing signing lineage}"
+          umask 077
+          signing_dir="$(mktemp -d "$RUNNER_TEMP/localist-signing.XXXXXX")"
+          trap 'rm -f "$signing_dir/legacy.jks" "$signing_dir/release.p12" "$signing_dir/localist.lineage"; rmdir "$signing_dir"' EXIT
+          printf '%s' "$LEGACY_KEYSTORE" | base64 --decode > "$signing_dir/legacy.jks"
+          printf '%s' "$RELEASE_KEYSTORE" | base64 --decode > "$signing_dir/release.p12"
+          printf '%s' "$RELEASE_LINEAGE" | base64 --decode > "$signing_dir/localist.lineage"
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          apksigner="$build_tools/apksigner"
+          for apk in build/app/outputs/flutter-apk/app-{armeabi-v7a,arm64-v8a}-release.apk; do
+            "$apksigner" sign \
+              --ks "$signing_dir/legacy.jks" --ks-key-alias localist --ks-pass env:LEGACY_PASSWORD \
+              --next-signer \
+              --ks "$signing_dir/release.p12" --ks-key-alias localist --ks-pass env:RELEASE_PASSWORD \
+              --lineage "$signing_dir/localist.lineage" --rotation-min-sdk-version 28 \
+              --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true \
+              --v4-signing-enabled false "$apk"
+          done
+
       - name: Verify signed Android packages
         shell: bash
         run: |
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
           apksigner="$build_tools/apksigner"
           zipalign="$build_tools/zipalign"
+          aapt2="$build_tools/aapt2"
           test -x "$apksigner"
           test -x "$zipalign"
-          python tools/verify_remote_apk.py \
+          test -x "$aapt2"
+          python tools/verify_remote_apk.py --aapt2 "$aapt2" \
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 
@@ -103,6 +136,10 @@ jobs:
               echo "Refusing to publish a debug-signed APK."
               exit 1
             fi
+            "$apksigner" verify --print-certs --min-sdk-version 26 --max-sdk-version 27 "$apk" |
+              grep -q 'SHA-256 digest: 30ef1140970130df0f4dd47bb3167a748a626097e5306a321f208459b5eb19d2'
+            "$apksigner" verify --print-certs --min-sdk-version 28 --max-sdk-version 37 "$apk" |
+              grep -q 'SHA-256 digest: dd2546d43c15f5e3928392efb13b7c87f88dacd5c426b87ca749fa9c936d751f'
             "$zipalign" -c -P 16 -v 4 "$apk"
           done
 

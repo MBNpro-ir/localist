@@ -15,6 +15,7 @@ import '../services/feature_permission_service.dart';
 import '../widgets/glass.dart';
 import '../widgets/capture_receivers_panel.dart';
 import '../widgets/capture_audio_controls.dart';
+import '../widgets/capture_microphone_mode.dart';
 import '../services/capture_audio_settings.dart';
 import '../services/log_service.dart';
 import '../l10n/capture_error_text.dart';
@@ -61,6 +62,8 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   double _savedZoom = 1;
   int? _previewTexture;
   String _panel = 'server', _audioSource = 'microphone';
+  String _microphoneMode = 'default';
+  List<String> _microphoneModes = const [];
   CaptureAudioSettings _audio = const CaptureAudioSettings();
   bool _loadingCapabilities = false;
   int _capabilityRequest = 0;
@@ -83,7 +86,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
   StreamSubscription<dynamic>? _audioDeviceChanges;
   Future<void>? _inputRefresh;
   bool _inputRefreshAgain = false;
-  bool _echo = true, _noise = true, _gain = true, _mirror = false;
+  bool _echo = false, _noise = false, _gain = false, _mirror = false;
   int _fps = 30, _bitrate = 0;
   String _notice = '';
   String t(String fa, String en) =>
@@ -147,6 +150,18 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       if (_canScanInputs) unawaited(_refreshInputs(silent: true));
     };
     if (_android) {
+      final modes = await LiveCaptureService.androidMicrophoneModes()
+          .catchError((Object error) {
+            LogService.instance.warning(
+              'Android microphone presets unavailable: ${error.runtimeType}',
+            );
+            return <String>[];
+          });
+      if (!mounted) return;
+      setState(() {
+        _microphoneModes = modes;
+        if (!modes.contains(_microphoneMode)) _microphoneMode = 'default';
+      });
       _audioDeviceChanges = const EventChannel('localist/audioDevices')
           .receiveBroadcastStream()
           .listen(
@@ -177,9 +192,9 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       if (_service.active) return;
       setState(() {
         _audio = CaptureAudioSettings.fromMap(settings);
-        _echo = settings['echo'] != false;
-        _noise = settings['noise'] != false;
-        _gain = settings['gain'] != false;
+        _echo = settings['echo'] == true;
+        _noise = settings['noise'] == true;
+        _gain = settings['gain'] == true;
         _camera = settings['camera'] != false;
         _microphone = settings['microphone'] != false;
         _cameraId = settings['cameraId'] as String?;
@@ -187,6 +202,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         _audioSource = settings['audioSource'] == 'system'
             ? 'system'
             : 'microphone';
+        _microphoneMode = settings['microphoneMode'] as String? ?? 'default';
         if (_audioSource == 'system') _camera = false;
         _preferredWidth = settings['width'] as int? ?? 1280;
         _preferredHeight = settings['height'] as int? ?? 720;
@@ -216,6 +232,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       'cameraId': _cameraId,
       'microphoneId': _microphoneId,
       'audioSource': _audioSource,
+      'microphoneMode': _microphoneMode,
       'width': _mode?.width ?? _preferredWidth,
       'height': _mode?.height ?? _preferredHeight,
       'fps': _fps,
@@ -254,6 +271,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
     _echo = values['echo'] as bool? ?? _echo;
     _noise = values['noise'] as bool? ?? _noise;
     _gain = values['gain'] as bool? ?? _gain;
+    if (values.containsKey('audioGainDb')) _audio = _audio.withValues(values);
   });
 
   void _changed() {
@@ -264,6 +282,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
       _cameraId = value.cameraId;
       if (value.microphoneId != null) _microphoneId = value.microphoneId;
       _audioSource = value.audioSource;
+      _microphoneMode = value.microphoneMode;
       _audio = value.audioSettings;
       if (value.audioSource == 'microphone') {
         _echo = value.echoCancellation;
@@ -904,6 +923,14 @@ class _LiveCapturePageState extends State<LiveCapturePage>
             }),
           ),
         if (_audioSource == 'microphone') _inputSelector('audioinput'),
+        if (_android && _audioSource == 'microphone')
+          CaptureMicrophoneMode(
+            available: _microphoneModes,
+            selected: _microphoneMode,
+            onChanged: _operationRunning || _service.busy
+                ? null
+                : (mode) => _editSettings(() => _microphoneMode = mode),
+          ),
         CaptureAudioControls(
           settings: _audio,
           sender: true,
@@ -1075,6 +1102,7 @@ class _LiveCapturePageState extends State<LiveCapturePage>
         microphoneId: _audioSource == 'microphone' ? _microphoneId : null,
         audioSettings: _audio,
         audioSource: _audioSource,
+        microphoneMode: _microphoneMode,
         width: _mode?.width ?? _preferredWidth,
         height: _mode?.height ?? _preferredHeight,
         fps: _fps,

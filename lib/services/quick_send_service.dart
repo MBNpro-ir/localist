@@ -11,7 +11,6 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'feature_permission_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -318,7 +317,6 @@ class QuickSendService extends ChangeNotifier {
   String _deviceAlias = 'Localist device';
   String _deviceModel = '';
   String _avatarImageBase64 = '';
-  bool _storageAccessGranted = true;
   List<String> _localAddresses = const [];
 
   bool get initialized => _settings != null;
@@ -326,7 +324,6 @@ class QuickSendService extends ChangeNotifier {
   bool get scanning => _scanning;
   bool get restarting => _restarting;
   String get lastError => _lastError;
-  bool get storageAccessGranted => _storageAccessGranted;
   List<String> get localAddresses => List.unmodifiable(_localAddresses);
   QuickSendSettings? get settings => _settings;
   QuickSendPendingRequest? get pendingRequest => _pendingRequest;
@@ -441,7 +438,6 @@ class QuickSendService extends ChangeNotifier {
       await _importRemoteReceivedFiles();
     }
     _security = await _loadSecurity();
-    await ensureReceiveStorageAccess(request: false);
     await _startNetwork();
     _logs.debug(
       'Quick Send initialization finished receiveEnabled=${_settings?.receiveEnabled} serverRunning=$serverRunning localAddresses=${_localAddresses.length} historyEntries=${_receivedHistory.length}',
@@ -459,7 +455,8 @@ class QuickSendService extends ChangeNotifier {
       defaultAlias: _deviceAlias,
       legacyDefaultDestination: legacyDefaultDestination,
     );
-    if (_settings!.destinationDirectory.isEmpty ||
+    if (Platform.isAndroid ||
+        _settings!.destinationDirectory.isEmpty ||
         !_settings!.destinationCustomized) {
       _settings = _settings!.copyWith(
         destinationDirectory: await _defaultDestinationDirectory(),
@@ -552,39 +549,6 @@ class QuickSendService extends ChangeNotifier {
     } else if (profileChanged && _discoveryVisible) {
       unawaited(_sendDiscoveryPacket(announce: true));
     }
-  }
-
-  Future<bool> ensureReceiveStorageAccess({bool request = true}) async {
-    _logs.debug(
-      'Quick Send storage access check requested platform=${Platform.operatingSystem} interactive=$request',
-    );
-    if (!Platform.isAndroid) {
-      _storageAccessGranted = true;
-      return true;
-    }
-    try {
-      final sdk = await NativeBridgeService.instance.getAndroidSdkInt() ?? 0;
-      final permission = sdk >= 30
-          ? Permission.manageExternalStorage
-          : Permission.storage;
-      var status = await permission.status;
-      if (!status.isGranted && request) {
-        await FeaturePermissionService.instance.ensure([FeatureAccess.storage]);
-        status = await permission.status;
-      }
-      _storageAccessGranted = status.isGranted;
-      _logs.debug(
-        'Quick Send storage permission evaluated granted=$_storageAccessGranted',
-      );
-    } catch (error) {
-      _storageAccessGranted = false;
-      _logs.debug(
-        'Quick Send storage permission check failed type=${error.runtimeType}',
-      );
-      _logs.warning('Quick Send storage permission check failed.');
-    }
-    notifyListeners();
-    return _storageAccessGranted;
   }
 
   Future<void> toggleFavorite(QuickSendDevice device) async {
@@ -2229,10 +2193,10 @@ class QuickSendService extends ChangeNotifier {
 
   Future<String> _defaultDestinationDirectory() async {
     if (Platform.isAndroid) {
-      final root = await NativeBridgeService.instance.getPublicStorageRoot();
-      if (root.trim().isNotEmpty) {
-        return p.join(root.trim(), 'Download', 'Localist');
-      }
+      final directory =
+          await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
+      return p.join(directory.path, 'Localist');
     }
     final downloads = await getDownloadsDirectory();
     final fallback = await getApplicationDocumentsDirectory();
@@ -2353,18 +2317,11 @@ class QuickSendService extends ChangeNotifier {
 
   Future<File> _destinationFile(String unsafeName, String fileType) async {
     final current = _settings!;
-    if (Platform.isAndroid &&
-        !current.destinationCustomized &&
-        !await ensureReceiveStorageAccess(request: false)) {
-      throw const FileSystemException(
-        'Storage access is required to save files in Download/Localist.',
-      );
-    }
     final baseDirectory = current.destinationDirectory;
     final safeRelativePath = sanitizeRelativeFilePath(unsafeName);
     final category = receiveCategoryFor(unsafeName, fileType);
     // Android keeps every received item in its own folder below
-    // Download/Localist/<category>. This avoids collisions between files with
+    // its scoped Localist/<category> directory. This avoids collisions between files with
     // the same basename and makes the destination easy to browse/share.
     final itemFolder = Platform.isAndroid && !current.destinationCustomized
         ? p.basenameWithoutExtension(p.posix.basename(safeRelativePath))
