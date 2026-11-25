@@ -2,6 +2,14 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [7.4.1] - 2026-11-25
+
+- Simplified Quick Send Receiving and moved Remote Control hosting and connection
+  controls to their corresponding directions.
+- Simplified Stream Sharing to one address, fixed port 53547 and one QR code.
+  Stream Receiving supports LAN discovery, manual entry and phone QR scanning.
+- Hid printer and other Windows-specific Remote Control settings on Android.
+
 ## [7.4.0] - 2026-11-25
 
 - Reorganized Localist around Send and Receive, with an icon-only mobile

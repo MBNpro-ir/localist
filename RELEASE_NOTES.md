@@ -1,5 +1,18 @@
 # Release Notes
 
+## [7.4.1] — Clear Sharing and Receiving flows
+
+- Quick Send Receiving shows device readiness and transfer history. Nearby
+  devices and browser transfer for iPhone or Mac are available in Sharing.
+- Remote Control Sharing shows this device’s ID, password and host controls.
+  Receiving contains Connect, Paste & connect, and the address book.
+- Stream Sharing serves the selected media on one local address with a fixed
+  port and one QR code. Stream Receiving finds nearby streams automatically,
+  opens the selected stream in a browser, and accepts a manually entered address.
+  Phones can also scan the QR code.
+- Android Remote Control settings show the options supported on the phone.
+  Printer setup and Windows-specific display and session controls remain on Windows.
+
 ## [7.4.0] — Send and Receive, nearby streams, and live capture controls
 
 - Start with Send or Receive. On phones, the feature icons are at the bottom.
