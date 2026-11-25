@@ -187,7 +187,6 @@ class QuickSendPageState extends State<QuickSendPage> {
               ready: _service.serverRunning,
               onOpenProfileSettings: widget.onOpenProfileSettings,
             ),
-            if (widget.receiving) _receivingDiscoveryPanel(),
             if (widget.deviceVpnActive) _vpnWarningPanel(),
             if (!widget.receiving) ...[
               _selectionPanel(),
@@ -195,51 +194,12 @@ class QuickSendPageState extends State<QuickSendPage> {
             ],
             _transferHistoryPanel(),
             if (_service.transfers.isNotEmpty) _transfersPanel(),
-            if (Platform.isAndroid || Platform.isWindows)
+            if (!widget.receiving && (Platform.isAndroid || Platform.isWindows))
               _appleWebTransferPanel(),
           ],
         );
         return widget.receiving ? content : _desktopDropTarget(content);
       },
-    );
-  }
-
-  Widget _receivingDiscoveryPanel() {
-    final scanning = _service.scanning;
-    final count = _service.devices.length;
-    final status = scanning
-        ? _t(
-            'در حال جست‌وجوی دستگاه‌های نزدیک…',
-            'Searching for nearby devices…',
-          )
-        : count > 0
-        ? _t('$count دستگاه نزدیک پیدا شد.', 'Nearby devices found: $count')
-        : _t(
-            'جست‌وجوی خودکار فعال است. دستگاه فرستنده را به همین شبکه وصل کنید.',
-            'Automatic discovery is active. Connect the sending device to this network.',
-          );
-    return GlassPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        spacing: 8,
-        children: [
-          Row(
-            spacing: 10,
-            children: [
-              const Icon(Icons.radar_outlined),
-              Expanded(
-                child: Text(
-                  _t('دستگاه‌های نزدیک', 'Nearby devices'),
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              _discoveryRefreshButton(),
-            ],
-          ),
-          Semantics(liveRegion: scanning, child: Text(status)),
-          if (scanning) const LinearProgressIndicator(),
-        ],
-      ),
     );
   }
 
@@ -318,15 +278,7 @@ class QuickSendPageState extends State<QuickSendPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      widget.receiving
-                          ? _t(
-                              'دریافت از iPhone یا Mac',
-                              'Receive from iPhone or Mac',
-                            )
-                          : _t(
-                              'ارسال به iPhone یا Mac',
-                              'Send to iPhone or Mac',
-                            ),
+                      _t('ارسال به iPhone یا Mac', 'Send to iPhone or Mac'),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 4),
@@ -1807,9 +1759,9 @@ class QuickSendPageState extends State<QuickSendPage> {
     );
     try {
       final automaticHotspot = await _appleWebTransfer.start(
-        paths: widget.receiving ? const [] : List.of(_selectedPaths),
-        offeredNames: widget.receiving ? const {} : Map.of(_selectedFileNames),
-        selectedText: widget.receiving ? '' : _selectedText,
+        paths: List.of(_selectedPaths),
+        offeredNames: Map.of(_selectedFileNames),
+        selectedText: _selectedText,
         useHotspot: useHotspot,
       );
       LogService.instance.debug(

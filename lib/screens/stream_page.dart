@@ -2,17 +2,17 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../services/media_stream_service.dart';
 import '../services/stream_discovery_service.dart';
-import '../services/dlna_cast_service.dart';
 import '../services/native_bridge_service.dart';
+import '../services/feature_permission_service.dart';
 import '../services/log_service.dart';
 import '../widgets/glass.dart';
-import '../widgets/feature_page_layout.dart';
 import 'localist_qr_scanner.dart';
 
 class StreamPage extends StatefulWidget {
@@ -24,24 +24,18 @@ class StreamPage extends StatefulWidget {
 }
 
 class _StreamPageState extends State<StreamPage> {
-  final _cast = DlnaCastService.instance;
-  DlnaRenderer? _playing;
   bool _busy = false;
-  String _notice = '';
   final _receiveAddress = TextEditingController();
   bool _addressError = false;
   bool _scanningQr = false;
-  String? _qrAddress;
   MediaStreamService get service => widget.service;
+  bool get _supportsQr => switch (defaultTargetPlatform) {
+    TargetPlatform.android || TargetPlatform.iOS => true,
+    _ => false,
+  };
   String _t(String fa, String en) =>
       Localizations.localeOf(context).languageCode == 'fa' ? fa : en;
 
-  String _castActionLabel(String action) => switch (action) {
-    'Pause' => _t('مکث', 'Pause'),
-    'Play' => _t('ادامهٔ پخش', 'Play'),
-    'Stop' => _t('توقف', 'Stop'),
-    _ => action,
-  };
   @override
   void dispose() {
     _receiveAddress.dispose();
@@ -49,293 +43,91 @@ class _StreamPageState extends State<StreamPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (widget.receiving) return _buildReceiver();
-    final fa = Localizations.localeOf(context).languageCode == 'fa';
-    String t(String f, String e) => fa ? f : e;
-    return GlassBackground(
-      simple: Platform.isAndroid || Platform.isWindows,
-      child: AnimatedBuilder(
-        animation: Listenable.merge([service, _cast]),
-        builder: (context, _) => FeaturePageLayout(
-          heading: [
-            Text(
-              t('استریم رسانه', 'Media Stream'),
-              style: Theme.of(
-                context,
-              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              t(
-                'عکس‌ها و فیلم‌ها را روی شبکهٔ محلی به صورت گالری نمایش دهید یا یک رسانه را روی گیرندهٔ DLNA پخش کنید.',
-                'Share photos and videos as a web gallery or play a media item on a local DLNA receiver.',
-              ),
-            ),
-          ],
-          sections: [
-            GlassPanel(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t('پخش‌کنندهٔ وب', 'Web player'),
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    t(
-                      'چند عکس، فیلم یا موسیقی را هم‌زمان انتخاب کنید. دستگاه مقابل با آدرس یا QR زیر وارد گالری می‌شود و هر رسانه را با کنترل کامل باز می‌کند.',
-                      'Select multiple photos, videos or songs. Other devices can open the URL or QR to browse the gallery and play each item with full controls.',
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _busy ? null : () => unawaited(_pick(context)),
-                    icon: const Icon(Icons.video_library_outlined),
-                    label: Text(t('انتخاب رسانه‌ها', 'Choose media files')),
-                  ),
-                  if (service.active) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      service.items.length == 1
-                          ? service.name
-                          : t(
-                              '${service.items.length} رسانه در گالری',
-                              '${service.items.length} items in gallery',
-                            ),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(Icons.language, size: 22),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            t(
-                              'پخش‌کنندهٔ وب برای دستگاه‌های دیگر',
-                              'Web player for other devices',
-                            ),
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        FilledButton.icon(
-                          onPressed: () => unawaited(_openPlayer()),
-                          icon: const Icon(Icons.open_in_browser),
-                          label: Text(t('باز کردن وب', 'Open web')),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (service.playerUrls.isEmpty)
-                      Text(
-                        t(
-                          'شبکهٔ محلی پیدا نشد. ابتدا Wi-Fi یا کابل شبکه را وصل کنید.',
-                          'No local network found. Connect Wi-Fi or Ethernet first.',
-                        ),
-                      ),
-                    if (service.playerUrls.isNotEmpty)
-                      Center(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: QrImageView(
-                            data: service.playerUrls.contains(_qrAddress)
-                                ? _qrAddress!
-                                : service.playerUrls.first,
-                            size: 174,
-                            backgroundColor: Colors.white,
-                            padding: const EdgeInsets.all(12),
-                          ),
-                        ),
-                      ),
-                    for (final url in service.playerUrls)
-                      Row(
-                        children: [
-                          Expanded(child: SelectableText(url)),
-                          if (service.playerUrls.length > 1)
-                            IconButton(
-                              tooltip: t(
-                                'نمایش کد QR این آدرس',
-                                'Show QR for this address',
-                              ),
-                              isSelected:
-                                  url ==
-                                  (_qrAddress ?? service.playerUrls.first),
-                              onPressed: () => setState(() => _qrAddress = url),
-                              icon: const Icon(Icons.qr_code_outlined),
-                            ),
-                          IconButton(
-                            tooltip: t('کپی لینک', 'Copy link'),
-                            onPressed: () =>
-                                Clipboard.setData(ClipboardData(text: url)),
-                            icon: const Icon(Icons.copy),
-                          ),
-                        ],
-                      ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        FilledButton.tonalIcon(
-                          onPressed: () => unawaited(_openPlayer()),
-                          icon: const Icon(Icons.play_circle_outline),
-                          label: Text(t('صفحهٔ پخش وب', 'Web player page')),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: service.playerUrl == null
-                              ? null
-                              : () => Clipboard.setData(
-                                  ClipboardData(text: service.playerUrl!),
-                                ),
-                          icon: const Icon(Icons.link),
-                          label: Text(t('کپی آدرس پخش', 'Copy player URL')),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () => unawaited(service.stop()),
-                      icon: const Icon(Icons.stop_circle_outlined),
-                      label: Text(t('توقف', 'Stop')),
-                    ),
-                  ] else
-                    Padding(
-                      padding: const EdgeInsets.only(top: 14),
-                      child: Text(
-                        t(
-                          'برای شروع فایل انتخاب کنید.',
-                          'Choose a file to start.',
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            GlassPanel(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t('تلویزیون و گیرندهٔ DLNA', 'TVs and DLNA receivers'),
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  if (service.items.length > 1) ...[
-                    DropdownButtonFormField<int>(
-                      key: ValueKey('${service.port}:${service.selectedIndex}'),
-                      initialValue: service.selectedIndex,
-                      isExpanded: true,
-                      decoration: InputDecoration(
-                        labelText: t(
-                          'رسانه برای پخش روی DLNA',
-                          'Media to cast on DLNA',
-                        ),
-                      ),
-                      items: [
-                        for (var i = 0; i < service.items.length; i++)
-                          DropdownMenuItem(
-                            value: i,
-                            child: Text(
-                              service.items[i].name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: _busy
-                          ? null
-                          : (index) {
-                              if (index != null) service.selectItem(index);
-                            },
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  FilledButton.tonalIcon(
-                    onPressed: _cast.scanning
-                        ? null
-                        : () => unawaited(_cast.discover()),
-                    icon: Icon(
-                      _cast.scanning ? Icons.hourglass_top : Icons.search,
-                    ),
-                    label: Text(t('جستجوی دستگاه‌ها', 'Find receivers')),
-                  ),
-                  if (!_cast.scanning && _cast.devices.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        t(
-                          'گیرندهٔ DLNA را روشن و به همین شبکه وصل کنید؛ اگر دستگاه مرورگر دارد می‌توانید QR را هم باز کنید.',
-                          'Turn on a DLNA receiver on the same network. Devices with a browser can use the QR instead.',
-                        ),
-                      ),
-                    ),
-                  for (final device in _cast.devices)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.tv),
-                      title: Text(device.name),
-                      subtitle: Text(device.controlUrl.host),
-                      trailing: FilledButton(
-                        onPressed:
-                            !service.active || _busy || service.urls.isEmpty
-                            ? null
-                            : () => unawaited(_play(device)),
-                        child: Text(t('پخش', 'Play')),
-                      ),
-                    ),
-                  if (_playing != null)
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final action in ['Pause', 'Play', 'Stop'])
-                          OutlinedButton(
-                            onPressed: _busy
-                                ? null
-                                : () => unawaited(_control(action)),
-                            child: Text(_castActionLabel(action)),
-                          ),
-                      ],
-                    ),
-                  if (_notice.isNotEmpty || _cast.error.isNotEmpty)
-                    Text(
-                      _notice.isNotEmpty
-                          ? _notice
-                          : t(
-                              'جست‌وجوی گیرنده‌های DLNA انجام نشد. اتصال شبکه را بررسی کنید.',
-                              'Could not discover DLNA receivers. Check the network connection.',
-                            ),
-                    ),
-                ],
-              ),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => unawaited(_wirelessDisplay()),
-              icon: const Icon(Icons.connected_tv),
-              label: Text(
-                t('انتقال کل صفحه / Miracast', 'Mirror screen / Miracast'),
-              ),
-            ),
-            GlassPanel(
-              padding: const EdgeInsets.all(18),
-              child: Text(
-                t(
-                  'ارسال DLNA به گیرندهٔ MediaRenderer با AVTransport نیاز دارد. پخش در مرورگر به کدک‌های دستگاه وابسته است؛ MP4 با H.264/AAC معمولاً سازگار است. انتقال کل صفحه پنل اتصال سیستم‌عامل را باز می‌کند و به سخت‌افزار سازگار نیاز دارد. پروتکل‌های AirPlay و Chromecast در این نسخه پیاده‌سازی نشده‌اند.',
-                  'DLNA casting requires a MediaRenderer with AVTransport. Browser playback depends on supported codecs; MP4 H.264/AAC is widely compatible. Screen mirroring opens the OS connection panel and requires compatible hardware. AirPlay and Chromecast protocols are not implemented in this build.',
+  Widget build(BuildContext context) =>
+      widget.receiving ? _buildReceiver() : _buildSharer();
+
+  Widget _buildSharer() => ListenableBuilder(
+    listenable: service,
+    builder: (context, _) {
+      final url = service.playerUrl;
+      final address = url == null ? null : Uri.parse(url).authority;
+      return PageSurface(
+        useColumns: false,
+        children: [
+          GlassPanel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              spacing: 16,
+              children: [
+                Text(
+                  _t('استریم رسانه', 'Media Stream'),
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-              ),
+                if (url != null && address != null) ...[
+                  Center(
+                    child: QrImageView(
+                      data: url,
+                      size: 174,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                  Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: SelectableText(
+                            address,
+                            textDirection: TextDirection.ltr,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: _t('کپی آدرس استریم', 'Copy stream address'),
+                          onPressed: () =>
+                              Clipboard.setData(ClipboardData(text: address)),
+                          icon: const Icon(Icons.copy),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (service.active)
+                  Text(
+                    _t(
+                      'آدرس شبکهٔ محلی پیدا نشد. اتصال شبکه را بررسی کنید.',
+                      'No local network address found. Check your network connection.',
+                    ),
+                  )
+                else
+                  Text(
+                    _t(
+                      'برای شروع فایل انتخاب کنید.',
+                      'Choose a file to start.',
+                    ),
+                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _busy ? null : () => unawaited(_pick()),
+                      icon: const Icon(Icons.video_library_outlined),
+                      label: Text(_t('انتخاب رسانه‌ها', 'Choose media files')),
+                    ),
+                    if (service.active)
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : () => unawaited(_stop()),
+                        icon: const Icon(Icons.stop_circle_outlined),
+                        label: Text(_t('توقف اشتراک', 'Stop sharing')),
+                      ),
+                  ],
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
+          ),
+        ],
+      );
+    },
+  );
 
   Widget _buildReceiver() => PageSurface(
     useColumns: false,
@@ -384,7 +176,7 @@ class _StreamPageState extends State<StreamPage> {
                       textAlign: TextAlign.start,
                     ),
                     trailing: const Icon(Icons.open_in_browser),
-                    onTap: () => unawaited(_openReceivedStream(uri.toString())),
+                    onTap: () => unawaited(_openReceivedStream(uri)),
                   ),
               ],
             );
@@ -400,19 +192,13 @@ class _StreamPageState extends State<StreamPage> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
-            Text(
-              _t(
-                'کد QR پخش‌کننده را اسکن کنید یا آدرس آن را وارد کنید.',
-                'Scan the player QR code or enter its address.',
-              ),
-            ),
-            const SizedBox(height: 12),
             TextField(
               controller: _receiveAddress,
               keyboardType: TextInputType.url,
               textDirection: TextDirection.ltr,
               decoration: InputDecoration(
                 labelText: _t('آدرس استریم', 'Stream address'),
+                hintText: '192.168.1.20:$mediaStreamPort',
                 errorText: _addressError
                     ? _t(
                         'آدرس استریم را بررسی کنید.',
@@ -431,15 +217,16 @@ class _StreamPageState extends State<StreamPage> {
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: _scanningQr ? null : () => unawaited(_scanQr()),
-                  icon: const Icon(Icons.qr_code_scanner_rounded),
-                  label: Text(_t('اسکن کد QR', 'Scan QR code')),
-                ),
-                OutlinedButton.icon(
                   onPressed: () => unawaited(_openReceivedStream()),
                   icon: const Icon(Icons.open_in_browser),
                   label: Text(_t('باز کردن در مرورگر', 'Open in browser')),
                 ),
+                if (_supportsQr)
+                  OutlinedButton.icon(
+                    onPressed: _scanningQr ? null : () => unawaited(_scanQr()),
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                    label: Text(_t('اسکن کد QR', 'Scan QR code')),
+                  ),
               ],
             ),
           ],
@@ -456,26 +243,54 @@ class _StreamPageState extends State<StreamPage> {
         title: _t('اسکن کد QR استریم', 'Scan stream QR'),
         accepts: (value) => parseStreamAddress(value, fromQr: true) != null,
       );
-      if (mounted && value != null) await _openReceivedStream(value);
+      if (mounted && widget.receiving && value != null) {
+        final uri = parseStreamAddress(value, fromQr: true);
+        if (uri != null) await _openReceivedStream(uri);
+      }
     } finally {
       if (mounted) setState(() => _scanningQr = false);
     }
   }
 
-  Future<void> _openReceivedStream([String? address]) async {
-    if (address != null) _receiveAddress.text = address;
-    final uri = parseStreamAddress(_receiveAddress.text);
-    final opened =
-        uri != null &&
-        await NativeBridgeService.instance.openUri(uri.toString());
-    if (mounted) setState(() => _addressError = !opened);
+  Future<void> _openReceivedStream([Uri? found]) async {
+    final uri = found ?? parseStreamAddress(_receiveAddress.text);
+    if (uri == null) {
+      setState(() => _addressError = true);
+      return;
+    }
+    if (_addressError) setState(() => _addressError = false);
+    final opened = await NativeBridgeService.instance.openUri(uri.toString());
+    if (!opened && mounted && widget.receiving) {
+      _showNotice(_t('مرورگر باز نشد.', 'Could not open the browser.'));
+    }
   }
 
-  Future<void> _pick(BuildContext context) async {
+  Future<void> _stop() async {
+    setState(() => _busy = true);
+    try {
+      await service.stop();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _showNotice(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _pick() async {
     LogService.instance.debug('Stream page: media picker opened');
     setState(() => _busy = true);
     try {
-      final result = await FilePicker.pickFiles(type: FileType.any);
+      final hasNetworkAccess = await FeaturePermissionService.instance.ensure([
+        FeatureAccess.localNetwork,
+      ]);
+      if (!hasNetworkAccess || !mounted || widget.receiving) {
+        return;
+      }
+      final result = await FilePicker.pickFiles();
       final files = [
         for (final item in result)
           if (item.path != null) File(item.path!),
@@ -483,134 +298,35 @@ class _StreamPageState extends State<StreamPage> {
       LogService.instance.debug(
         'Stream page: picker returned files=${files.length}',
       );
-      if (files.isEmpty || !context.mounted) return;
+      if (files.isEmpty || !mounted || widget.receiving) return;
       service.persian = Localizations.localeOf(context).languageCode == 'fa';
       await service.startFiles(files);
       LogService.instance.debug(
         'Stream page: media service started items=${service.items.length}',
       );
+    } on SocketException {
+      if (mounted) {
+        _showNotice(
+          _t(
+            'استریم روی پورت $mediaStreamPort شروع نشد. آزاد بودن پورت و اتصال شبکه را بررسی کنید.',
+            'Could not start Stream on port $mediaStreamPort. Check the network and port availability.',
+          ),
+        );
+      }
     } catch (error) {
       LogService.instance.debug(
         'Stream page: media picker/start failed type=${error.runtimeType}',
       );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _t(
-                'رسانه انتخاب یا پخش نشد. فایل‌ها و دسترسی به آن‌ها را بررسی کنید.',
-                'Could not select or share the media. Check the files and their permissions.',
-              ),
-            ),
+      if (mounted) {
+        _showNotice(
+          _t(
+            'رسانه انتخاب یا پخش نشد. فایل‌ها و دسترسی به آن‌ها را بررسی کنید.',
+            'Could not select or share the media. Check the files and their permissions.',
           ),
         );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _openPlayer() async {
-    final url = service.playerUrl;
-    if (url == null) return;
-    LogService.instance.debug('Stream page: opening local browser player');
-    final opened = await NativeBridgeService.instance.openUri(url);
-    LogService.instance.debug(
-      'Stream page: local browser launch opened=$opened',
-    );
-    if (!opened && mounted) {
-      setState(
-        () => _notice = _t(
-          'صفحهٔ وب روی این دستگاه باز نشد؛ آدرس را با دکمهٔ کپی در مرورگر وارد کنید.',
-          'Could not open the web page on this device. Copy the address and open it in a browser.',
-        ),
-      );
-    }
-  }
-
-  Future<void> _play(DlnaRenderer device) async {
-    LogService.instance.debug(
-      'Stream page: casting started mediaItem=${service.selectedIndex} renderers=${_cast.devices.length}',
-    );
-    setState(() {
-      _busy = true;
-      _notice = '';
-    });
-    try {
-      final destination = device.controlUrl.host.split('.').take(3).join('.');
-      final url = service.urls.firstWhere(
-        (value) => Uri.parse(value).host.startsWith('$destination.'),
-        orElse: () => service.urls.first,
-      );
-      await _cast.play(device, Uri.parse(url), service.name);
-      LogService.instance.debug('Stream page: cast dispatched successfully');
-      if (mounted) {
-        setState(() {
-          _playing = device;
-          _notice = Localizations.localeOf(context).languageCode == 'fa'
-              ? 'در حال پخش روی ${device.name}'
-              : 'Playing on ${device.name}';
-        });
-      }
-    } catch (error) {
-      LogService.instance.debug(
-        'Stream page: cast failed type=${error.runtimeType}',
-      );
-      if (mounted) {
-        setState(
-          () => _notice = _t(
-            'پخش روی گیرنده انجام نشد. سازگاری قالب رسانه و اتصال شبکه را بررسی کنید.',
-            'Could not cast to the receiver. Check media format compatibility and the network connection.',
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _control(String action) async {
-    LogService.instance.debug(
-      'Stream page: cast control requested action=$action',
-    );
-    setState(() => _busy = true);
-    try {
-      await _cast.action(
-        _playing!,
-        action,
-        action == 'Play' ? {'Speed': '1'} : {},
-      );
-    } catch (error) {
-      LogService.instance.debug(
-        'Stream page: cast control failed type=${error.runtimeType}',
-      );
-      if (mounted) {
-        setState(
-          () => _notice = _t(
-            'اجرای فرمان پخش روی گیرنده انجام نشد.',
-            'Could not control playback on the receiver.',
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _wirelessDisplay() async {
-    LogService.instance.debug(
-      'Stream page: launching wireless display settings',
-    );
-    final opened = await NativeBridgeService.instance.openWirelessDisplay();
-    LogService.instance.debug(
-      'Stream page: wireless display settings launched=$opened',
-    );
-    if (!opened && mounted) {
-      setState(
-        () => _notice = Localizations.localeOf(context).languageCode == 'fa'
-            ? 'تنظیمات نمایشگر بی‌سیم روی این دستگاه در دسترس نیست.'
-            : 'Wireless display settings are unavailable on this device.',
-      );
     }
   }
 }

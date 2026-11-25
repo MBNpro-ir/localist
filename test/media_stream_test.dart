@@ -348,6 +348,7 @@ void main() {
       try {
         service.persian = true;
         await service.startFiles([photo, movie, song, photo]);
+        expect(service.port, mediaStreamPort);
         await discovery.refresh();
         expect(probes, 0);
         discovery.setActive(true);
@@ -425,6 +426,7 @@ void main() {
         await post.drain<void>();
         final oldMediaPath = '${links[0]}/media';
         await service.start(photo);
+        expect(service.port, mediaStreamPort);
         final obsolete = await get(oldMediaPath);
         expect(obsolete.statusCode, 404);
         await obsolete.drain<void>();

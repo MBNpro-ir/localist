@@ -59,10 +59,14 @@ String _settingsSectionSubtitle(BuildContext context, SettingsSection section) {
       persian
           ? 'پروفایل، دریافت، شبکه، پوشه ذخیره و امنیت انتقال'
           : 'Profile, receiving, network, storage, and transfer security',
-    SettingsSection.remoteControl =>
+    SettingsSection.remoteControl when Platform.isWindows =>
       persian
           ? 'عمومی، امنیت، سرور شناسه و واسط، نمایش و چاپ'
           : 'General, security, ID/Relay server, display, and printer',
+    SettingsSection.remoteControl =>
+      persian
+          ? 'عمومی، امنیت، سرور شناسه و واسط و نمایش'
+          : 'General, security, ID/Relay server, and display',
     SettingsSection.permissions =>
       persian
           ? 'اشتراک صفحه، کنترل لمس و مجوزهای سیستم'

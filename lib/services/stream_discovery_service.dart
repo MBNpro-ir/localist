@@ -8,7 +8,9 @@ import 'package:flutter/foundation.dart';
 import 'lan_network_service.dart';
 import 'log_service.dart';
 
-const streamDiscoveryPort = 53547;
+// HTTP uses TCP and discovery uses UDP on the same port.
+const mediaStreamPort = 53547;
+const streamDiscoveryPort = mediaStreamPort;
 const _query = 'localist.stream.query.v1';
 const _reply = 'localist.stream.reply.v1';
 

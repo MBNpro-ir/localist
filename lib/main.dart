@@ -35,7 +35,6 @@ import 'screens/live_capture_page.dart';
 import 'services/capture_hub_service.dart';
 import 'screens/vpn_sharing_page.dart';
 import 'services/feature_activity_service.dart';
-import 'services/dlna_cast_service.dart';
 import 'services/rustdesk_debug_service.dart';
 import 'services/remote_device_service.dart';
 import 'widgets/update_action.dart';
@@ -410,7 +409,6 @@ class _LocalistShellState extends State<LocalistShell>
     discoveryVisible: false,
   );
   Timer? _remoteDiscoveryTimer;
-  Timer? _castDiscoveryTimer;
   LocalistFeature? _discoveryFeature;
   bool _discoveryReceiving = false;
   bool _lanDiscoveryLocked = false;
@@ -509,13 +507,11 @@ class _LocalistShellState extends State<LocalistShell>
     _activities.removeListener(_handleActivityChanged);
     _updates.removeListener(_handleUpdateChanged);
     _remoteDiscoveryTimer?.cancel();
-    _castDiscoveryTimer?.cancel();
     MediaStreamService.instance.discovery.setActive(false);
     _quickSend.setDiscoveryVisible(false);
     if (_lanDiscoveryLocked) unawaited(_bridge.setLanDiscoveryLock(false));
     _remoteService.dispose();
     _remoteDevices.dispose();
-    DlnaCastService.instance.dispose();
     _sharedQuickSendFilesSubscription?.cancel();
     _quickSendNotificationSubscription?.cancel();
     _windowActivationSubscription?.cancel();
@@ -1008,7 +1004,9 @@ class _LocalistShellState extends State<LocalistShell>
       _logs.debug(
         'Feature discovery visible=${feature?.name} receiving=$_receiving',
       );
-      _quickSend.setDiscoveryVisible(feature == LocalistFeature.quickSend);
+      _quickSend.setDiscoveryVisible(
+        feature == LocalistFeature.quickSend && !_receiving,
+      );
       CaptureHubService.instance.setSearchEnabled(
         feature == LocalistFeature.capture && _receiving,
       );
@@ -1016,7 +1014,6 @@ class _LocalistShellState extends State<LocalistShell>
         feature == LocalistFeature.stream && _receiving,
       );
       _syncRemoteDiscovery(feature == LocalistFeature.remoteControl);
-      _syncCastDiscovery(feature == LocalistFeature.stream && !_receiving);
       setState(() {});
     }
 
@@ -1030,7 +1027,8 @@ class _LocalistShellState extends State<LocalistShell>
         searchVpn ||
         _sharingActive ||
         _receivingActive ||
-        feature == LocalistFeature.capture;
+        feature == LocalistFeature.capture ||
+        feature == LocalistFeature.stream;
     if (_lanDiscoveryLocked != lockLan) {
       _lanDiscoveryLocked = lockLan;
       unawaited(_bridge.setLanDiscoveryLock(lockLan));
@@ -1949,8 +1947,9 @@ class _LocalistShellState extends State<LocalistShell>
 
   void _syncRemoteDiscovery(bool visible) {
     _remoteService.setViewVisible(visible);
-    _remoteDevices.setDiscoveryVisible(visible);
-    if (!visible) {
+    final discover = visible && _receiving;
+    _remoteDevices.setDiscoveryVisible(discover);
+    if (!discover) {
       _remoteDiscoveryTimer?.cancel();
       _remoteDiscoveryTimer = null;
     } else if (_remoteDiscoveryTimer == null) {
@@ -1958,21 +1957,6 @@ class _LocalistShellState extends State<LocalistShell>
       _remoteDiscoveryTimer = Timer.periodic(
         const Duration(seconds: 20),
         (_) => unawaited(_scanRemoteDevices()),
-      );
-    }
-  }
-
-  void _syncCastDiscovery(bool visible) {
-    final cast = DlnaCastService.instance;
-    if (!visible) {
-      _castDiscoveryTimer?.cancel();
-      _castDiscoveryTimer = null;
-      if (cast.scanning) cast.cancelDiscovery();
-    } else if (_castDiscoveryTimer == null) {
-      unawaited(cast.discover());
-      _castDiscoveryTimer = Timer.periodic(
-        const Duration(seconds: 30),
-        (_) => unawaited(cast.discover()),
       );
     }
   }
@@ -2002,7 +1986,7 @@ class _LocalistShellState extends State<LocalistShell>
           LocalistFeature.capture => !capture.broadcasting && !capture.busy,
           LocalistFeature.quickSend => true,
           LocalistFeature.vpnSharing => _receivingActive,
-          LocalistFeature.remoteControl => _remoteService.hosting,
+          LocalistFeature.remoteControl => _remoteService.sessionActive,
           _ => false,
         },
       );
@@ -2214,6 +2198,7 @@ class _LocalistShellState extends State<LocalistShell>
     final canSwitchDirection =
         owner == null ||
         owner == LocalistFeature.quickSend ||
+        owner == LocalistFeature.remoteControl ||
         (owner == LocalistFeature.capture &&
             !sender.broadcasting &&
             !sender.busy);

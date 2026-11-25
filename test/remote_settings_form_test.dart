@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:localist/l10n/app_localizations.dart';
@@ -128,6 +129,8 @@ void main() {
   testWidgets(
     'native audio inputs can be selected and offline printers stay saved',
     (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
       tester.view.physicalSize = const Size(1440, 1100);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -160,6 +163,7 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       engine.dispose();
+      debugDefaultTargetPlatformOverride = null;
     },
   );
 
@@ -206,4 +210,33 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  testWidgets('Android hides desktop-only Remote Control settings', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final engine = _SettingsEngine();
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          ...GlobalMaterialLocalizations.delegates,
+        ],
+        home: Scaffold(body: RemoteControlSettingsSection(service: engine)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Printer'), findsNothing);
+    expect(find.text('Capture screen using DirectX'), findsNothing);
+    expect(find.text('Open connection in new tab'), findsNothing);
+    await tester.tap(find.text('Security').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Enable remote printer'), findsNothing);
+    expect(find.text('Enable RDP session sharing'), findsNothing);
+    expect(find.text('Set permanent password'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    engine.dispose();
+    debugDefaultTargetPlatformOverride = null;
+  });
 }

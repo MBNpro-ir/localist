@@ -1165,7 +1165,6 @@ class AppleWebTransferService extends ChangeNotifier {
     );
   }
 
-  @visibleForTesting
   static bool isUsableNetworkAddress(String value) => _isPrivateIpv4(value);
 
   static bool isIgnoredNetworkInterface(String value) =>

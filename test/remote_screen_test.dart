@@ -37,7 +37,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: RemoteDebugPage(service: remote, devices: devices),
+            body: RemoteDebugPage(
+              service: remote,
+              devices: devices,
+              receiving: false,
+            ),
           ),
         ),
       );
@@ -87,4 +91,39 @@ void main() {
       devices.dispose();
     });
   }
+
+  testWidgets('Sharing hosts this device and Receiving connects to a peer', (
+    tester,
+  ) async {
+    final remote = _ReadyRemote(), devices = _EmptyDevices();
+    for (final receiving in [false, true]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RemoteDebugPage(
+              service: remote,
+              devices: devices,
+              receiving: receiving,
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        find.text('This device'),
+        receiving ? findsNothing : findsOneWidget,
+      );
+      expect(
+        find.text('Remote ID or IP'),
+        receiving ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.text('Paste & connect'),
+        receiving ? findsOneWidget : findsNothing,
+      );
+    }
+    await tester.pumpWidget(const SizedBox.shrink());
+    remote.dispose();
+    devices.dispose();
+  });
 }

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -141,7 +140,7 @@ void main() {
     ),
   );
 
-  testWidgets('readiness scrolls in both modes and Receive shows discovery', (
+  testWidgets('readiness scrolls and only Send shows destination controls', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(360, 640);
@@ -156,23 +155,16 @@ void main() {
         findsWidgets,
       );
       expect(
-        find.textContaining('Automatic discovery is active'),
-        receiving ? findsOneWidget : findsNothing,
+        find.text('Nearby devices'),
+        receiving ? findsNothing : findsOneWidget,
       );
+      expect(
+        find.text('Send to iPhone or Mac'),
+        receiving ? findsNothing : findsOneWidget,
+      );
+      expect(find.text('Receive from iPhone or Mac'), findsNothing);
     }
-    try {
-      await tester.runAsync(() async {
-        service.setDiscoveryVisible(true);
-        unawaited(service.refresh(probeSubnets: false));
-        await Future<void>.delayed(const Duration(milliseconds: 30));
-      });
-      await tester.pump();
-      expect(find.text('Searching for nearby devices…'), findsOneWidget);
-      expect(find.byType(LinearProgressIndicator), findsOneWidget);
-    } finally {
-      service.setDiscoveryVisible(false);
-      await tester.pumpWidget(const SizedBox.shrink());
-    }
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('VPN changes warn without interrupting native or web transfers', (

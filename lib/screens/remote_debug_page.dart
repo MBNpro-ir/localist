@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,6 +34,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     with WidgetsBindingObserver {
   RustDeskDebugService get _service => widget.service;
   RemoteDeviceService get _devices => widget.devices;
+  bool get _showsConnections => widget.receiving != false;
   final _target = TextEditingController();
   final _password = TextEditingController();
   String _mode = 'connect';
@@ -53,7 +53,9 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
   @override
   void didUpdateWidget(covariant RemoteDebugPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.visible && !oldWidget.visible) {
+    if (widget.visible &&
+        _showsConnections &&
+        (!oldWidget.visible || oldWidget.receiving == false)) {
       unawaited(_refreshSavedPeers());
     }
   }
@@ -90,7 +92,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
 
   bool _loadingPeers = false;
   Future<void> _refreshSavedPeers() async {
-    if (!mounted || !widget.visible) return;
+    if (!mounted || !widget.visible || !_showsConnections) return;
     final config = _service.profile.server.encode();
     if (_relayConfig != config) {
       _relayConfig = config;
@@ -114,7 +116,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
     );
     try {
       for (final device in _devices.devices) {
-        if (!mounted || !widget.visible) break;
+        if (!mounted || !widget.visible || !_showsConnections) break;
         await _devices.updatePeerInfo(
           device.id,
           await _service.savedPeer(device.id),
@@ -172,7 +174,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
             ),
           ],
           sections: [
-            if (widget.receiving != false)
+            if (widget.receiving != true)
               GlassPanel(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -270,7 +272,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                   ],
                 ),
               ),
-            if (widget.receiving != true)
+            if (_showsConnections)
               GlassPanel(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,7 +305,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
                       value: _mode,
                       items: [
                         for (final mode in RustDeskDebugService.modes)
-                          if (Platform.isWindows ||
+                          if (defaultTargetPlatform == TargetPlatform.windows ||
                               (mode != 'port-forward' && mode != 'rdp'))
                             DropdownMenuItem(
                               value: mode,
@@ -375,7 +377,7 @@ class _RemoteDebugPageState extends State<RemoteDebugPage>
               ),
           ],
           fullWidthSections: [
-            if (widget.receiving != true)
+            if (_showsConnections)
               RemoteAddressBook(
                 service: _devices,
                 localId: _service.localId,

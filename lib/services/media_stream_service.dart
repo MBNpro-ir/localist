@@ -10,6 +10,7 @@ import 'feature_activity_service.dart';
 import 'apple_web_transfer_service.dart';
 import 'media_stream_gallery.dart';
 import 'media_stream_player.dart';
+import 'lan_network_service.dart';
 import 'log_service.dart';
 import 'stream_discovery_service.dart';
 export 'media_stream_player.dart' show buildMediaPlayerHtml;
@@ -27,8 +28,7 @@ class StreamMediaItem {
 ///
 /// This is intentionally protocol-light: phones, consoles, TVs and wireless
 /// display receivers that can open a local URL can play the same stream. The
-/// UI keeps the URL visible so a receiver's built-in browser can be used when
-/// native casting is unavailable.
+/// Sharing shows one local player address for browsers and QR receivers.
 class MediaStreamService extends ChangeNotifier {
   MediaStreamService._();
   static final instance = MediaStreamService._();
@@ -84,16 +84,6 @@ class MediaStreamService extends ChangeNotifier {
     LogService.instance.debug(
       'Media stream: start requested selected=${files.length} active=$active',
     );
-    if (!FeatureActivityService.instance.allows(LocalistFeature.stream)) {
-      LogService.instance.debug(
-        'Media stream: start rejected due to active feature',
-      );
-      throw StateError(
-        persian
-            ? 'ابتدا سرویس فعال را متوقف کنید.'
-            : 'Stop the active service first.',
-      );
-    }
     // Validate the entire selection before replacing an existing stream.
     final selected = <StreamMediaItem>[];
     final paths = <String>{};
@@ -126,18 +116,26 @@ class MediaStreamService extends ChangeNotifier {
     LogService.instance.debug(
       'Media stream: validated ${selected.length} distinct media items',
     );
-    await stop();
-    FeatureActivityService.instance.reserve(this, LocalistFeature.stream);
+    if (active) {
+      _setSelection(selected);
+      notifyListeners();
+      return;
+    }
+    if (!FeatureActivityService.instance.reserve(
+      this,
+      LocalistFeature.stream,
+    )) {
+      throw StateError(
+        persian
+            ? 'ابتدا سرویس فعال را متوقف کنید.'
+            : 'Stop the active service first.',
+      );
+    }
     try {
-      _items = selected;
-      _selectedIndex = 0;
-      _token = List.generate(
-        24,
-        (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
-      ).join();
+      _setSelection(selected);
       _server = await HttpServer.bind(
         InternetAddress.anyIPv4,
-        0,
+        mediaStreamPort,
         shared: false,
       );
       _server!.listen(
@@ -164,6 +162,16 @@ class MediaStreamService extends ChangeNotifier {
       await stop();
       rethrow;
     }
+  }
+
+  void _setSelection(List<StreamMediaItem> selected) {
+    final random = Random.secure();
+    _token = List.generate(
+      24,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    _items = selected;
+    _selectedIndex = 0;
   }
 
   Future<void> stop() async {
@@ -320,30 +328,18 @@ class MediaStreamService extends ChangeNotifier {
   }
 
   static Future<List<String>> _privateAddresses() async {
-    final values = <String>{};
     try {
-      for (final interface in await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-      )) {
-        if (AppleWebTransferService.isIgnoredNetworkInterface(interface.name)) {
-          continue;
-        }
-        for (final address in interface.addresses) {
-          final p = address.address.split('.').map(int.tryParse).toList();
-          if (p.length == 4 &&
-              p.every((v) => v != null) &&
-              (p[0] == 10 ||
-                  (p[0] == 172 && p[1]! >= 16 && p[1]! <= 31) ||
-                  (p[0] == 192 && p[1] == 168))) {
-            values.add(address.address);
-          }
-        }
-      }
+      return {
+        for (final route in await LanNetworkService.instance.routes())
+          if (!AppleWebTransferService.isIgnoredNetworkInterface(route.name) &&
+              AppleWebTransferService.isUsableNetworkAddress(route.address))
+            route.address,
+      }.toList(growable: false);
     } catch (e) {
       LogService.instance.debug(
         'Media stream: address enumeration failed type=${e.runtimeType}',
       );
     }
-    return values.toList()..sort();
+    return const [];
   }
 }

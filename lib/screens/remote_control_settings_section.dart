@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -104,7 +105,9 @@ class _RemoteControlSettingsSectionState
   }
 
   Future<void> _loadPrinters() async {
-    if (_loadingPrinters || !Platform.isWindows) return;
+    if (_loadingPrinters || defaultTargetPlatform != TargetPlatform.windows) {
+      return;
+    }
     setState(() {
       _loadingPrinters = true;
       _printerError = null;
@@ -232,27 +235,43 @@ class _RemoteControlSettingsSectionState
       : name;
 
   bool _settingAvailable(RemoteSetting setting) {
+    final windows = defaultTargetPlatform == TargetPlatform.windows;
     if (setting.key == 'enable-check-update' ||
         setting.key == 'allow-auto-update') {
       return false; // Localist's updater owns the bundled engine.
     }
     if (setting.key == 'enable-hwcodec') return _engine.hardwareCodecSupported;
     if (setting.key == 'allow-only-conn-window-open') {
-      return _engine.installedService;
+      return windows && _engine.installedService;
     }
-    if (!Platform.isWindows &&
-        const {
-          'allow-d3d-render',
-          'enable-directx-capture',
-          'share-rdp',
-          'enable-block-input',
-          'enable-remote-printer',
-          'enable-privacy-mode',
-          'privacy-mode-impl-key',
-          'allow-remove-wallpaper',
-          'displays_as_individual_windows',
-          'use_all_my_displays_for_the_remote_session',
-        }.contains(setting.key)) {
+    if (!windows &&
+        (setting.tab == RemoteSettingsTab.printer ||
+            const {
+              'allow-d3d-render',
+              'use-texture-render',
+              'enable-directx-capture',
+              'enable-confirm-closing-tabs',
+              'enable-open-new-connections-in-tabs',
+              'allow-multi-edge-toolbar-dock',
+              'allow-monitor-switch-main-toolbar',
+              'enable-port-forward-mux',
+              'allow-sync-clipboard-between-sessions',
+              'share-rdp',
+              'enable-remote-restart',
+              'keep-awake-during-incoming-sessions',
+              'enable-block-input',
+              'enable-remote-printer',
+              'enable-privacy-mode',
+              'privacy-mode-impl-key',
+              'allow-remove-wallpaper',
+              'scroll_style',
+              'show_monitors_toolbar',
+              'collapse_toolbar',
+              'zoom-cursor',
+              'enable-file-copy-paste',
+              'displays_as_individual_windows',
+              'use_all_my_displays_for_the_remote_session',
+            }.contains(setting.key))) {
       return false;
     }
     return true;
@@ -266,6 +285,12 @@ class _RemoteControlSettingsSectionState
       builder: (context, _) => LayoutBuilder(
         builder: (context, constraints) {
           final wide = constraints.maxWidth >= 760;
+          final visibleSettings = remoteSettings
+              .where(_settingAvailable)
+              .toList();
+          final visibleTabs = RemoteSettingsTab.values.where(
+            (tab) => visibleSettings.any((setting) => setting.tab == tab),
+          );
           final tabs = Material(
             color: Theme.of(context).colorScheme.surfaceContainer,
             child: wide
@@ -273,7 +298,7 @@ class _RemoteControlSettingsSectionState
                     width: 220,
                     child: ListView(
                       children: [
-                        for (final tab in RemoteSettingsTab.values)
+                        for (final tab in visibleTabs)
                           ListTile(
                             leading: Icon(_tabIcon(tab)),
                             selected: _tab == tab,
@@ -290,7 +315,7 @@ class _RemoteControlSettingsSectionState
                       padding: const EdgeInsets.all(8),
                       child: Row(
                         children: [
-                          for (final tab in RemoteSettingsTab.values)
+                          for (final tab in visibleTabs)
                             Padding(
                               padding: const EdgeInsetsDirectional.only(end: 8),
                               child: ChoiceChip(
@@ -308,16 +333,15 @@ class _RemoteControlSettingsSectionState
           final cards = <Widget>[
             if (_tab == RemoteSettingsTab.network) _serverCard(),
             for (final card
-                in remoteSettings
-                    .where((s) => s.tab == _tab && _settingAvailable(s))
+                in visibleSettings
+                    .where((s) => s.tab == _tab)
                     .map((s) => s.card)
                     .toSet())
               _card(_cardName(card), [
-                for (final setting in remoteSettings.where(
+                for (final setting in visibleSettings.where(
                   (s) =>
                       s.tab == _tab &&
                       s.card == card &&
-                      _settingAvailable(s) &&
                       (s.key != 'verification-method' ||
                           _engine.hasPermanentPassword),
                 ))
@@ -460,16 +484,6 @@ class _RemoteControlSettingsSectionState
         accessMode.isNotEmpty;
     if (setting.key == 'printer-selected-name') return _printerPicker();
     if (setting.key == 'audio-input') return _audioInputPicker();
-    if (setting.tab == RemoteSettingsTab.printer && !Platform.isWindows) {
-      return setting.key == 'printer-incomming-job-action'
-          ? Text(
-              _t(
-                'دریافت کار چاپ روی ویندوز پشتیبانی می‌شود.',
-                'Receiving print jobs is supported on Windows.',
-              ),
-            )
-          : const SizedBox.shrink();
-    }
     if (setting.key == '2fa') {
       return CheckboxListTile(
         contentPadding: EdgeInsets.zero,
@@ -480,9 +494,6 @@ class _RemoteControlSettingsSectionState
             ? null
             : (enabled) => unawaited(_changeTwoFactor(enabled!)),
       );
-    }
-    if (setting.key == 'share-rdp' && !Platform.isWindows) {
-      return const SizedBox.shrink();
     }
     if (setting.boolean) {
       return CheckboxListTile(

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -104,11 +105,57 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('انتخاب رسانه‌ها'), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.scrollUntilVisible(
-      find.text('انتقال کل صفحه / Miracast'),
-      300,
-    );
+    expect(find.textContaining('DLNA'), findsNothing);
+    expect(find.textContaining('Miracast'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('Stream Receive opens discovered and typed endpoints', (
+    tester,
+  ) async {
+    const channel = MethodChannel('com.prs.localist.vpn');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    final opened = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'openUri') {
+        opened.add((call.arguments as Map)['uri'] as String);
+        return true;
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final stream = MediaStreamService.instance;
+    final discovered = Uri.parse('http://192.168.1.50:53547');
+    stream.discovery.addresses = [discovered];
+    addTearDown(() => stream.discovery.addresses = const []);
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    for (final platform in [TargetPlatform.android, TargetPlatform.windows]) {
+      debugDefaultTargetPlatformOverride = platform;
+      await tester.pumpWidget(
+        app(Scaffold(body: StreamPage(service: stream, receiving: true))),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Scan QR code'),
+        platform == TargetPlatform.android ? findsOneWidget : findsNothing,
+      );
+      await tester.tap(find.text('192.168.1.50:53547'));
+      await tester.enterText(find.byType(TextField), '192.168.1.60:53547');
+      final open = find.text('Open in browser');
+      await tester.ensureVisible(open);
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    }
+    expect(opened, [
+      discovered.toString(),
+      'http://192.168.1.60:53547',
+      discovered.toString(),
+      'http://192.168.1.60:53547',
+    ]);
+    await tester.pumpWidget(const SizedBox.shrink());
+    debugDefaultTargetPlatformOverride = null;
   });
 }
