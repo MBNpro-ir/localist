@@ -481,7 +481,7 @@ class _LocalistShellState extends State<LocalistShell>
     unawaited(_refreshState());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForStartupUpdate();
-      if (Platform.isWindows || Platform.isAndroid) {
+      if (_updates.supportsHostedUpdates) {
         _updateCheckTimer = Timer.periodic(
           const Duration(hours: 4),
           (_) => unawaited(_checkForStartupUpdate(repeat: true)),
@@ -1085,27 +1085,27 @@ class _LocalistShellState extends State<LocalistShell>
   Future<void> _checkForStartupUpdate({bool repeat = false}) async {
     if ((!repeat && _startupUpdateChecked) ||
         _updates.busy ||
-        !Platform.isWindows) {
+        !_updates.supportsHostedUpdates) {
       return;
     }
     _startupUpdateChecked = true;
     try {
       await _updates.checkAndPrepare();
       final result = _updates.check;
-      if (!mounted ||
-          result == null ||
-          _updates.state != AutomaticUpdateState.ready) {
+      final windowsReady = _updates.state == AutomaticUpdateState.ready;
+      final androidAvailable = _updates.state == AutomaticUpdateState.available;
+      if (!mounted || result == null || (!windowsReady && !androidAvailable)) {
         return;
       }
       showLocalistNotice(
         context,
-        message: Platform.isWindows
+        message: windowsReady
             ? (_usePersianText
                   ? 'نسخهٔ ${result.release.version} دانلود و آماده شد. برای اعمال آن ری‌استارت کنید.'
                   : 'Version ${result.release.version} is downloaded and ready. Restart to apply.')
             : (_usePersianText
-                  ? 'نسخهٔ ${result.release.version} دانلود و آمادهٔ نصب است.'
-                  : 'Version ${result.release.version} is downloaded and ready to install.'),
+                  ? 'نسخهٔ ${result.release.version} برای دانلود در دسترس است.'
+                  : 'Version ${result.release.version} is available to download.'),
         tone: InAppNoticeTone.success,
         icon: Icons.system_update_alt_outlined,
         duration: const Duration(seconds: 12),

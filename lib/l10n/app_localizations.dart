@@ -185,8 +185,6 @@ class AppLocalizations {
     'بررسی یا دانلود به‌روزرسانی ناموفق بود.',
     'Update check or download failed.',
   );
-  String get openGithubRelease =>
-      _s('باز کردن نسخه GitHub', 'Open GitHub release');
 
   String get requiredAndroidAccess =>
       _s('دسترسی‌های لازم اندروید', 'Required Android access');

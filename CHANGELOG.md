@@ -2,6 +2,13 @@
 
 All notable user-facing changes are documented here. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [7.4.3] - 2026-11-25
+
+- Added a Windows Back button and two animated 3D arrows to About Localist.
+- Moved update checks and download links to the Localist release catalog on
+  `mbnpro.ir`. Windows validates the Setup size and SHA-256 before preparing it.
+  Android opens the matching APK in the browser after the user requests it.
+
 ## [7.4.2] - 2026-11-25
 
 - Removed broad Android storage access, the in-app APK installer, and direct

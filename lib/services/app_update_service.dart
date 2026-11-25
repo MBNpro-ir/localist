@@ -13,12 +13,14 @@ import 'package:path_provider/path_provider.dart';
 import 'log_service.dart';
 import 'native_bridge_service.dart';
 
-const _localistRepoOwner = 'MBNpro-ir';
-const _localistRepoName = 'localist';
-const _latestReleaseApi =
-    'https://api.github.com/repos/$_localistRepoOwner/$_localistRepoName/releases/latest';
-const localistLatestReleaseUrl =
-    'https://github.com/$_localistRepoOwner/$_localistRepoName/releases/latest';
+const _releaseHost = 'mbnpro.ir';
+const _releaseRepo = 'MBNpro-ir/localist';
+const _latestReleaseFeed =
+    'https://$_releaseHost/releases/$_releaseRepo/latest.json';
+const localistLatestReleaseUrl = 'https://localist.mbnpro.ir/#download';
+const localistGooglePlayBuild = bool.fromEnvironment('LOCALIST_GOOGLE_PLAY');
+const localistGooglePlayUrl =
+    'https://play.google.com/store/apps/details?id=com.prs.localist';
 const _windowsCurlExecutable = 'curl.exe';
 
 class AppUpdateService {
@@ -34,6 +36,7 @@ class AppUpdateService {
   final Directory? downloadDirectory;
   final Uri? latestReleaseUri;
   final HttpClient Function()? clientFactory;
+  Uri get _releaseFeed => latestReleaseUri ?? Uri.parse(_latestReleaseFeed);
 
   Future<String> prepareWindowsUpdate(File archive, AppVersion version) async {
     _logs.debug(
@@ -223,6 +226,7 @@ class AppUpdateService {
         '$platformName update download started expectedBytes=${asset.size}',
       );
       final request = await client.getUrl(Uri.parse(asset.downloadUrl));
+      request.followRedirects = false;
       request.headers.set(HttpHeaders.userAgentHeader, 'Localist updater');
       final response = await request.close();
       _logs.debug(
@@ -230,7 +234,7 @@ class AppUpdateService {
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
-          'GitHub returned HTTP ${response.statusCode}.',
+          'The update host returned HTTP ${response.statusCode}.',
           uri: Uri.parse(asset.downloadUrl),
         );
       }
@@ -281,7 +285,7 @@ class AppUpdateService {
         rethrow;
       }
       _logs.warning(
-        'GitHub updater TLS verification failed in Dart; '
+        'Update host TLS verification failed in Dart; '
         'retrying with the Windows certificate store.',
       );
       return _fetchLatestReleaseWithWindowsCurl();
@@ -292,14 +296,10 @@ class AppUpdateService {
     final client = clientFactory?.call() ?? HttpClient();
     client.connectionTimeout = const Duration(seconds: 20);
     try {
-      _logs.debug('Fetching latest GitHub release using Dart HTTP');
-      final request = await client.getUrl(
-        latestReleaseUri ?? Uri.parse(_latestReleaseApi),
-      );
-      request.headers.set(
-        HttpHeaders.acceptHeader,
-        'application/vnd.github+json',
-      );
+      _logs.debug('Fetching hosted release using Dart HTTP');
+      final request = await client.getUrl(_releaseFeed);
+      request.followRedirects = false;
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       request.headers.set(HttpHeaders.userAgentHeader, 'Localist updater');
       final response = await request.close();
       final body = await utf8.decoder
@@ -307,24 +307,22 @@ class AppUpdateService {
           .join()
           .timeout(const Duration(seconds: 45));
       _logs.debug(
-        'Latest GitHub release response status=${response.statusCode} bytes=${body.length}',
+        'Hosted release response status=${response.statusCode} bytes=${body.length}',
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
-          'GitHub returned HTTP ${response.statusCode}.',
-          uri: Uri.parse(_latestReleaseApi),
+          'The update host returned HTTP ${response.statusCode}.',
+          uri: _releaseFeed,
         );
       }
       final decoded = jsonDecode(body) as Map<String, Object?>;
-      final release = AppRelease.fromJson(decoded);
+      final release = AppRelease.fromHostedJson(decoded);
       _logs.debug(
-        'Latest GitHub release parsed version=${release.version} assetCount=${release.assets.length}',
+        'Hosted release parsed version=${release.version} assetCount=${release.assets.length}',
       );
       return release;
     } catch (error) {
-      _logs.debug(
-        'Fetching latest GitHub release failed type=${error.runtimeType}',
-      );
+      _logs.debug('Fetching hosted release failed type=${error.runtimeType}');
       rethrow;
     } finally {
       client.close(force: true);
@@ -332,9 +330,7 @@ class AppUpdateService {
   }
 
   Future<AppRelease> _fetchLatestReleaseWithWindowsCurl() async {
-    _logs.debug(
-      'Fetching latest GitHub release with Windows certificate store',
-    );
+    _logs.debug('Fetching hosted release with Windows certificate store');
     final result = await Process.run(
       _windowsCurlExecutable,
       [
@@ -342,6 +338,10 @@ class AppUpdateService {
         '--silent',
         '--show-error',
         '--location',
+        '--max-redirs',
+        '0',
+        '--proto',
+        '=https',
         '--connect-timeout',
         '20',
         '--max-time',
@@ -349,8 +349,8 @@ class AppUpdateService {
         '--user-agent',
         'Localist updater',
         '--header',
-        'Accept: application/vnd.github+json',
-        (latestReleaseUri ?? Uri.parse(_latestReleaseApi)).toString(),
+        'Accept: application/json',
+        _releaseFeed.toString(),
       ],
       runInShell: false,
       stdoutEncoding: utf8,
@@ -366,15 +366,15 @@ class AppUpdateService {
       throw HttpException(
         'Windows certificate-store request failed '
         '(curl exit ${result.exitCode})${error.isEmpty ? '' : ': $error'}',
-        uri: Uri.parse(_latestReleaseApi),
+        uri: _releaseFeed,
       );
     }
     try {
-      final release = AppRelease.fromJson(
+      final release = AppRelease.fromHostedJson(
         jsonDecode(body) as Map<String, Object?>,
       );
       _logs.debug(
-        'Latest GitHub release parsed with Windows certificate store '
+        'Hosted release parsed with Windows certificate store '
         'version=${release.version} assetCount=${release.assets.length}',
       );
       return release;
@@ -421,6 +421,10 @@ class AppUpdateService {
             '--silent',
             '--show-error',
             '--location',
+            '--max-redirs',
+            '0',
+            '--proto',
+            '=https',
             '--connect-timeout',
             '20',
             '--max-time',
@@ -648,6 +652,41 @@ class AppRelease {
   final String htmlUrl;
   final AppVersion version;
   final List<UpdateAsset> assets;
+
+  factory AppRelease.fromHostedJson(Map<String, Object?> json) {
+    final tag = json['tag_name'];
+    final generation = json['generation'];
+    if (json['schema'] != 1 ||
+        json['repo'] != _releaseRepo ||
+        json['draft'] != false ||
+        json['prerelease'] != false ||
+        tag is! String ||
+        !RegExp(r'^v\d+\.\d+\.\d+(?:\+\d+)?$').hasMatch(tag) ||
+        generation is! String ||
+        !RegExp(r'^r\d+-[0-9a-f]{16}$').hasMatch(generation)) {
+      throw const FormatException('Unexpected hosted release metadata.');
+    }
+    final release = AppRelease.fromJson(json);
+    final downloadBase =
+        'https://$_releaseHost/releases/$_releaseRepo/$generation/';
+    return AppRelease(
+      name: release.name,
+      tagName: release.tagName,
+      htmlUrl: localistLatestReleaseUrl,
+      version: release.version,
+      assets: [
+        for (final asset in release.assets)
+          if (RegExp(r'^[a-zA-Z0-9._+-]+$').hasMatch(asset.name) &&
+              asset.downloadUrl == '$downloadBase${asset.name}' &&
+              asset.size > 0 &&
+              RegExp(r'^sha256:[a-fA-F0-9]{64}$').hasMatch(asset.digest) &&
+              (isWindowsSetupForVersion(asset.name, release.version) ||
+                  (asset.name.startsWith('localist-$tag-android-') &&
+                      asset.name.endsWith('.apk'))))
+            asset,
+      ],
+    );
+  }
 
   factory AppRelease.fromJson(Map<String, Object?> json) {
     final tagName = json['tag_name'] as String? ?? '';

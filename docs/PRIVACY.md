@@ -16,10 +16,12 @@ saved by that form. The engine's permanent password and saved-peer credentials
 are managed by its security settings. Optional address-book/account features use
 the configured API server when the user signs in.
 
-Updates and documentation links contact GitHub. The embedded engine's independent
-automatic updater is disabled; Localist manages its own updates. Detailed debug
-logs may contain device IDs, paths and connection information, so review logs
-before sharing them.
+On Windows and direct-distribution Android builds, Localist requests release
+metadata from `mbnpro.ir`. Windows downloads the Setup package from that host.
+On Android, the download button opens the hosted APK in your browser. A Google
+Play distribution build uses Google Play for updates. The embedded engine's
+independent updater is disabled. Detailed debug logs may contain device IDs,
+paths and connection information, so review logs before sharing them.
 
 Screen capture, accessibility input, microphone/audio and camera access depend on
 platform permissions and the options selected by the user. Android requests the

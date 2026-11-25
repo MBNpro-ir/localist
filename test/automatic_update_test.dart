@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:localist/widgets/update_action.dart';
@@ -20,11 +21,17 @@ class FakeUpdates extends AppUpdateService {
   Future<AppUpdateCheck> checkForUpdate() async {
     checks++;
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    final asset = UpdateAsset(
+    final windowsAsset = UpdateAsset(
       name: 'localist-windows-x64.zip',
       downloadUrl: 'https://example.com/$version.zip',
       size: 3,
       digest: 'sha256:${sha256.convert([1, 2, 3])}',
+    );
+    final androidAsset = UpdateAsset(
+      name: 'localist-v$version-android-arm64-v8a.apk',
+      downloadUrl:
+          'https://mbnpro.ir/releases/MBNpro-ir/localist/'
+          'r123-0123456789abcdef/localist-v$version-android-arm64-v8a.apk',
     );
     return AppUpdateCheck(
       current: AppVersion.tryParse('6.0.0')!,
@@ -33,10 +40,10 @@ class FakeUpdates extends AppUpdateService {
         tagName: 'v6.0.1',
         htmlUrl: '',
         version: version,
-        assets: [asset],
+        assets: [windowsAsset, androidAsset],
       ),
-      androidAsset: asset,
-      windowsAsset: noPackage ? null : asset,
+      androidAsset: noPackage ? null : androidAsset,
+      windowsAsset: noPackage ? null : windowsAsset,
       supportedAbis: [],
     );
   }
@@ -67,6 +74,27 @@ class FakeUpdates extends AppUpdateService {
 
 class RealHttpOverrides extends HttpOverrides {}
 
+const hostedGeneration = 'r123-0123456789abcdef';
+const hostedBase =
+    'https://mbnpro.ir/releases/MBNpro-ir/localist/$hostedGeneration';
+
+Map<String, Object?> hostedAsset(String name) => {
+  'name': name,
+  'browser_download_url': '$hostedBase/$name',
+  'size': 3,
+  'digest': 'sha256:${sha256.convert([1, 2, 3])}',
+};
+
+Map<String, Object?> hostedCatalog(List<Map<String, Object?>> assets) => {
+  'schema': 1,
+  'repo': 'MBNpro-ir/localist',
+  'tag_name': 'v7.4.3',
+  'generation': hostedGeneration,
+  'draft': false,
+  'prerelease': false,
+  'assets': assets,
+};
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory directory;
@@ -77,6 +105,87 @@ void main() {
   tearDown(() async {
     await directory.delete(recursive: true);
   });
+  test('hosted catalog retains only matching, verified package metadata', () {
+    const setup = 'Localist-Windows-Setup-x64-7.4.3.exe';
+    const arm64 = 'localist-v7.4.3-android-arm64-v8a.apk';
+    const armv7 = 'localist-v7.4.3-android-armeabi-v7a.apk';
+    final catalog = hostedCatalog([
+      hostedAsset(setup),
+      hostedAsset(arm64),
+      hostedAsset(armv7),
+      hostedAsset('Localist-Windows-Setup-x64-7.4.2.exe'),
+      hostedAsset('localist-v7.4.2-android-arm64-v8a.apk'),
+      {
+        ...hostedAsset(setup),
+        'browser_download_url': 'https://github.com/$setup',
+      },
+      {
+        ...hostedAsset(setup),
+        'browser_download_url': '$hostedBase/$setup?file=other',
+      },
+      {...hostedAsset(setup), 'browser_download_url': '$hostedBase/../$setup'},
+      {...hostedAsset(arm64), 'digest': ''},
+      {...hostedAsset(armv7), 'size': 0},
+    ]);
+    final release = AppRelease.fromHostedJson(catalog);
+    expect(release.assets.map((asset) => asset.name), [setup, arm64, armv7]);
+    expect(release.pickWindowsAsset()?.downloadUrl, '$hostedBase/$setup');
+    expect(release.pickAndroidAsset(['arm64-v8a'])?.name, arm64);
+    expect(release.pickAndroidAsset(['armeabi-v7a'])?.name, armv7);
+    for (final mutation in <Map<String, Object?>>[
+      {'schema': 0},
+      {'repo': 'someone-else/localist'},
+      {'generation': '../another-project'},
+      {'tag_name': 'v7.4.3-rc1'},
+      {'draft': true},
+      {'prerelease': true},
+    ]) {
+      expect(
+        () => AppRelease.fromHostedJson({...catalog, ...mutation}),
+        throwsFormatException,
+      );
+    }
+  });
+  test(
+    'update check reads the hosted format and rejects a feed redirect',
+    () async {
+      const setup = 'Localist-Windows-Setup-x64-7.4.3.exe';
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var redirect = false;
+      final requestedPaths = <String>[];
+      server.listen((request) async {
+        requestedPaths.add(request.uri.path);
+        if (redirect) {
+          request.response.statusCode = HttpStatus.found;
+          request.response.headers.set(HttpHeaders.locationHeader, '/other');
+        } else {
+          request.response.write(
+            jsonEncode(hostedCatalog([hostedAsset(setup)])),
+          );
+        }
+        await request.response.close();
+      });
+      final service = AppUpdateService(
+        latestReleaseUri: Uri.parse(
+          'http://127.0.0.1:${server.port}/latest.json',
+        ),
+        clientFactory: () => RealHttpOverrides().createHttpClient(null),
+      );
+      try {
+        final check = await service.checkForUpdate();
+        expect(check.release.version.displayName, '7.4.3');
+        expect(check.windowsAsset?.downloadUrl, '$hostedBase/$setup');
+        redirect = true;
+        await expectLater(
+          service.checkForUpdate(),
+          throwsA(isA<HttpException>()),
+        );
+        expect(requestedPaths, ['/latest.json', '/latest.json']);
+      } finally {
+        await server.close(force: true);
+      }
+    },
+  );
   test(
     'Windows Setup is staged directly and rejects a mismatched or corrupt package',
     () async {
@@ -295,6 +404,55 @@ void main() {
       updates.dispose();
     },
   );
+  test(
+    'Android hosted builds expose a browser download without preparing an installer',
+    () async {
+      final backend = FakeUpdates(File('${directory.path}/update.apk'));
+      final updates = AutomaticUpdateController(
+        service: backend,
+        windows: false,
+        android: true,
+        googlePlay: false,
+      );
+      await updates.checkAndPrepare();
+      expect(updates.state, AutomaticUpdateState.available);
+      expect(updates.visible, isTrue);
+      expect(updates.shouldPrompt, isFalse);
+      expect(
+        updates.androidDownloadUrl,
+        '$hostedBase/localist-v6.0.1-android-arm64-v8a.apk',
+      );
+      expect(await updates.installPreparedUpdate(verifyLatest: false), isFalse);
+      expect(backend.downloads, 0);
+
+      backend.version = AppVersion.tryParse('6.0.2')!;
+      await updates.checkAndPrepare();
+      expect(
+        updates.androidDownloadUrl,
+        '$hostedBase/localist-v6.0.2-android-arm64-v8a.apk',
+      );
+
+      backend.noPackage = true;
+      await updates.checkAndPrepare();
+      expect(updates.packageUnavailable, isTrue);
+      expect(updates.androidDownloadUrl, isNull);
+      updates.dispose();
+    },
+  );
+  test('Google Play builds skip the hosted update check', () async {
+    final backend = FakeUpdates(File('${directory.path}/update.apk'));
+    final updates = AutomaticUpdateController(
+      service: backend,
+      windows: false,
+      android: true,
+      googlePlay: true,
+    );
+    await updates.checkAndPrepare();
+    expect(updates.supportsHostedUpdates, isFalse);
+    expect(updates.androidDownloadUrl, isNull);
+    expect(backend.checks, 0);
+    updates.dispose();
+  });
   test(
     'Android granted install access opens installer once without another permission request',
     () async {

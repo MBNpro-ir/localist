@@ -56,9 +56,9 @@ Windows offers **Create fallback local network** using the hosted WLAN API. A Wi
 
 ### Download and install
 
-Download the latest package from [GitHub Releases](https://github.com/MBNpro-ir/localist/releases/latest).
+Download the latest package from the [Localist website](https://localist.mbnpro.ir/#download).
 
-- Android: install the `armeabi-v7a` APK on 32-bit ARM devices or the `arm64-v8a` APK on 64-bit ARM devices. The release filenames use the exact Android ABI so the architecture is unambiguous.
+- Android: install the `armeabi-v7a` APK on 32-bit ARM devices or the `arm64-v8a` APK on 64-bit ARM devices. The direct-distribution build checks for updates on `mbnpro.ir` and opens the matching APK in the browser when requested. Android handles installation with your confirmation.
 - Windows: install the x64 Setup. It registers all four x86/x64 Localist webcams and local-subnet firewall access. The updater downloads and verifies Setup and applies it after restart confirmation. Versions with the older ZIP-only updater need one manual Setup upgrade.
 - Put both devices on the same Wi-Fi, Ethernet, or hotspot network. Client isolation on guest Wi-Fi can prevent local discovery and connections.
 
@@ -155,7 +155,7 @@ Choose a microphone input and a recording mode in Camera & Mic. Android exposes 
 - Open **Logs** to inspect, copy, or save a diagnostic report.
 - Active Debug Mode records detailed service, native bridge, and network events.
 - On Windows, Debug Mode writes `debug.log` beside `Localist.exe`. Individual messages and the file itself are size-limited and oversized logs are rotated.
-- If a Windows update check fails with a certificate-verification error, Localist retries the GitHub request through `curl.exe` and the Windows certificate store. Other network errors are still reported normally.
+- Windows and direct-distribution Android read the [hosted update catalog](https://mbnpro.ir/releases/MBNpro-ir/localist/latest.json). Windows verifies the Setup file size and SHA-256 before preparing the update. On a certificate-verification error, Windows retries through `curl.exe` using the Windows certificate store.
 - Recoverable Flutter UI diagnostics are logged without being reported as repeated process crashes. Fatal errors are de-duplicated before showing a crash notice.
 - If Nearby Devices is empty, confirm both devices are on the same subnet (or USB tethering is enabled), disable guest/client isolation, and use Refresh or a manual target.
 - If the red VPN warning is visible, stop the device VPN before retrying Quick Send or the Apple/Mac browser service.
@@ -219,6 +219,8 @@ The compiled application is written to `build/windows/x64/runner/Release/`. A di
 ### Release workflow
 
 `.github/workflows/release.yml` can be started manually on `master` or by pushing a `v*` tag. It reads the application version from `pubspec.yaml`, builds Android and Windows in parallel, stages compiled files, and publishes or updates the matching GitHub Release. Its concise GitHub Release body is extracted from the matching `## [x.y.z]` section in `RELEASE_NOTES.md`; the full detailed record remains in `CHANGELOG.md`. A release stops before publishing if its release-notes section is missing.
+
+For a Google Play distribution build, pass `--dart-define=LOCALIST_GOOGLE_PLAY=true` to `flutter build appbundle`. This build directs users to Google Play for updates.
 
 Published assets include:
 

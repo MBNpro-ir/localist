@@ -11,6 +11,7 @@ enum AutomaticUpdateState {
   idle,
   checking,
   current,
+  available,
   downloading,
   preparing,
   ready,
@@ -25,23 +26,29 @@ class AutomaticUpdateController extends ChangeNotifier {
     AppUpdateService? service,
     NativeBridgeService? bridge,
     bool? windows,
+    bool? android,
+    bool googlePlay = localistGooglePlayBuild,
     Future<bool> Function()? canInstallPackages,
     Future<bool> Function(String)? installAndroidPackage,
     Future<bool> Function()? requestInstallPermission,
   }) : _service = service ?? AppUpdateService(),
        _bridge = bridge ?? NativeBridgeService.instance,
        windows = windows ?? Platform.isWindows,
+       _hostedAndroid =
+           (android ?? Platform.isAndroid) &&
+           !googlePlay &&
+           installAndroidPackage == null,
        _canInstallPackages = canInstallPackages ?? (() async => false),
        _installAndroidPackage = installAndroidPackage ?? ((_) async => false),
        _requestInstallPermission =
            requestInstallPermission ?? (() async => false),
-       _updatesSupported =
-           (windows ?? Platform.isWindows) || installAndroidPackage != null;
+       _androidInstallerInjected = installAndroidPackage != null;
   static final instance = AutomaticUpdateController();
   final AppUpdateService _service;
   final NativeBridgeService _bridge;
   final bool windows;
-  final bool _updatesSupported;
+  final bool _hostedAndroid;
+  final bool _androidInstallerInjected;
   final Future<bool> Function() _canInstallPackages;
   final Future<bool> Function(String) _installAndroidPackage;
   final Future<bool> Function() _requestInstallPermission;
@@ -60,6 +67,11 @@ class AutomaticUpdateController extends ChangeNotifier {
   bool promptOpen = false;
   bool promptHandled = false;
   bool installRequested = false;
+  bool get supportsHostedUpdates =>
+      windows || _hostedAndroid || _androidInstallerInjected;
+  String? get androidDownloadUrl => state == AutomaticUpdateState.available
+      ? check?.androidAsset?.downloadUrl
+      : null;
   bool get visible =>
       check?.updateAvailable == true && state != AutomaticUpdateState.current;
   bool get shouldPrompt =>
@@ -113,7 +125,7 @@ class AutomaticUpdateController extends ChangeNotifier {
   Future<void> checkAndPrepare() =>
       _running ??= _prepare().whenComplete(() => _running = null);
   Future<void> _prepare() async {
-    if (!_updatesSupported) return;
+    if (!supportsHostedUpdates) return;
     if (state == AutomaticUpdateState.installing) {
       LogService.instance.debug(
         'Auto update: preparation skipped, installer active',
@@ -153,6 +165,10 @@ class AutomaticUpdateController extends ChangeNotifier {
         _automaticInstallUrl = null;
       }
       _assetUrl = asset.downloadUrl;
+      if (!windows && _hostedAndroid) {
+        _state(AutomaticUpdateState.available);
+        return;
+      }
       deferred =
           (await SharedPreferences.getInstance()).getString(
             'updates.deferred.asset',

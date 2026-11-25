@@ -38,13 +38,32 @@ void main() {
     ]) {
       tester.view.physicalSize = size;
       await tester.pumpWidget(
-        localizedApp(locale, const AboutLocalistPage(simple: false)),
+        localizedApp(
+          locale,
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AboutLocalistPage(simple: true),
+                ),
+              ),
+              child: const Text('Open About'),
+            ),
+          ),
+        ),
       );
-      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open About'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(BackButton), findsOneWidget);
       expect(find.text('GitHub'), findsOneWidget);
       expect(find.text('MBN Pro'), findsOneWidget);
       expect(find.text('PRS Hub'), findsOneWidget);
       expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.text('Open About'), findsOneWidget);
     }
   });
   testWidgets('remote ready indicator uses only the chosen language', (

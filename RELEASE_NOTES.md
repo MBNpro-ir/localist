@@ -1,5 +1,14 @@
 # Release Notes
 
+## [7.4.3] — About navigation and hosted updates
+
+- About Localist has a Back button in the Windows title bar and a new animated
+  illustration with two opposing 3D arrows. The illustration respects reduced
+  motion settings.
+- Windows checks for updates and verifies Setup downloads from `mbnpro.ir`.
+  Android builds downloaded from the site find the matching APK and open it in
+  the browser when you choose Download.
+
 ## [7.4.2] — Android permissions, microphone modes, and About Localist
 
 - Android file transfers use scoped app storage. Use Transfer history to open

@@ -1076,7 +1076,9 @@ class _UpdatePanelState extends State<_UpdatePanel>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (Platform.isWindows && !_updates.busy && _updates.check == null) {
+    if (_updates.supportsHostedUpdates &&
+        !_updates.busy &&
+        _updates.check == null) {
       unawaited(_updates.checkAndPrepare());
     }
   }
@@ -1097,6 +1099,18 @@ class _UpdatePanelState extends State<_UpdatePanel>
   }
 
   String _t(String fa, String en) => context.l10n.isPersian ? fa : en;
+
+  Future<void> _openUpdateLink(String url) async {
+    if (await _bridge.openUri(url) || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          _t('لینک به‌روزرسانی باز نشد.', 'Could not open the update link.'),
+        ),
+      ),
+    );
+  }
+
   Future<void> _install() async {
     if (_openingInstaller) return;
     _openingInstaller = true;
@@ -1116,13 +1130,12 @@ class _UpdatePanelState extends State<_UpdatePanel>
     animation: _updates,
     builder: (context, _) {
       final l10n = context.l10n;
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid && localistGooglePlayBuild) {
         return GlassPanel(
-          child: Text(
-            _t(
-              'به‌روزرسانی اندروید را از همان منبعی دریافت کنید که برنامه را از آن نصب کرده‌اید.',
-              'Get Android updates from the same source where you installed Localist.',
-            ),
+          child: OutlinedButton.icon(
+            onPressed: () => _openUpdateLink(localistGooglePlayUrl),
+            icon: const Icon(Icons.shop_outlined),
+            label: Text(_t('به‌روزرسانی در گوگل پلی', 'Update in Google Play')),
           ),
         );
       }
@@ -1130,6 +1143,10 @@ class _UpdatePanelState extends State<_UpdatePanel>
         AutomaticUpdateState.idle => l10n.updateSubtitle,
         AutomaticUpdateState.checking => l10n.checkingForUpdates,
         AutomaticUpdateState.current => l10n.updaterUpToDate,
+        AutomaticUpdateState.available => _t(
+          'نسخهٔ جدید برای دانلود از سایت Localist آماده است.',
+          'A new version is available to download from the Localist website.',
+        ),
         AutomaticUpdateState.downloading => _t(
           'دانلود خودکار به‌روزرسانی…',
           'Downloading update automatically…',
@@ -1157,6 +1174,7 @@ class _UpdatePanelState extends State<_UpdatePanel>
           'Update failed. Please retry.',
         ),
       };
+      final androidDownloadUrl = _updates.androidDownloadUrl;
       return GlassPanel(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1164,10 +1182,15 @@ class _UpdatePanelState extends State<_UpdatePanel>
             Text(l10n.updates, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              _t(
-                'نسخه‌های جدید به‌صورت خودکار دانلود و آماده می‌شوند.',
-                'New versions download and prepare automatically.',
-              ),
+              Platform.isAndroid
+                  ? _t(
+                      'فایل نسخهٔ جدید در مرورگر دانلود می‌شود و نصب آن با تأیید شما در اندروید انجام می‌شود.',
+                      'Your browser downloads the update. Confirm installation in Android.',
+                    )
+                  : _t(
+                      'نسخه‌های جدید از سرور Localist به‌صورت خودکار دانلود و آماده می‌شوند.',
+                      'New versions download and prepare automatically from the Localist server.',
+                    ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -1200,10 +1223,10 @@ class _UpdatePanelState extends State<_UpdatePanel>
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  _updates.packageUnavailable && Platform.isWindows
+                  _updates.packageUnavailable
                       ? _t(
-                          'بستهٔ Setup این نسخه هنوز در دسترس نیست. دوباره بررسی کنید یا صفحهٔ دانلود رسمی را باز کنید.',
-                          'The Setup package for this release is not available yet. Retry or open the official download page.',
+                          'بستهٔ سازگار با این دستگاه در دسترس نیست. دوباره بررسی کنید یا صفحهٔ دانلود رسمی را باز کنید.',
+                          'A compatible package is unavailable. Retry or open the official download page.',
                         )
                       : l10n.updaterFailed,
                 ),
@@ -1226,7 +1249,7 @@ class _UpdatePanelState extends State<_UpdatePanel>
               runSpacing: 8,
               children: [
                 FilledButton.tonalIcon(
-                  onPressed: _updates.busy
+                  onPressed: _updates.busy || !_updates.supportsHostedUpdates
                       ? null
                       : () => unawaited(_updates.checkAndPrepare()),
                   icon: const Icon(Icons.refresh),
@@ -1249,12 +1272,20 @@ class _UpdatePanelState extends State<_UpdatePanel>
                           : l10n.installUpdate,
                     ),
                   ),
-                if ((!Platform.isAndroid && !Platform.isWindows) ||
-                    (_updates.packageUnavailable && Platform.isWindows))
+                if (androidDownloadUrl != null)
+                  FilledButton.icon(
+                    onPressed: () => _openUpdateLink(androidDownloadUrl),
+                    icon: const Icon(Icons.download),
+                    label: Text(_t('دانلود در مرورگر', 'Download in browser')),
+                  ),
+                if (!_updates.supportsHostedUpdates ||
+                    _updates.state == AutomaticUpdateState.failed)
                   OutlinedButton.icon(
-                    onPressed: () => _bridge.openUri(localistLatestReleaseUrl),
+                    onPressed: () => _openUpdateLink(localistLatestReleaseUrl),
                     icon: const Icon(Icons.open_in_new),
-                    label: Text(l10n.openGithubRelease),
+                    label: Text(
+                      _t('صفحهٔ دانلود رسمی', 'Official download page'),
+                    ),
                   ),
               ],
             ),
